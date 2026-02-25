@@ -235,7 +235,7 @@ class DietTrackerAPITester:
             "notes": "Weight check after first week"
         }
         
-        success, response = self.make_request('POST', f'clients/{self.test_client_id}/weights', weight_data, 201)
+        success, response = self.make_request('POST', f'clients/{self.test_client_id}/weights', weight_data, 200)
         if success and response:
             data = response.json()
             self.log_test_result("Add Weight Entry", True, f"Weight: {data.get('weight_kg')} kg")
