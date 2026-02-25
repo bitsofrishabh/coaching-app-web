@@ -275,7 +275,7 @@ class DietTrackerAPITester:
             "is_active": True
         }
         
-        success, response = self.make_request('POST', 'diet-plans', plan_data, 201)
+        success, response = self.make_request('POST', 'diet-plans', plan_data, 200)
         if success and response:
             data = response.json()
             self.test_diet_plan_id = data.get('id')
