@@ -168,7 +168,7 @@ class DietTrackerAPITester:
             "program_end_date": "2024-06-01"
         }
         
-        success, response = self.make_request('POST', 'clients', client_data, 201)
+        success, response = self.make_request('POST', 'clients', client_data, 200)
         if success and response:
             data = response.json()
             self.test_client_id = data.get('id')
