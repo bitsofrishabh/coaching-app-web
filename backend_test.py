@@ -45,6 +45,13 @@ class DietTrackerAPITester:
                 response = requests.delete(url, headers=headers, timeout=30)
             
             success = response.status_code == expect_status
+            if not success:
+                print(f"    Status Code: {response.status_code}, Expected: {expect_status}")
+                try:
+                    error_data = response.json()
+                    print(f"    Response: {error_data}")
+                except:
+                    print(f"    Response Text: {response.text[:500]}")
             return success, response
         
         except requests.exceptions.RequestException as e:
