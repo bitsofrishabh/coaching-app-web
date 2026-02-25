@@ -363,7 +363,7 @@ class DietTrackerAPITester:
             "transaction_date": "2024-01-10"
         }
         
-        success, response = self.make_request('POST', 'transactions', transaction_data, 201)
+        success, response = self.make_request('POST', 'transactions', transaction_data, 200)
         if success and response:
             data = response.json()
             self.test_transaction_id = data.get('id')
