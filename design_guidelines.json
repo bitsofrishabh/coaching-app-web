@@ -1,0 +1,189 @@
+{
+  "meta": {
+    "project_name": "DietTracker Pro Platform",
+    "theme_mode": "dark",
+    "design_persona": "E1 - The Anti-AI Designer",
+    "archetype": "The Performance Pro",
+    "version": "1.0"
+  },
+  "typography": {
+    "font_family": {
+      "headings": "Manrope, sans-serif",
+      "body": "Inter, sans-serif",
+      "mono": "JetBrains Mono, monospace"
+    },
+    "installation": {
+      "google_fonts_url": "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400&display=swap"
+    },
+    "scale": {
+      "h1": "text-4xl md:text-5xl font-extrabold tracking-tight leading-none text-foreground",
+      "h2": "text-3xl md:text-4xl font-bold tracking-tight text-foreground",
+      "h3": "text-2xl font-bold tracking-tight text-foreground",
+      "h4": "text-xl font-semibold tracking-tight text-foreground",
+      "body_lg": "text-lg leading-relaxed text-muted-foreground",
+      "body": "text-base leading-relaxed text-muted-foreground",
+      "small": "text-sm font-medium text-muted-foreground",
+      "tiny": "text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+    }
+  },
+  "colors": {
+    "palette": {
+      "background": "#09090b",
+      "foreground": "#fafafa",
+      "card": "#09090b",
+      "card_foreground": "#fafafa",
+      "popover": "#09090b",
+      "popover_foreground": "#fafafa",
+      "primary": "#84cc16",
+      "primary_foreground": "#0f172a",
+      "secondary": "#27272a",
+      "secondary_foreground": "#fafafa",
+      "muted": "#27272a",
+      "muted_foreground": "#a1a1aa",
+      "accent": "#27272a",
+      "accent_foreground": "#fafafa",
+      "destructive": "#ef4444",
+      "destructive_foreground": "#fafafa",
+      "border": "#27272a",
+      "input": "#27272a",
+      "ring": "#84cc16"
+    },
+    "chart_colors": {
+      "chart_1": "#84cc16",
+      "chart_2": "#22c55e",
+      "chart_3": "#10b981",
+      "chart_4": "#3b82f6",
+      "chart_5": "#f59e0b"
+    },
+    "usage_rules": {
+      "primary_action": "bg-primary text-primary-foreground hover:bg-primary/90 shadow-[0_0_20px_rgba(132,204,22,0.3)]",
+      "secondary_action": "bg-secondary text-secondary-foreground hover:bg-secondary/80 border border-white/5",
+      "destructive_action": "bg-destructive/10 text-destructive border border-destructive/20 hover:bg-destructive/20",
+      "card_surface": "bg-card border border-border/40 hover:border-primary/50 transition-colors duration-300",
+      "glass_surface": "bg-background/70 backdrop-blur-xl border-b border-white/5"
+    }
+  },
+  "layout": {
+    "container": "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8",
+    "spacing": {
+      "section_gap": "gap-8 md:gap-12",
+      "card_padding": "p-6 md:p-8"
+    },
+    "grid_strategy": {
+      "dashboard_bento": "grid grid-cols-1 md:grid-cols-4 gap-6",
+      "card_list": "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
+    },
+    "sidebar": {
+      "width": "w-64",
+      "collapsed_width": "w-20",
+      "style": "border-r border-border bg-card/50 backdrop-blur-xl h-screen sticky top-0"
+    }
+  },
+  "components": {
+    "shadcn_customization": {
+      "button": {
+        "default": "rounded-md font-semibold tracking-wide transition-all active:scale-95",
+        "primary": "bg-primary text-primary-foreground hover:shadow-[0_0_15px_rgba(132,204,22,0.4)] hover:-translate-y-0.5"
+      },
+      "card": {
+        "style": "rounded-xl border border-border bg-card/50 shadow-none hover:shadow-lg transition-all duration-300 group"
+      },
+      "input": {
+        "style": "bg-background border-input focus:border-primary focus:ring-1 focus:ring-primary/50 transition-all rounded-md h-11"
+      },
+      "table": {
+        "wrapper": "rounded-md border border-border overflow-hidden",
+        "header": "bg-muted/50 text-muted-foreground uppercase text-xs font-bold tracking-wider",
+        "row": "hover:bg-muted/30 transition-colors border-b border-border/50"
+      },
+      "dialog": {
+        "overlay": "bg-black/80 backdrop-blur-sm",
+        "content": "bg-background border border-border shadow-2xl rounded-xl"
+      },
+      "tabs": {
+        "list": "bg-muted/50 p-1 rounded-lg",
+        "trigger": "data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm rounded-md transition-all"
+      }
+    },
+    "custom_components": {
+      "stat_card": {
+        "structure": "flex flex-col gap-2 p-6 rounded-xl border border-border bg-card relative overflow-hidden",
+        "highlight": "absolute top-0 right-0 w-24 h-24 bg-primary/5 blur-2xl rounded-full -mr-8 -mt-8"
+      },
+      "data_grid": {
+        "style": "grid gap-px bg-border/50 rounded-lg overflow-hidden"
+      }
+    }
+  },
+  "visual_assets": {
+    "image_urls": {
+      "avatars": [
+        "https://images.unsplash.com/photo-1589860518300-9eac95f784d9?crop=entropy&cs=srgb&fm=jpg&q=85",
+        "https://images.unsplash.com/photo-1590599652713-cb193fbae075?crop=entropy&cs=srgb&fm=jpg&q=85",
+        "https://images.unsplash.com/photo-1770270402105-e50e0e7ff901?crop=entropy&cs=srgb&fm=jpg&q=85",
+        "https://images.unsplash.com/photo-1694712301331-1088f9dacb1a?crop=entropy&cs=srgb&fm=jpg&q=85"
+      ],
+      "meals": [
+        "https://images.unsplash.com/photo-1763633923820-29c3dfa50946?crop=entropy&cs=srgb&fm=jpg&q=85",
+        "https://images.unsplash.com/photo-1758157836016-3f3fbc5bf796?crop=entropy&cs=srgb&fm=jpg&q=85",
+        "https://images.unsplash.com/photo-1771698254255-e64331d09046?crop=entropy&cs=srgb&fm=jpg&q=85"
+      ],
+      "fitness_context": [
+        "https://images.unsplash.com/photo-1758875568758-daad5146648c?crop=entropy&cs=srgb&fm=jpg&q=85",
+        "https://images.unsplash.com/photo-1758875568756-37a9c5c1a4f2?crop=entropy&cs=srgb&fm=jpg&q=85"
+      ],
+      "logo_placeholder": "https://placehold.co/400x100/09090b/84cc16?text=DietTracker+Pro&font=manrope"
+    },
+    "icons": {
+      "library": "lucide-react",
+      "style": "stroke-1.5"
+    }
+  },
+  "motion": {
+    "transitions": "transition-all duration-200 ease-in-out",
+    "hover_lift": "hover:-translate-y-1 hover:shadow-lg",
+    "page_transition": {
+      "initial": { "opacity": 0, "y": 10 },
+      "animate": { "opacity": 1, "y": 0 },
+      "exit": { "opacity": 0, "y": -10 },
+      "transition": { "duration": 0.3 }
+    }
+  },
+  "charts": {
+    "library": "recharts",
+    "theme": {
+      "tooltip": {
+        "contentStyle": {
+          "backgroundColor": "#09090b",
+          "borderColor": "#27272a",
+          "borderRadius": "8px",
+          "color": "#fafafa"
+        }
+      },
+      "grid": {
+        "stroke": "#27272a",
+        "strokeDasharray": "3 3"
+      }
+    }
+  },
+  "universal_guidelines": [
+    "Always use 'Manrope' for Headings and 'Inter' for body text.",
+    "Backgrounds must be DARK (#09090b). Do not use white backgrounds.",
+    "Use the Lime Green (#84cc16) as the primary action color. Do not overuse it.",
+    "Avoid solid card backgrounds. Use borders with very subtle backgrounds (bg-card/50).",
+    "All interactive elements must have a data-testid attribute.",
+    "Use 'sonner' for toast notifications.",
+    "Tables should be dense and scannable. Use 'table-fixed' where possible.",
+    "Forms should separate sections with ample spacing (gap-8).",
+    "Never center text in the main layout unless it's a specific hero section.",
+    "Use 'lucide-react' for all icons."
+  ],
+  "instructions_to_main_agent": [
+    "1. Install 'lucide-react', 'recharts', 'sonner', 'date-fns', 'clsx', 'tailwind-merge' if not present.",
+    "2. Update tailwind.config.js to include the specific colors (Lime Primary, Zinc Backgrounds).",
+    "3. Apply the global font styles in index.css.",
+    "4. Create a Layout component that includes the Sidebar and Topbar.",
+    "5. Build the Dashboard using the Bento grid layout defined in 'layout.grid_strategy'.",
+    "6. Use the provided image URLs for mock data in Client and Meal sections."
+  ]
+}
