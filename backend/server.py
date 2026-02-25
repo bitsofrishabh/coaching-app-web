@@ -378,7 +378,7 @@ async def create_client(data: ClientCreate, user: dict = Depends(get_current_use
         "updated_at": now
     }
     await db.clients.insert_one(client_doc)
-    del client_doc["_id"] if "_id" in client_doc else None
+    client_doc.pop("_id", None)
     return ClientResponse(**client_doc)
 
 @api_router.get("/clients/{client_id}", response_model=ClientResponse)
@@ -400,7 +400,7 @@ async def update_client(client_id: str, data: ClientUpdate, user: dict = Depends
     )
     if not result:
         raise HTTPException(status_code=404, detail="Client not found")
-    del result["_id"]
+    result.pop("_id", None)
     return ClientResponse(**result)
 
 @api_router.delete("/clients/{client_id}")
@@ -442,7 +442,7 @@ async def add_weight_entry(client_id: str, data: WeightEntryCreate, user: dict =
     # Update client's current weight
     await db.clients.update_one({"id": client_id}, {"$set": {"current_weight_kg": data.weight_kg, "updated_at": now}})
     
-    del entry_doc["_id"] if "_id" in entry_doc else None
+    entry_doc.pop("_id", None)
     return WeightEntryResponse(**entry_doc)
 
 # ============ DIET PLAN ROUTES ============
@@ -473,7 +473,7 @@ async def create_diet_plan(data: DietPlanCreate, user: dict = Depends(get_curren
         "updated_at": now
     }
     await db.diet_plans.insert_one(plan_doc)
-    del plan_doc["_id"] if "_id" in plan_doc else None
+    plan_doc.pop("_id", None)
     return DietPlanResponse(**plan_doc)
 
 @api_router.get("/diet-plans/{plan_id}", response_model=DietPlanResponse)
@@ -498,7 +498,7 @@ async def update_diet_plan(plan_id: str, data: DietPlanUpdate, user: dict = Depe
     )
     if not result:
         raise HTTPException(status_code=404, detail="Diet plan not found")
-    del result["_id"]
+    result.pop("_id", None)
     return DietPlanResponse(**result)
 
 @api_router.delete("/diet-plans/{plan_id}")
@@ -536,7 +536,7 @@ async def create_follow_up(data: FollowUpCreate, user: dict = Depends(get_curren
         "created_at": now
     }
     await db.follow_ups.insert_one(follow_up_doc)
-    del follow_up_doc["_id"] if "_id" in follow_up_doc else None
+    follow_up_doc.pop("_id", None)
     return FollowUpResponse(**follow_up_doc)
 
 @api_router.put("/follow-ups/{follow_up_id}", response_model=FollowUpResponse)
@@ -549,7 +549,7 @@ async def update_follow_up(follow_up_id: str, data: FollowUpUpdate, user: dict =
     )
     if not result:
         raise HTTPException(status_code=404, detail="Follow-up not found")
-    del result["_id"]
+    result.pop("_id", None)
     return FollowUpResponse(**result)
 
 @api_router.delete("/follow-ups/{follow_up_id}")
@@ -618,7 +618,7 @@ async def create_transaction(data: TransactionCreate, user: dict = Depends(get_c
         "created_at": now
     }
     await db.transactions.insert_one(transaction_doc)
-    del transaction_doc["_id"] if "_id" in transaction_doc else None
+    transaction_doc.pop("_id", None)
     return TransactionResponse(**transaction_doc)
 
 @api_router.put("/transactions/{transaction_id}", response_model=TransactionResponse)
@@ -631,7 +631,7 @@ async def update_transaction(transaction_id: str, data: TransactionUpdate, user:
     )
     if not result:
         raise HTTPException(status_code=404, detail="Transaction not found")
-    del result["_id"]
+    result.pop("_id", None)
     return TransactionResponse(**result)
 
 @api_router.delete("/transactions/{transaction_id}")
