@@ -174,7 +174,10 @@ class DietTrackerAPITester:
             self.test_client_id = data.get('id')
             self.log_test_result("Create Client", True, f"Client ID: {self.test_client_id}")
         else:
-            error_msg = response.json().get('detail') if response else "No response"
+            try:
+                error_msg = response.json().get('detail') if response else "No response"
+            except:
+                error_msg = response.text if response else "No response"
             self.log_test_result("Create Client", False, f"Error: {error_msg}")
         return success
 
