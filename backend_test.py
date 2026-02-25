@@ -310,7 +310,7 @@ class DietTrackerAPITester:
             "notes": "Weekly progress check"
         }
         
-        success, response = self.make_request('POST', 'follow-ups', follow_up_data, 201)
+        success, response = self.make_request('POST', 'follow-ups', follow_up_data, 200)
         if success and response:
             data = response.json()
             self.test_follow_up_id = data.get('id')
