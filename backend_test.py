@@ -369,7 +369,10 @@ class DietTrackerAPITester:
             self.test_transaction_id = data.get('id')
             self.log_test_result("Create Income Transaction", True, f"Amount: ₹{data.get('amount')}")
         else:
-            error_msg = response.json().get('detail') if response else "No response"
+            try:
+                error_msg = response.json().get('detail') if response else "No response"
+            except:
+                error_msg = response.text if response else "No response"
             self.log_test_result("Create Income Transaction", False, f"Error: {error_msg}")
         return success
 
