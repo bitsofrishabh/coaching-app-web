@@ -1968,9 +1968,403 @@ function FinancePage() {
   );
 }
 
+// ============ CHAT PAGE ============
+function ChatPage() {
+  const [conversations, setConversations] = useState([]);
+  const [selectedConv, setSelectedConv] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [newMessage, setNewMessage] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+  const messagesEndRef = useRef(null);
+  const { user } = useAuth();
+
+  const fetchConversations = useCallback(async () => {
+    try {
+      const res = await api.get("/coach/chats");
+      setConversations(res.data.conversations || []);
+    } catch (err) {
+      console.error("Failed to load chats");
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    fetchConversations();
+    const interval = setInterval(fetchConversations, 10000);
+    return () => clearInterval(interval);
+  }, [fetchConversations]);
+
+  const loadMessages = async (clientId) => {
+    try {
+      const res = await api.get(`/coach/chat/${clientId}/messages`);
+      setMessages(res.data.messages || []);
+      setSelectedConv(conversations.find(c => c.client_id === clientId));
+      setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+    } catch (err) {
+      toast.error("Failed to load messages");
+    }
+  };
+
+  const sendMessage = async (e) => {
+    e.preventDefault();
+    if (!newMessage.trim() || !selectedConv) return;
+    
+    setSending(true);
+    try {
+      const res = await api.post(`/coach/chat/${selectedConv.client_id}/send`, {
+        content: newMessage,
+        message_type: "text"
+      });
+      setMessages([...messages, res.data]);
+      setNewMessage("");
+      setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+      fetchConversations();
+    } catch (err) {
+      toast.error("Failed to send message");
+    }
+    setSending(false);
+  };
+
+  const totalUnread = conversations.reduce((sum, c) => sum + (c.unread_count || 0), 0);
+
+  return (
+    <div className="h-[calc(100vh-8rem)] flex gap-6 animate-fade-in" data-testid="chat-page">
+      {/* Conversations List */}
+      <Card className="w-80 shrink-0 border-border/40 bg-card/50 flex flex-col">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="font-['Manrope'] text-lg">Messages</CardTitle>
+            {totalUnread > 0 && (
+              <Badge className="bg-primary text-primary-foreground">{totalUnread}</Badge>
+            )}
+          </div>
+        </CardHeader>
+        <ScrollArea className="flex-1">
+          <div className="p-2 space-y-1">
+            {loading ? (
+              <p className="text-center text-muted-foreground py-8">Loading...</p>
+            ) : conversations.length === 0 ? (
+              <p className="text-center text-muted-foreground py-8 text-sm">No conversations yet</p>
+            ) : (
+              conversations.map((conv) => (
+                <button
+                  key={conv.id}
+                  onClick={() => loadMessages(conv.client_id)}
+                  data-testid={`chat-conv-${conv.client_id}`}
+                  className={`w-full flex items-center gap-3 p-3 rounded-lg transition-colors text-left ${
+                    selectedConv?.id === conv.id
+                      ? "bg-primary/10 border border-primary/20"
+                      : "hover:bg-muted/50"
+                  }`}
+                >
+                  <Avatar className="w-10 h-10 shrink-0">
+                    <AvatarFallback className="bg-primary/20 text-primary text-sm">
+                      {conv.client_name?.charAt(0)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <p className="font-medium text-sm truncate">{conv.client_name}</p>
+                      {conv.unread_count > 0 && (
+                        <Badge variant="default" className="ml-2 h-5 w-5 p-0 flex items-center justify-center text-xs">
+                          {conv.unread_count}
+                        </Badge>
+                      )}
+                    </div>
+                    {conv.last_message && (
+                      <p className="text-xs text-muted-foreground truncate mt-0.5">
+                        {conv.last_message.sender_type === "coach" ? "You: " : ""}
+                        {conv.last_message.content}
+                      </p>
+                    )}
+                  </div>
+                </button>
+              ))
+            )}
+          </div>
+        </ScrollArea>
+      </Card>
+
+      {/* Chat Window */}
+      <Card className="flex-1 border-border/40 bg-card/50 flex flex-col">
+        {selectedConv ? (
+          <>
+            {/* Chat Header */}
+            <div className="p-4 border-b border-border/50 flex items-center gap-3">
+              <Avatar className="w-10 h-10">
+                <AvatarFallback className="bg-primary/20 text-primary">
+                  {selectedConv.client_name?.charAt(0)}
+                </AvatarFallback>
+              </Avatar>
+              <div>
+                <p className="font-medium">{selectedConv.client_name}</p>
+                <p className="text-xs text-muted-foreground">Client</p>
+              </div>
+              <div className="ml-auto">
+                <Link to={`/clients/${selectedConv.client_id}`}>
+                  <Button variant="outline" size="sm">
+                    <Eye className="w-4 h-4 mr-1" /> View Profile
+                  </Button>
+                </Link>
+              </div>
+            </div>
+
+            {/* Messages */}
+            <ScrollArea className="flex-1 p-4">
+              <div className="space-y-4">
+                {messages.map((msg) => (
+                  <div
+                    key={msg.id}
+                    className={`flex ${msg.sender_type === "coach" ? "justify-end" : "justify-start"}`}
+                  >
+                    <div
+                      className={`max-w-[70%] rounded-2xl px-4 py-2 ${
+                        msg.sender_type === "coach"
+                          ? "bg-primary text-primary-foreground rounded-br-md"
+                          : "bg-muted rounded-bl-md"
+                      }`}
+                    >
+                      <p className="text-sm">{msg.content}</p>
+                      <p className={`text-xs mt-1 ${msg.sender_type === "coach" ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
+                        {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+                <div ref={messagesEndRef} />
+              </div>
+            </ScrollArea>
+
+            {/* Message Input */}
+            <form onSubmit={sendMessage} className="p-4 border-t border-border/50 flex gap-2">
+              <Input
+                value={newMessage}
+                onChange={(e) => setNewMessage(e.target.value)}
+                placeholder="Type a message..."
+                data-testid="chat-message-input"
+                className="flex-1"
+              />
+              <Button
+                type="submit"
+                data-testid="send-message-btn"
+                disabled={sending || !newMessage.trim()}
+                className="bg-primary text-primary-foreground"
+              >
+                <Send className="w-4 h-4" />
+              </Button>
+            </form>
+          </>
+        ) : (
+          <div className="flex-1 flex items-center justify-center text-muted-foreground">
+            <div className="text-center">
+              <MessageCircle className="w-12 h-12 mx-auto mb-4 opacity-50" />
+              <p>Select a conversation to start messaging</p>
+            </div>
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+// ============ MEAL REVIEWS PAGE ============
+function MealReviewsPage() {
+  const [uploads, setUploads] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState("all");
+  const [selectedUpload, setSelectedUpload] = useState(null);
+  const [feedback, setFeedback] = useState("");
+
+  const fetchUploads = async () => {
+    try {
+      const params = {};
+      if (filter === "pending") params.reviewed = false;
+      if (filter === "reviewed") params.reviewed = true;
+      const res = await api.get("/coach/meal-uploads", { params });
+      setUploads(res.data.uploads || []);
+    } catch (err) {
+      toast.error("Failed to load meal uploads");
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    fetchUploads();
+  }, [filter]);
+
+  const submitFeedback = async () => {
+    if (!selectedUpload || !feedback.trim()) return;
+    try {
+      await api.put(`/coach/meal-uploads/${selectedUpload.id}/feedback?feedback=${encodeURIComponent(feedback)}`);
+      toast.success("Feedback sent!");
+      setSelectedUpload(null);
+      setFeedback("");
+      fetchUploads();
+    } catch (err) {
+      toast.error("Failed to submit feedback");
+    }
+  };
+
+  const mealTypeColors = {
+    breakfast: "bg-yellow-500/10 text-yellow-500 border-yellow-500/20",
+    lunch: "bg-orange-500/10 text-orange-500 border-orange-500/20",
+    dinner: "bg-blue-500/10 text-blue-500 border-blue-500/20",
+    snack: "bg-purple-500/10 text-purple-500 border-purple-500/20"
+  };
+
+  return (
+    <div className="space-y-6 animate-fade-in" data-testid="meal-reviews-page">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold font-['Manrope']">Meal Reviews</h1>
+          <p className="text-muted-foreground mt-1">Review client meal photos and provide feedback</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Select value={filter} onValueChange={setFilter}>
+            <SelectTrigger className="w-40" data-testid="meal-filter">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Uploads</SelectItem>
+              <SelectItem value="pending">Pending Review</SelectItem>
+              <SelectItem value="reviewed">Reviewed</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button variant="outline" onClick={fetchUploads}>
+            <RefreshCw className="w-4 h-4" />
+          </Button>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-12 text-muted-foreground">Loading...</div>
+      ) : uploads.length === 0 ? (
+        <Card className="border-border/40 bg-card/50">
+          <CardContent className="py-12 text-center">
+            <Camera className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
+            <p className="text-muted-foreground">No meal uploads to review</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {uploads.map((upload) => (
+            <Card
+              key={upload.id}
+              className={`border-border/40 bg-card/50 overflow-hidden transition-all hover:border-primary/30 ${
+                !upload.reviewed ? "ring-2 ring-primary/20" : ""
+              }`}
+              data-testid={`meal-upload-${upload.id}`}
+            >
+              <div className="aspect-video bg-muted relative">
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <Image className="w-12 h-12 text-muted-foreground/50" />
+                </div>
+                {/* In production, this would show the actual image */}
+                <div className="absolute top-2 left-2">
+                  <Badge variant="outline" className={mealTypeColors[upload.meal_type] || "bg-gray-500/10"}>
+                    {upload.meal_type}
+                  </Badge>
+                </div>
+                {!upload.reviewed && (
+                  <div className="absolute top-2 right-2">
+                    <Badge className="bg-primary text-primary-foreground">New</Badge>
+                  </div>
+                )}
+              </div>
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="font-medium">{upload.client_name}</p>
+                  <p className="text-xs text-muted-foreground">{upload.date}</p>
+                </div>
+                {upload.caption && (
+                  <p className="text-sm text-muted-foreground mb-3">{upload.caption}</p>
+                )}
+                {upload.coach_feedback ? (
+                  <div className="p-2 rounded-lg bg-primary/10 border border-primary/20">
+                    <p className="text-xs font-medium text-primary mb-1">Your Feedback:</p>
+                    <p className="text-sm">{upload.coach_feedback}</p>
+                  </div>
+                ) : (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                    onClick={() => { setSelectedUpload(upload); setFeedback(""); }}
+                    data-testid={`add-feedback-${upload.id}`}
+                  >
+                    <MessageCircle className="w-4 h-4 mr-1" /> Add Feedback
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {/* Feedback Dialog */}
+      <Dialog open={!!selectedUpload} onOpenChange={() => setSelectedUpload(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="font-['Manrope']">Add Feedback</DialogTitle>
+            <DialogDescription>
+              Provide feedback for {selectedUpload?.client_name}'s {selectedUpload?.meal_type}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Textarea
+              value={feedback}
+              onChange={(e) => setFeedback(e.target.value)}
+              placeholder="Great choice! Try adding more vegetables next time..."
+              rows={4}
+              data-testid="feedback-input"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSelectedUpload(null)}>Cancel</Button>
+            <Button
+              onClick={submitFeedback}
+              data-testid="submit-feedback-btn"
+              className="bg-primary text-primary-foreground"
+              disabled={!feedback.trim()}
+            >
+              Send Feedback
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
 // ============ SETTINGS PAGE ============
 function SettingsPage() {
   const { user } = useAuth();
+  const [inviteCode, setInviteCode] = useState("");
+  const [generating, setGenerating] = useState(false);
+
+  useEffect(() => {
+    api.get("/coach/invite-code").then(res => {
+      setInviteCode(res.data.invite_code || "");
+    }).catch(() => {});
+  }, []);
+
+  const generateCode = async () => {
+    setGenerating(true);
+    try {
+      const res = await api.post("/coach/generate-invite");
+      setInviteCode(res.data.invite_code);
+      toast.success("New invite code generated!");
+    } catch (err) {
+      toast.error("Failed to generate code");
+    }
+    setGenerating(false);
+  };
+
+  const copyCode = () => {
+    navigator.clipboard.writeText(inviteCode);
+    toast.success("Invite code copied!");
+  };
 
   return (
     <div className="space-y-6 animate-fade-in" data-testid="settings-page">
@@ -2002,11 +2396,37 @@ function SettingsPage() {
 
       <Card className="border-border/40 bg-card/50">
         <CardHeader>
-          <CardTitle className="font-['Manrope']">Preferences</CardTitle>
-          <CardDescription>Customize your experience</CardDescription>
+          <CardTitle className="font-['Manrope']">Client Invite Code</CardTitle>
+          <CardDescription>Share this code with clients to connect them to your account</CardDescription>
         </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground">Additional settings coming soon...</p>
+        <CardContent className="space-y-4">
+          <div className="flex items-center gap-3">
+            {inviteCode ? (
+              <>
+                <div className="flex-1 p-3 rounded-lg bg-muted font-mono text-lg tracking-widest text-center">
+                  {inviteCode}
+                </div>
+                <Button variant="outline" onClick={copyCode} data-testid="copy-invite-code">
+                  <Copy className="w-4 h-4" />
+                </Button>
+              </>
+            ) : (
+              <p className="text-muted-foreground">No invite code generated yet</p>
+            )}
+          </div>
+          <Button
+            onClick={generateCode}
+            disabled={generating}
+            variant="outline"
+            className="w-full"
+            data-testid="generate-invite-code"
+          >
+            <RefreshCw className={`w-4 h-4 mr-2 ${generating ? "animate-spin" : ""}`} />
+            {inviteCode ? "Generate New Code" : "Generate Invite Code"}
+          </Button>
+          <p className="text-xs text-muted-foreground">
+            Clients can use this code during registration in the mobile app to link their account to yours.
+          </p>
         </CardContent>
       </Card>
     </div>
