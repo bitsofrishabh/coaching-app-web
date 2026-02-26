@@ -741,10 +741,843 @@ async def get_recent_activity(limit: int = 10, user: dict = Depends(get_current_
         "upcoming_follow_ups": upcoming_follow_ups
     }
 
+# ============ CLIENT MOBILE APP MODELS ============
+
+# Client Registration (for mobile app)
+class ClientRegister(BaseModel):
+    email: EmailStr
+    password: str
+    name: str
+    phone: Optional[str] = None
+    invite_code: Optional[str] = None  # Coach's invite code
+
+class ClientLoginResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    client: dict
+
+# Daily Check-in Models
+class MealCheckIn(BaseModel):
+    meal_name: str  # breakfast, lunch, dinner, snack
+    completed: bool
+    photo_id: Optional[str] = None
+    notes: Optional[str] = None
+
+class DailyCheckInCreate(BaseModel):
+    date: Optional[str] = None
+    meals: List[MealCheckIn] = []
+    water_glasses: int = 0
+    mood: Optional[str] = None  # great, good, okay, bad
+    notes: Optional[str] = None
+
+class DailyCheckInResponse(BaseModel):
+    id: str
+    client_id: str
+    date: str
+    meals: List[dict] = []
+    water_glasses: int
+    mood: Optional[str] = None
+    notes: Optional[str] = None
+    adherence_score: float
+    created_at: str
+    updated_at: str
+
+# Meal Upload Models
+class MealUploadResponse(BaseModel):
+    id: str
+    client_id: str
+    meal_type: str
+    photo_path: str
+    caption: Optional[str] = None
+    uploaded_at: str
+    coach_feedback: Optional[str] = None
+
+# Chat Models
+class ChatMessageCreate(BaseModel):
+    content: str
+    message_type: str = "text"  # text, image
+
+class ChatMessageResponse(BaseModel):
+    id: str
+    conversation_id: str
+    sender_id: str
+    sender_type: str  # coach, client
+    content: str
+    message_type: str
+    read: bool
+    created_at: str
+
+# ============ CLIENT MOBILE AUTH ============
+
+@api_router.post("/client/auth/register")
+async def client_register(data: ClientRegister):
+    """Register a new client for the mobile app"""
+    existing = await db.users.find_one({"email": data.email})
+    if existing:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    
+    # Find coach by invite code if provided
+    coach_id = None
+    if data.invite_code:
+        coach = await db.users.find_one({"invite_code": data.invite_code, "role": "coach"}, {"_id": 0})
+        if coach:
+            coach_id = coach["id"]
+    
+    # Create user account with client role
+    user_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    user_doc = {
+        "id": user_id,
+        "email": data.email,
+        "password": hash_password(data.password),
+        "name": data.name,
+        "phone": data.phone,
+        "role": "client",
+        "coach_id": coach_id,
+        "created_at": now,
+        "updated_at": now
+    }
+    await db.users.insert_one(user_doc)
+    
+    # If coach exists, create client record
+    if coach_id:
+        client_doc = {
+            "id": str(uuid.uuid4()),
+            "user_id": user_id,
+            "coach_id": coach_id,
+            "name": data.name,
+            "email": data.email,
+            "phone": data.phone,
+            "status": "active",
+            "adherence_rate": 0.0,
+            "created_at": now,
+            "updated_at": now
+        }
+        await db.clients.insert_one(client_doc)
+    
+    token = create_token(user_id, data.email, "client")
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "client": {
+            "id": user_id,
+            "email": data.email,
+            "name": data.name,
+            "role": "client",
+            "coach_id": coach_id
+        }
+    }
+
+@api_router.post("/client/auth/login")
+async def client_login(data: UserLogin):
+    """Login for mobile client app"""
+    user = await db.users.find_one({"email": data.email}, {"_id": 0})
+    if not user or not verify_password(data.password, user["password"]):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    
+    # Get client record if exists
+    client_record = await db.clients.find_one({"email": data.email}, {"_id": 0})
+    
+    token = create_token(user["id"], user["email"], user.get("role", "client"))
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "user": {
+            "id": user["id"],
+            "email": user["email"],
+            "name": user["name"],
+            "role": user.get("role", "client"),
+            "coach_id": user.get("coach_id")
+        },
+        "client_profile": client_record
+    }
+
+@api_router.get("/client/me")
+async def get_client_profile(user: dict = Depends(get_current_user)):
+    """Get current client's profile and linked client record"""
+    client_record = await db.clients.find_one(
+        {"$or": [{"user_id": user["id"]}, {"email": user["email"]}]},
+        {"_id": 0}
+    )
+    
+    coach_info = None
+    if user.get("coach_id"):
+        coach = await db.users.find_one({"id": user["coach_id"]}, {"_id": 0, "password": 0})
+        if coach:
+            coach_info = {"id": coach["id"], "name": coach["name"], "email": coach["email"]}
+    
+    return {
+        "user": {
+            "id": user["id"],
+            "email": user["email"],
+            "name": user["name"],
+            "role": user.get("role"),
+            "phone": user.get("phone")
+        },
+        "client_profile": client_record,
+        "coach": coach_info
+    }
+
+# ============ CLIENT MOBILE - DIET PLAN ============
+
+@api_router.get("/client/diet-plan")
+async def get_client_diet_plan(user: dict = Depends(get_current_user)):
+    """Get the active diet plan assigned to this client"""
+    # Find client record
+    client_record = await db.clients.find_one(
+        {"$or": [{"user_id": user["id"]}, {"email": user["email"]}]},
+        {"_id": 0}
+    )
+    
+    if not client_record:
+        raise HTTPException(status_code=404, detail="Client profile not found")
+    
+    # Get active diet plan
+    diet_plan = await db.diet_plans.find_one(
+        {"client_id": client_record["id"], "is_active": True},
+        {"_id": 0}
+    )
+    
+    return {
+        "diet_plan": diet_plan,
+        "client": {
+            "name": client_record.get("name"),
+            "goal_weight_kg": client_record.get("goal_weight_kg"),
+            "current_weight_kg": client_record.get("current_weight_kg")
+        }
+    }
+
+# ============ CLIENT MOBILE - DAILY CHECK-IN ============
+
+@api_router.post("/client/checkin")
+async def create_daily_checkin(data: DailyCheckInCreate, user: dict = Depends(get_current_user)):
+    """Create or update daily check-in"""
+    client_record = await db.clients.find_one(
+        {"$or": [{"user_id": user["id"]}, {"email": user["email"]}]},
+        {"_id": 0}
+    )
+    
+    if not client_record:
+        raise HTTPException(status_code=404, detail="Client profile not found")
+    
+    checkin_date = data.date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    now = datetime.now(timezone.utc).isoformat()
+    
+    # Calculate adherence score
+    completed_meals = sum(1 for m in data.meals if m.completed)
+    total_meals = len(data.meals) if data.meals else 1
+    adherence_score = (completed_meals / total_meals) * 100
+    
+    # Check if checkin already exists for today
+    existing = await db.daily_checkins.find_one(
+        {"client_id": client_record["id"], "date": checkin_date}
+    )
+    
+    checkin_doc = {
+        "client_id": client_record["id"],
+        "coach_id": client_record.get("coach_id"),
+        "date": checkin_date,
+        "meals": [m.model_dump() for m in data.meals],
+        "water_glasses": data.water_glasses,
+        "mood": data.mood,
+        "notes": data.notes,
+        "adherence_score": adherence_score,
+        "updated_at": now
+    }
+    
+    if existing:
+        await db.daily_checkins.update_one(
+            {"_id": existing["_id"]},
+            {"$set": checkin_doc}
+        )
+        checkin_doc["id"] = existing.get("id", str(existing["_id"]))
+        checkin_doc["created_at"] = existing.get("created_at", now)
+    else:
+        checkin_doc["id"] = str(uuid.uuid4())
+        checkin_doc["created_at"] = now
+        await db.daily_checkins.insert_one(checkin_doc)
+    
+    # Update client adherence rate
+    all_checkins = await db.daily_checkins.find({"client_id": client_record["id"]}, {"_id": 0}).to_list(100)
+    if all_checkins:
+        avg_adherence = sum(c.get("adherence_score", 0) for c in all_checkins) / len(all_checkins)
+        await db.clients.update_one(
+            {"id": client_record["id"]},
+            {"$set": {"adherence_rate": avg_adherence, "updated_at": now}}
+        )
+    
+    checkin_doc.pop("_id", None)
+    return DailyCheckInResponse(**checkin_doc)
+
+@api_router.get("/client/checkins")
+async def get_client_checkins(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    limit: int = 30,
+    user: dict = Depends(get_current_user)
+):
+    """Get client's check-in history"""
+    client_record = await db.clients.find_one(
+        {"$or": [{"user_id": user["id"]}, {"email": user["email"]}]},
+        {"_id": 0}
+    )
+    
+    if not client_record:
+        raise HTTPException(status_code=404, detail="Client profile not found")
+    
+    query = {"client_id": client_record["id"]}
+    if start_date or end_date:
+        query["date"] = {}
+        if start_date:
+            query["date"]["$gte"] = start_date
+        if end_date:
+            query["date"]["$lte"] = end_date
+    
+    checkins = await db.daily_checkins.find(query, {"_id": 0}).sort("date", -1).limit(limit).to_list(limit)
+    return {"checkins": checkins, "count": len(checkins)}
+
+@api_router.get("/client/checkin/today")
+async def get_today_checkin(user: dict = Depends(get_current_user)):
+    """Get today's check-in status"""
+    client_record = await db.clients.find_one(
+        {"$or": [{"user_id": user["id"]}, {"email": user["email"]}]},
+        {"_id": 0}
+    )
+    
+    if not client_record:
+        raise HTTPException(status_code=404, detail="Client profile not found")
+    
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    checkin = await db.daily_checkins.find_one(
+        {"client_id": client_record["id"], "date": today},
+        {"_id": 0}
+    )
+    
+    return {"date": today, "checkin": checkin, "completed": checkin is not None}
+
+# ============ CLIENT MOBILE - WEIGHT TRACKING ============
+
+@api_router.post("/client/weight")
+async def log_client_weight(data: WeightEntryCreate, user: dict = Depends(get_current_user)):
+    """Log weight from mobile app"""
+    client_record = await db.clients.find_one(
+        {"$or": [{"user_id": user["id"]}, {"email": user["email"]}]},
+        {"_id": 0}
+    )
+    
+    if not client_record:
+        raise HTTPException(status_code=404, detail="Client profile not found")
+    
+    entry_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    entry_doc = {
+        "id": entry_id,
+        "client_id": client_record["id"],
+        "weight_kg": data.weight_kg,
+        "recorded_date": data.recorded_date or now[:10],
+        "notes": data.notes,
+        "created_at": now
+    }
+    await db.weight_entries.insert_one(entry_doc)
+    
+    # Update client's current weight
+    await db.clients.update_one(
+        {"id": client_record["id"]},
+        {"$set": {"current_weight_kg": data.weight_kg, "updated_at": now}}
+    )
+    
+    entry_doc.pop("_id", None)
+    return WeightEntryResponse(**entry_doc)
+
+@api_router.get("/client/weights")
+async def get_client_weights(limit: int = 30, user: dict = Depends(get_current_user)):
+    """Get client's weight history"""
+    client_record = await db.clients.find_one(
+        {"$or": [{"user_id": user["id"]}, {"email": user["email"]}]},
+        {"_id": 0}
+    )
+    
+    if not client_record:
+        raise HTTPException(status_code=404, detail="Client profile not found")
+    
+    weights = await db.weight_entries.find(
+        {"client_id": client_record["id"]},
+        {"_id": 0}
+    ).sort("recorded_date", -1).limit(limit).to_list(limit)
+    
+    return {
+        "weights": weights,
+        "current_weight": client_record.get("current_weight_kg"),
+        "initial_weight": client_record.get("initial_weight_kg"),
+        "goal_weight": client_record.get("goal_weight_kg")
+    }
+
+# ============ CLIENT MOBILE - MEAL PHOTO UPLOAD ============
+
+@api_router.post("/client/meal-upload")
+async def upload_meal_photo(
+    file: UploadFile = File(...),
+    meal_type: str = Query(..., description="breakfast, lunch, dinner, snack"),
+    caption: Optional[str] = None,
+    user: dict = Depends(get_current_user)
+):
+    """Upload meal photo for tracking"""
+    client_record = await db.clients.find_one(
+        {"$or": [{"user_id": user["id"]}, {"email": user["email"]}]},
+        {"_id": 0}
+    )
+    
+    if not client_record:
+        raise HTTPException(status_code=404, detail="Client profile not found")
+    
+    if not storage_key and not init_storage():
+        raise HTTPException(status_code=503, detail="Storage not available")
+    
+    ext = file.filename.split(".")[-1].lower() if "." in file.filename else "jpg"
+    if ext not in ["jpg", "jpeg", "png", "webp"]:
+        raise HTTPException(status_code=400, detail="Only image files allowed")
+    
+    path = f"{APP_NAME}/meals/{client_record['id']}/{uuid.uuid4()}.{ext}"
+    data = await file.read()
+    content_type = file.content_type or f"image/{ext}"
+    
+    result = put_object(path, data, content_type)
+    
+    upload_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    upload_doc = {
+        "id": upload_id,
+        "client_id": client_record["id"],
+        "coach_id": client_record.get("coach_id"),
+        "meal_type": meal_type,
+        "photo_path": result["path"],
+        "original_filename": file.filename,
+        "caption": caption,
+        "uploaded_at": now,
+        "date": now[:10],
+        "coach_feedback": None,
+        "reviewed": False
+    }
+    await db.meal_uploads.insert_one(upload_doc)
+    
+    return MealUploadResponse(**upload_doc)
+
+@api_router.get("/client/meal-uploads")
+async def get_client_meal_uploads(
+    date: Optional[str] = None,
+    limit: int = 20,
+    user: dict = Depends(get_current_user)
+):
+    """Get client's meal photo uploads"""
+    client_record = await db.clients.find_one(
+        {"$or": [{"user_id": user["id"]}, {"email": user["email"]}]},
+        {"_id": 0}
+    )
+    
+    if not client_record:
+        raise HTTPException(status_code=404, detail="Client profile not found")
+    
+    query = {"client_id": client_record["id"]}
+    if date:
+        query["date"] = date
+    
+    uploads = await db.meal_uploads.find(query, {"_id": 0}).sort("uploaded_at", -1).limit(limit).to_list(limit)
+    return {"uploads": uploads, "count": len(uploads)}
+
+# ============ CLIENT MOBILE - CHAT ============
+
+@api_router.get("/client/chat/messages")
+async def get_chat_messages(
+    limit: int = 50,
+    before_id: Optional[str] = None,
+    user: dict = Depends(get_current_user)
+):
+    """Get chat messages between client and coach"""
+    client_record = await db.clients.find_one(
+        {"$or": [{"user_id": user["id"]}, {"email": user["email"]}]},
+        {"_id": 0}
+    )
+    
+    if not client_record:
+        raise HTTPException(status_code=404, detail="Client profile not found")
+    
+    # Find or create conversation
+    conversation = await db.chat_conversations.find_one(
+        {"client_id": client_record["id"]},
+        {"_id": 0}
+    )
+    
+    if not conversation:
+        conv_id = str(uuid.uuid4())
+        now = datetime.now(timezone.utc).isoformat()
+        conversation = {
+            "id": conv_id,
+            "client_id": client_record["id"],
+            "coach_id": client_record.get("coach_id"),
+            "created_at": now,
+            "last_message_at": now
+        }
+        await db.chat_conversations.insert_one(conversation)
+    
+    query = {"conversation_id": conversation["id"]}
+    messages = await db.chat_messages.find(query, {"_id": 0}).sort("created_at", -1).limit(limit).to_list(limit)
+    
+    # Mark messages as read
+    await db.chat_messages.update_many(
+        {"conversation_id": conversation["id"], "sender_id": {"$ne": user["id"]}, "read": False},
+        {"$set": {"read": True}}
+    )
+    
+    return {
+        "conversation_id": conversation["id"],
+        "messages": list(reversed(messages)),
+        "coach_id": client_record.get("coach_id")
+    }
+
+@api_router.post("/client/chat/send")
+async def send_chat_message(data: ChatMessageCreate, user: dict = Depends(get_current_user)):
+    """Send a message to coach"""
+    client_record = await db.clients.find_one(
+        {"$or": [{"user_id": user["id"]}, {"email": user["email"]}]},
+        {"_id": 0}
+    )
+    
+    if not client_record:
+        raise HTTPException(status_code=404, detail="Client profile not found")
+    
+    # Get or create conversation
+    conversation = await db.chat_conversations.find_one(
+        {"client_id": client_record["id"]},
+        {"_id": 0}
+    )
+    
+    if not conversation:
+        conv_id = str(uuid.uuid4())
+        now = datetime.now(timezone.utc).isoformat()
+        conversation = {
+            "id": conv_id,
+            "client_id": client_record["id"],
+            "coach_id": client_record.get("coach_id"),
+            "created_at": now,
+            "last_message_at": now
+        }
+        await db.chat_conversations.insert_one(conversation)
+    
+    msg_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    message_doc = {
+        "id": msg_id,
+        "conversation_id": conversation["id"],
+        "sender_id": user["id"],
+        "sender_type": "client",
+        "content": data.content,
+        "message_type": data.message_type,
+        "read": False,
+        "created_at": now
+    }
+    await db.chat_messages.insert_one(message_doc)
+    
+    # Update conversation
+    await db.chat_conversations.update_one(
+        {"id": conversation["id"]},
+        {"$set": {"last_message_at": now}}
+    )
+    
+    message_doc.pop("_id", None)
+    return ChatMessageResponse(**message_doc)
+
+# ============ CLIENT MOBILE - FOLLOW-UPS ============
+
+@api_router.get("/client/follow-ups")
+async def get_client_follow_ups(user: dict = Depends(get_current_user)):
+    """Get upcoming follow-ups for client"""
+    client_record = await db.clients.find_one(
+        {"$or": [{"user_id": user["id"]}, {"email": user["email"]}]},
+        {"_id": 0}
+    )
+    
+    if not client_record:
+        raise HTTPException(status_code=404, detail="Client profile not found")
+    
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    follow_ups = await db.follow_ups.find(
+        {"client_id": client_record["id"], "scheduled_date": {"$gte": today}},
+        {"_id": 0}
+    ).sort("scheduled_date", 1).to_list(20)
+    
+    return {"follow_ups": follow_ups}
+
+# ============ CLIENT MOBILE - DASHBOARD ============
+
+@api_router.get("/client/dashboard")
+async def get_client_dashboard(user: dict = Depends(get_current_user)):
+    """Get client dashboard data for mobile app"""
+    client_record = await db.clients.find_one(
+        {"$or": [{"user_id": user["id"]}, {"email": user["email"]}]},
+        {"_id": 0}
+    )
+    
+    if not client_record:
+        return {
+            "has_profile": False,
+            "message": "No client profile linked. Please ask your coach to add you."
+        }
+    
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    
+    # Get today's check-in
+    today_checkin = await db.daily_checkins.find_one(
+        {"client_id": client_record["id"], "date": today},
+        {"_id": 0}
+    )
+    
+    # Get active diet plan
+    diet_plan = await db.diet_plans.find_one(
+        {"client_id": client_record["id"], "is_active": True},
+        {"_id": 0}
+    )
+    
+    # Get recent weight entries
+    recent_weights = await db.weight_entries.find(
+        {"client_id": client_record["id"]},
+        {"_id": 0}
+    ).sort("recorded_date", -1).limit(7).to_list(7)
+    
+    # Get upcoming follow-ups
+    upcoming_follow_ups = await db.follow_ups.find(
+        {"client_id": client_record["id"], "status": "scheduled", "scheduled_date": {"$gte": today}},
+        {"_id": 0}
+    ).sort("scheduled_date", 1).limit(3).to_list(3)
+    
+    # Get unread messages count
+    conversation = await db.chat_conversations.find_one({"client_id": client_record["id"]})
+    unread_count = 0
+    if conversation:
+        unread_count = await db.chat_messages.count_documents(
+            {"conversation_id": conversation["id"], "sender_type": "coach", "read": False}
+        )
+    
+    # Calculate streak
+    checkins = await db.daily_checkins.find(
+        {"client_id": client_record["id"]},
+        {"_id": 0}
+    ).sort("date", -1).limit(30).to_list(30)
+    
+    streak = 0
+    for i, checkin in enumerate(checkins):
+        if checkin.get("adherence_score", 0) >= 50:
+            streak += 1
+        else:
+            break
+    
+    return {
+        "has_profile": True,
+        "client": {
+            "name": client_record.get("name"),
+            "current_weight": client_record.get("current_weight_kg"),
+            "goal_weight": client_record.get("goal_weight_kg"),
+            "initial_weight": client_record.get("initial_weight_kg"),
+            "adherence_rate": client_record.get("adherence_rate", 0)
+        },
+        "today": {
+            "date": today,
+            "checkin_completed": today_checkin is not None,
+            "adherence_score": today_checkin.get("adherence_score") if today_checkin else 0
+        },
+        "diet_plan": {
+            "name": diet_plan.get("name") if diet_plan else None,
+            "daily_calories": diet_plan.get("daily_calories") if diet_plan else None,
+            "meals_count": len(diet_plan.get("meals", [])) if diet_plan else 0
+        } if diet_plan else None,
+        "progress": {
+            "recent_weights": recent_weights,
+            "streak_days": streak,
+            "weight_change": (
+                client_record.get("initial_weight_kg", 0) - client_record.get("current_weight_kg", 0)
+            ) if client_record.get("initial_weight_kg") and client_record.get("current_weight_kg") else 0
+        },
+        "upcoming_follow_ups": upcoming_follow_ups,
+        "unread_messages": unread_count
+    }
+
+# ============ COACH - CHAT ROUTES ============
+
+@api_router.get("/coach/chats")
+async def get_coach_conversations(user: dict = Depends(get_current_user)):
+    """Get all chat conversations for coach"""
+    if user.get("role") != "coach":
+        raise HTTPException(status_code=403, detail="Coach access required")
+    
+    conversations = await db.chat_conversations.find(
+        {"coach_id": user["id"]},
+        {"_id": 0}
+    ).sort("last_message_at", -1).to_list(50)
+    
+    # Enrich with client info and last message
+    enriched = []
+    for conv in conversations:
+        client = await db.clients.find_one({"id": conv["client_id"]}, {"_id": 0})
+        last_message = await db.chat_messages.find_one(
+            {"conversation_id": conv["id"]},
+            {"_id": 0}
+        )
+        unread = await db.chat_messages.count_documents(
+            {"conversation_id": conv["id"], "sender_type": "client", "read": False}
+        )
+        enriched.append({
+            **conv,
+            "client_name": client.get("name") if client else "Unknown",
+            "last_message": last_message,
+            "unread_count": unread
+        })
+    
+    return {"conversations": enriched}
+
+@api_router.get("/coach/chat/{client_id}/messages")
+async def get_coach_chat_messages(client_id: str, limit: int = 50, user: dict = Depends(get_current_user)):
+    """Get chat messages for a specific client"""
+    if user.get("role") != "coach":
+        raise HTTPException(status_code=403, detail="Coach access required")
+    
+    conversation = await db.chat_conversations.find_one(
+        {"client_id": client_id, "coach_id": user["id"]},
+        {"_id": 0}
+    )
+    
+    if not conversation:
+        return {"messages": [], "conversation_id": None}
+    
+    messages = await db.chat_messages.find(
+        {"conversation_id": conversation["id"]},
+        {"_id": 0}
+    ).sort("created_at", -1).limit(limit).to_list(limit)
+    
+    # Mark as read
+    await db.chat_messages.update_many(
+        {"conversation_id": conversation["id"], "sender_type": "client", "read": False},
+        {"$set": {"read": True}}
+    )
+    
+    return {"messages": list(reversed(messages)), "conversation_id": conversation["id"]}
+
+@api_router.post("/coach/chat/{client_id}/send")
+async def coach_send_message(client_id: str, data: ChatMessageCreate, user: dict = Depends(get_current_user)):
+    """Coach sends message to client"""
+    if user.get("role") != "coach":
+        raise HTTPException(status_code=403, detail="Coach access required")
+    
+    # Get or create conversation
+    conversation = await db.chat_conversations.find_one(
+        {"client_id": client_id, "coach_id": user["id"]},
+        {"_id": 0}
+    )
+    
+    if not conversation:
+        conv_id = str(uuid.uuid4())
+        now = datetime.now(timezone.utc).isoformat()
+        conversation = {
+            "id": conv_id,
+            "client_id": client_id,
+            "coach_id": user["id"],
+            "created_at": now,
+            "last_message_at": now
+        }
+        await db.chat_conversations.insert_one(conversation)
+    
+    msg_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    message_doc = {
+        "id": msg_id,
+        "conversation_id": conversation["id"],
+        "sender_id": user["id"],
+        "sender_type": "coach",
+        "content": data.content,
+        "message_type": data.message_type,
+        "read": False,
+        "created_at": now
+    }
+    await db.chat_messages.insert_one(message_doc)
+    
+    await db.chat_conversations.update_one(
+        {"id": conversation["id"]},
+        {"$set": {"last_message_at": now}}
+    )
+    
+    message_doc.pop("_id", None)
+    return ChatMessageResponse(**message_doc)
+
+# ============ COACH - MEAL UPLOADS REVIEW ============
+
+@api_router.get("/coach/meal-uploads")
+async def get_meal_uploads_for_review(
+    client_id: Optional[str] = None,
+    reviewed: Optional[bool] = None,
+    user: dict = Depends(get_current_user)
+):
+    """Get meal uploads for coach to review"""
+    if user.get("role") != "coach":
+        raise HTTPException(status_code=403, detail="Coach access required")
+    
+    query = {"coach_id": user["id"]}
+    if client_id:
+        query["client_id"] = client_id
+    if reviewed is not None:
+        query["reviewed"] = reviewed
+    
+    uploads = await db.meal_uploads.find(query, {"_id": 0}).sort("uploaded_at", -1).limit(50).to_list(50)
+    
+    # Enrich with client names
+    for upload in uploads:
+        client = await db.clients.find_one({"id": upload["client_id"]}, {"_id": 0})
+        upload["client_name"] = client.get("name") if client else "Unknown"
+    
+    return {"uploads": uploads}
+
+@api_router.put("/coach/meal-uploads/{upload_id}/feedback")
+async def add_meal_feedback(upload_id: str, feedback: str = Query(...), user: dict = Depends(get_current_user)):
+    """Add feedback to a meal upload"""
+    if user.get("role") != "coach":
+        raise HTTPException(status_code=403, detail="Coach access required")
+    
+    result = await db.meal_uploads.update_one(
+        {"id": upload_id, "coach_id": user["id"]},
+        {"$set": {"coach_feedback": feedback, "reviewed": True}}
+    )
+    
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Upload not found")
+    
+    return {"message": "Feedback added"}
+
+# ============ COACH - INVITE CODE ============
+
+@api_router.post("/coach/generate-invite")
+async def generate_invite_code(user: dict = Depends(get_current_user)):
+    """Generate an invite code for clients to register"""
+    if user.get("role") != "coach":
+        raise HTTPException(status_code=403, detail="Coach access required")
+    
+    invite_code = str(uuid.uuid4())[:8].upper()
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {"invite_code": invite_code}}
+    )
+    
+    return {"invite_code": invite_code}
+
+@api_router.get("/coach/invite-code")
+async def get_invite_code(user: dict = Depends(get_current_user)):
+    """Get coach's current invite code"""
+    if user.get("role") != "coach":
+        raise HTTPException(status_code=403, detail="Coach access required")
+    
+    coach = await db.users.find_one({"id": user["id"]}, {"_id": 0})
+    return {"invite_code": coach.get("invite_code")}
+
 # ============ ROOT ============
 @api_router.get("/")
 async def root():
-    return {"message": "DietTracker Pro API", "version": "1.0.0"}
+    return {"message": "DietTracker Pro API", "version": "1.0.0", "mobile_api": "enabled"}
 
 # Include router and middleware
 app.include_router(api_router)
