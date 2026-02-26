@@ -1,12 +1,13 @@
-import { useState, useEffect, createContext, useContext } from "react";
-import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation, Link } from "react-router-dom";
+import { useState, useEffect, createContext, useContext, useRef, useCallback } from "react";
+import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation, Link, useParams } from "react-router-dom";
 import axios from "axios";
 import { Toaster, toast } from "sonner";
 import {
   Users, LayoutDashboard, Utensils, DollarSign, CalendarCheck, Settings,
   LogOut, Menu, X, Plus, Search, Filter, ChevronRight, TrendingUp, TrendingDown,
   Scale, Activity, Clock, Eye, Edit, Trash2, MoreHorizontal, User, Phone, Mail,
-  Target, Calendar, FileText, CheckCircle, AlertCircle, BarChart3
+  Target, Calendar, FileText, CheckCircle, AlertCircle, BarChart3, MessageCircle,
+  Image, Send, Camera, Droplets, Smile, Copy, RefreshCw
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,7 +22,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, BarChart, Bar } from "recharts";
+import { Progress } from "@/components/ui/progress";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell } from "recharts";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
