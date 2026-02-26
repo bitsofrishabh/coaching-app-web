@@ -1600,11 +1600,22 @@ async def startup():
     
     # Create indexes
     await db.users.create_index("email", unique=True)
+    await db.users.create_index("invite_code", sparse=True)
     await db.clients.create_index([("coach_id", 1), ("status", 1)])
+    await db.clients.create_index("email", sparse=True)
+    await db.clients.create_index("user_id", sparse=True)
     await db.weight_entries.create_index([("client_id", 1), ("recorded_date", -1)])
     await db.diet_plans.create_index([("coach_id", 1), ("client_id", 1)])
     await db.follow_ups.create_index([("coach_id", 1), ("scheduled_date", 1)])
+    await db.follow_ups.create_index([("client_id", 1), ("scheduled_date", 1)])
     await db.transactions.create_index([("coach_id", 1), ("transaction_date", -1)])
+    # Mobile app indexes
+    await db.daily_checkins.create_index([("client_id", 1), ("date", -1)])
+    await db.meal_uploads.create_index([("client_id", 1), ("uploaded_at", -1)])
+    await db.meal_uploads.create_index([("coach_id", 1), ("reviewed", 1)])
+    await db.chat_conversations.create_index("client_id")
+    await db.chat_conversations.create_index("coach_id")
+    await db.chat_messages.create_index([("conversation_id", 1), ("created_at", -1)])
     logger.info("Database indexes created")
 
 @app.on_event("shutdown")
