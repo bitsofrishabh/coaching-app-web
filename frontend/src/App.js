@@ -273,6 +273,8 @@ function Sidebar({ collapsed, setCollapsed }) {
     { icon: LayoutDashboard, label: "Dashboard", path: "/" },
     { icon: Users, label: "Clients", path: "/clients" },
     { icon: Utensils, label: "Diet Plans", path: "/diet-plans" },
+    { icon: MessageCircle, label: "Chat", path: "/chat", badge: true },
+    { icon: Camera, label: "Meal Reviews", path: "/meal-reviews" },
     { icon: CalendarCheck, label: "Follow-ups", path: "/follow-ups" },
     { icon: DollarSign, label: "Finance", path: "/finance" },
     { icon: Settings, label: "Settings", path: "/settings" },
