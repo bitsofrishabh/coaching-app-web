@@ -38,6 +38,18 @@ Build DietTracker Pro Platform - a unified platform for dietitians/coaches to ma
 - ✅ Responsive sidebar navigation
 - ✅ Toast notifications
 
+### Feb 26, 2026 - Mobile Client API Release
+- ✅ Client registration with invite code system
+- ✅ Client login/authentication flow
+- ✅ Client dashboard API (today's status, progress, streak)
+- ✅ Daily check-in system (meal tracking, water, mood)
+- ✅ Weight logging from mobile
+- ✅ Meal photo upload to S3
+- ✅ Chat system (client-coach messaging)
+- ✅ Coach invite code generation
+- ✅ Coach chat inbox with unread counts
+- ✅ Coach meal upload review system
+
 ## API Endpoints
 - `/api/auth/*` - Authentication
 - `/api/clients/*` - Client management
