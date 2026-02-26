@@ -2460,6 +2460,8 @@ function App() {
                     <Route path="/clients" element={<ClientsPage />} />
                     <Route path="/clients/:id" element={<ClientDetailPage />} />
                     <Route path="/diet-plans" element={<DietPlansPage />} />
+                    <Route path="/chat" element={<ChatPage />} />
+                    <Route path="/meal-reviews" element={<MealReviewsPage />} />
                     <Route path="/follow-ups" element={<FollowUpsPage />} />
                     <Route path="/finance" element={<FinancePage />} />
                     <Route path="/settings" element={<SettingsPage />} />
