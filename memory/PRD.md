@@ -50,6 +50,12 @@ Build DietTracker Pro Platform - a unified platform for dietitians/coaches to ma
 - ✅ Coach chat inbox with unread counts
 - ✅ Coach meal upload review system
 
+### Feb 26, 2026 - Coach Web App Enhancements
+- ✅ Chat UI - Real-time messaging with clients
+- ✅ Meal Reviews page - View and provide feedback on client meal photos
+- ✅ Enhanced Client Dashboard - Adherence rate, goal progress bar, meal photos tab
+- ✅ Settings - Client invite code display, copy, and regenerate
+
 ## API Endpoints
 - `/api/auth/*` - Authentication
 - `/api/clients/*` - Client management
