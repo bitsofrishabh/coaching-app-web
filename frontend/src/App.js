@@ -1027,6 +1027,8 @@ function ClientDetailPage() {
   const [client, setClient] = useState(null);
   const [weights, setWeights] = useState([]);
   const [dietPlans, setDietPlans] = useState([]);
+  const [checkins, setCheckins] = useState([]);
+  const [mealUploads, setMealUploads] = useState([]);
   const [loading, setLoading] = useState(true);
   const [weightDialogOpen, setWeightDialogOpen] = useState(false);
   const [newWeight, setNewWeight] = useState({ weight_kg: "", recorded_date: "", notes: "" });
@@ -1035,11 +1037,13 @@ function ClientDetailPage() {
     Promise.all([
       api.get(`/clients/${clientId}`),
       api.get(`/clients/${clientId}/weights`),
-      api.get("/diet-plans", { params: { client_id: clientId } })
-    ]).then(([clientRes, weightsRes, plansRes]) => {
+      api.get("/diet-plans", { params: { client_id: clientId } }),
+      api.get("/coach/meal-uploads", { params: { client_id: clientId } }).catch(() => ({ data: { uploads: [] } }))
+    ]).then(([clientRes, weightsRes, plansRes, uploadsRes]) => {
       setClient(clientRes.data);
       setWeights(weightsRes.data);
       setDietPlans(plansRes.data);
+      setMealUploads(uploadsRes.data.uploads || []);
     }).catch(() => {
       toast.error("Failed to load client details");
     }).finally(() => setLoading(false));
@@ -1080,6 +1084,11 @@ function ClientDetailPage() {
     ? client.initial_weight_kg - client.current_weight_kg
     : 0;
 
+  const adherenceRate = client.adherence_rate || 0;
+  const goalProgress = client.initial_weight_kg && client.goal_weight_kg && client.current_weight_kg
+    ? Math.min(100, Math.max(0, ((client.initial_weight_kg - client.current_weight_kg) / (client.initial_weight_kg - client.goal_weight_kg)) * 100))
+    : 0;
+
   return (
     <div className="space-y-6 animate-fade-in" data-testid="client-detail-page">
       {/* Header */}
@@ -1103,13 +1112,20 @@ function ClientDetailPage() {
             </div>
           </div>
         </div>
-        <Badge variant="outline" className={`${client.status === "active" ? "bg-green-500/10 text-green-500 border-green-500/20" : "bg-gray-500/10 text-gray-500"}`}>
-          {client.status}
-        </Badge>
+        <div className="flex items-center gap-2">
+          <Link to="/chat">
+            <Button variant="outline" size="sm">
+              <MessageCircle className="w-4 h-4 mr-1" /> Chat
+            </Button>
+          </Link>
+          <Badge variant="outline" className={`${client.status === "active" ? "bg-green-500/10 text-green-500 border-green-500/20" : "bg-gray-500/10 text-gray-500"}`}>
+            {client.status}
+          </Badge>
+        </div>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      {/* Enhanced Stats */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <Card className="border-border/40 bg-card/50">
           <CardContent className="p-4">
             <p className="text-xs text-muted-foreground uppercase tracking-wider">Current Weight</p>
@@ -1132,8 +1148,17 @@ function ClientDetailPage() {
         </Card>
         <Card className="border-border/40 bg-card/50">
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground uppercase tracking-wider">Height</p>
-            <p className="text-2xl font-bold font-['Manrope'] mt-1">{client.height_cm || "—"} cm</p>
+            <p className="text-xs text-muted-foreground uppercase tracking-wider">Adherence</p>
+            <p className="text-2xl font-bold font-['Manrope'] mt-1 text-primary">{adherenceRate.toFixed(0)}%</p>
+          </CardContent>
+        </Card>
+        <Card className="border-border/40 bg-card/50">
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground uppercase tracking-wider">Goal Progress</p>
+            <div className="mt-2">
+              <Progress value={goalProgress} className="h-2" />
+              <p className="text-xs text-muted-foreground mt-1">{goalProgress.toFixed(0)}% to goal</p>
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -1142,6 +1167,7 @@ function ClientDetailPage() {
       <Tabs defaultValue="progress" className="space-y-6">
         <TabsList className="bg-muted/50 p-1">
           <TabsTrigger value="progress" data-testid="tab-progress">Progress</TabsTrigger>
+          <TabsTrigger value="meals" data-testid="tab-meals">Meal Photos</TabsTrigger>
           <TabsTrigger value="diet-plans" data-testid="tab-diet-plans">Diet Plans</TabsTrigger>
           <TabsTrigger value="info" data-testid="tab-info">Info</TabsTrigger>
         </TabsList>
@@ -1166,7 +1192,13 @@ function ClientDetailPage() {
               {weightChartData.length > 0 ? (
                 <div className="h-[300px]">
                   <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={weightChartData}>
+                    <AreaChart data={weightChartData}>
+                      <defs>
+                        <linearGradient id="weightGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#84cc16" stopOpacity={0.3} />
+                          <stop offset="95%" stopColor="#84cc16" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
                       <CartesianGrid stroke="#27272a" strokeDasharray="3 3" />
                       <XAxis dataKey="date" stroke="#a1a1aa" fontSize={12} />
                       <YAxis domain={['auto', 'auto']} stroke="#a1a1aa" fontSize={12} />
@@ -1178,14 +1210,14 @@ function ClientDetailPage() {
                           color: "#fafafa"
                         }}
                       />
-                      <Line
+                      <Area
                         type="monotone"
                         dataKey="weight"
                         stroke="#84cc16"
                         strokeWidth={2}
-                        dot={{ fill: "#84cc16", r: 4 }}
+                        fill="url(#weightGradient)"
                       />
-                    </LineChart>
+                    </AreaChart>
                   </ResponsiveContainer>
                 </div>
               ) : (
@@ -1200,24 +1232,79 @@ function ClientDetailPage() {
               <CardTitle className="font-['Manrope']">Weight History</CardTitle>
             </CardHeader>
             <CardContent>
-              <ScrollArea className="h-[300px]">
+              <ScrollArea className="h-[250px]">
                 <div className="space-y-3">
-                  {weights.map((entry) => (
-                    <div key={entry.id} className="flex items-center justify-between p-3 rounded-lg border border-border/40">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                          <Scale className="w-5 h-5 text-primary" />
+                  {weights.length === 0 ? (
+                    <p className="text-center text-muted-foreground py-8">No weight entries yet</p>
+                  ) : (
+                    weights.map((entry, idx) => {
+                      const prevWeight = weights[idx + 1]?.weight_kg;
+                      const diff = prevWeight ? entry.weight_kg - prevWeight : 0;
+                      return (
+                        <div key={entry.id} className="flex items-center justify-between p-3 rounded-lg border border-border/40">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                              <Scale className="w-5 h-5 text-primary" />
+                            </div>
+                            <div>
+                              <p className="font-medium">{entry.weight_kg} kg</p>
+                              <p className="text-xs text-muted-foreground">{entry.recorded_date}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {diff !== 0 && (
+                              <Badge variant="outline" className={diff < 0 ? "text-green-500" : "text-red-500"}>
+                                {diff > 0 ? "+" : ""}{diff.toFixed(1)} kg
+                              </Badge>
+                            )}
+                            {entry.notes && <p className="text-sm text-muted-foreground">{entry.notes}</p>}
+                          </div>
                         </div>
-                        <div>
-                          <p className="font-medium">{entry.weight_kg} kg</p>
-                          <p className="text-xs text-muted-foreground">{entry.recorded_date}</p>
-                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </ScrollArea>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="meals" className="space-y-6">
+          <Card className="border-border/40 bg-card/50">
+            <CardHeader>
+              <CardTitle className="font-['Manrope']">Meal Photo Uploads</CardTitle>
+              <CardDescription>Photos uploaded by this client</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {mealUploads.length === 0 ? (
+                <div className="text-center py-12">
+                  <Camera className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
+                  <p className="text-muted-foreground">No meal photos uploaded yet</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  {mealUploads.map((upload) => (
+                    <div key={upload.id} className="rounded-lg border border-border/40 overflow-hidden">
+                      <div className="aspect-video bg-muted flex items-center justify-center relative">
+                        <Image className="w-8 h-8 text-muted-foreground/50" />
+                        <Badge className="absolute top-2 left-2 text-xs" variant="outline">
+                          {upload.meal_type}
+                        </Badge>
                       </div>
-                      {entry.notes && <p className="text-sm text-muted-foreground">{entry.notes}</p>}
+                      <div className="p-3">
+                        <p className="text-xs text-muted-foreground">{upload.date}</p>
+                        {upload.caption && <p className="text-sm mt-1">{upload.caption}</p>}
+                        {upload.coach_feedback && (
+                          <div className="mt-2 p-2 rounded bg-primary/10 text-xs">
+                            <p className="text-primary font-medium">Your feedback:</p>
+                            <p>{upload.coach_feedback}</p>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
-              </ScrollArea>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -1245,7 +1332,8 @@ function ClientDetailPage() {
                           <h3 className="font-medium">{plan.name}</h3>
                           <p className="text-sm text-muted-foreground mt-1">{plan.description}</p>
                           <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
-                            {plan.daily_calories && <span>{plan.daily_calories} cal/day</span>}
+                            {plan.daily_calories && <span className="flex items-center gap-1"><Activity className="w-3 h-3" /> {plan.daily_calories} cal/day</span>}
+                            <span className="flex items-center gap-1"><Utensils className="w-3 h-3" /> {plan.meals?.length || 0} meals</span>
                             <span>v{plan.version}</span>
                           </div>
                         </div>
