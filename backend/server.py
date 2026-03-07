@@ -5,6 +5,7 @@ from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
+import asyncio
 from pathlib import Path
 from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional
@@ -109,28 +110,65 @@ class ClientCreate(BaseModel):
     name: str
     email: Optional[EmailStr] = None
     phone: Optional[str] = None
+    location: Optional[str] = None
+    profession: Optional[str] = None
     age: Optional[int] = None
     gender: Optional[str] = None
+    diet_preference: Optional[str] = None
+    primary_coach: Optional[str] = None
     height_cm: Optional[float] = None
     initial_weight_kg: Optional[float] = None
+    current_weight_kg: Optional[float] = None
     goal_weight_kg: Optional[float] = None
     status: str = "active"
     notes: Optional[str] = None
+    about_client: Optional[str] = None
+    health_issues: Optional[str] = None
+    recent_comment: Optional[str] = None
+    diet_start_date: Optional[str] = None
+    diet_end_date: Optional[str] = None
+    diet_duration: Optional[str] = None
     program_start_date: Optional[str] = None
     program_end_date: Optional[str] = None
+    program_duration: Optional[str] = None
+    pause_days: Optional[int] = None
+    last_follow_up_date: Optional[str] = None
+    upcoming_follow_up_date: Optional[str] = None
+    sleep_quality: Optional[str] = None
+    sleep_hours: Optional[str] = None
+    morning_freshness: Optional[str] = None
 
 class ClientUpdate(BaseModel):
     name: Optional[str] = None
     email: Optional[EmailStr] = None
     phone: Optional[str] = None
+    location: Optional[str] = None
+    profession: Optional[str] = None
     age: Optional[int] = None
     gender: Optional[str] = None
+    diet_preference: Optional[str] = None
+    primary_coach: Optional[str] = None
     height_cm: Optional[float] = None
+    initial_weight_kg: Optional[float] = None
+    current_weight_kg: Optional[float] = None
     goal_weight_kg: Optional[float] = None
     status: Optional[str] = None
     notes: Optional[str] = None
+    about_client: Optional[str] = None
+    health_issues: Optional[str] = None
+    recent_comment: Optional[str] = None
+    diet_start_date: Optional[str] = None
+    diet_end_date: Optional[str] = None
+    diet_duration: Optional[str] = None
     program_start_date: Optional[str] = None
     program_end_date: Optional[str] = None
+    program_duration: Optional[str] = None
+    pause_days: Optional[int] = None
+    last_follow_up_date: Optional[str] = None
+    upcoming_follow_up_date: Optional[str] = None
+    sleep_quality: Optional[str] = None
+    sleep_hours: Optional[str] = None
+    morning_freshness: Optional[str] = None
 
 class ClientResponse(BaseModel):
     id: str
@@ -138,16 +176,33 @@ class ClientResponse(BaseModel):
     name: str
     email: Optional[str] = None
     phone: Optional[str] = None
+    location: Optional[str] = None
+    profession: Optional[str] = None
     age: Optional[int] = None
     gender: Optional[str] = None
+    diet_preference: Optional[str] = None
+    primary_coach: Optional[str] = None
     height_cm: Optional[float] = None
     initial_weight_kg: Optional[float] = None
     current_weight_kg: Optional[float] = None
     goal_weight_kg: Optional[float] = None
     status: str
     notes: Optional[str] = None
+    about_client: Optional[str] = None
+    health_issues: Optional[str] = None
+    recent_comment: Optional[str] = None
+    diet_start_date: Optional[str] = None
+    diet_end_date: Optional[str] = None
+    diet_duration: Optional[str] = None
     program_start_date: Optional[str] = None
     program_end_date: Optional[str] = None
+    program_duration: Optional[str] = None
+    pause_days: Optional[int] = None
+    last_follow_up_date: Optional[str] = None
+    upcoming_follow_up_date: Optional[str] = None
+    sleep_quality: Optional[str] = None
+    sleep_hours: Optional[str] = None
+    morning_freshness: Optional[str] = None
     adherence_rate: Optional[float] = None
     created_at: str
     updated_at: str
@@ -368,11 +423,12 @@ async def get_client_stats(user: dict = Depends(get_current_user)):
 async def create_client(data: ClientCreate, user: dict = Depends(get_current_user)):
     client_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat()
+    current_weight = data.current_weight_kg if data.current_weight_kg is not None else data.initial_weight_kg
     client_doc = {
         "id": client_id,
         "coach_id": user["id"],
         **data.model_dump(),
-        "current_weight_kg": data.initial_weight_kg,
+        "current_weight_kg": current_weight,
         "adherence_rate": 0.0,
         "created_at": now,
         "updated_at": now
@@ -1590,6 +1646,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+async def _wait_for_mongo(max_attempts: int = 5, base_delay_seconds: float = 2.0):
+    last_error = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            await db.command("ping")
+            logger.info("MongoDB connection check passed")
+            return
+        except Exception as e:
+            last_error = e
+            logger.warning(f"MongoDB connection attempt {attempt}/{max_attempts} failed: {e}")
+            if attempt < max_attempts:
+                await asyncio.sleep(base_delay_seconds * attempt)
+    raise last_error
+
 @app.on_event("startup")
 async def startup():
     try:
@@ -1597,7 +1667,11 @@ async def startup():
         logger.info("Storage initialized")
     except Exception as e:
         logger.warning(f"Storage init skipped: {e}")
-    
+
+    # Atlas can occasionally fail TLS/server selection briefly.
+    # Retry before failing the entire API startup.
+    await _wait_for_mongo()
+
     # Create indexes
     await db.users.create_index("email", unique=True)
     await db.users.create_index("invite_code", sparse=True)
