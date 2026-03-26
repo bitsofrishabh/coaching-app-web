@@ -28,6 +28,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Progress } from "@/components/ui/progress";
 import { api } from "@/lib/api";
+import { calculateBMI, calculateMaintenanceCalories, getHealthyWeightDelta, getHealthyWeightRange } from "@/lib/health-metrics";
 import { useAuth } from "@/context/auth-context";
 import { LoadingScreen } from "@/components/app/LoadingScreen";
 import { ResponsiveContainer, AreaChart, Area, CartesianGrid, XAxis, YAxis, Tooltip } from "recharts";
@@ -57,11 +58,12 @@ export function ClientDetailPage() {
   useEffect(() => {
     Promise.all([
       api.get(`/clients/${clientId}`),
+      api.get(`/clients/${clientId}/comments`).catch(() => ({ data: [] })),
       api.get(`/clients/${clientId}/weights`),
       api.get("/diet-plans", { params: { client_id: clientId } }),
       api.get("/coach/meal-uploads", { params: { client_id: clientId } }).catch(() => ({ data: { uploads: [] } })),
       api.get("/follow-ups").catch(() => ({ data: [] }))
-    ]).then(([clientRes, weightsRes, plansRes, uploadsRes, followUpsRes]) => {
+    ]).then(([clientRes, commentsRes, weightsRes, plansRes, uploadsRes, followUpsRes]) => {
       setClient(clientRes.data);
       setWeights(weightsRes.data);
       setDietPlans(plansRes.data);
@@ -69,26 +71,16 @@ export function ClientDetailPage() {
       const clientFollowUps = (followUpsRes.data || []).filter((followUp) => followUp.client_id === clientId);
       setFollowUps(clientFollowUps);
 
-      const seededComments = [];
-      if (clientRes.data.recent_comment) {
-        seededComments.push({
-          id: "recent-comment",
-          author: "Primary Coach",
-          content: clientRes.data.recent_comment,
-          created_at: clientRes.data.updated_at
-        });
-      }
-      clientFollowUps
-        .filter((followUp) => followUp.notes)
-        .slice(0, 4)
-        .forEach((followUp) => {
-          seededComments.push({
-            id: followUp.id,
-            author: "Team Note",
-            content: followUp.notes,
-            created_at: followUp.scheduled_date
-          });
-        });
+      const seededComments = commentsRes.data?.length
+        ? commentsRes.data
+        : clientRes.data.recent_comment
+          ? [{
+              id: "recent-comment",
+              author_name: "Previous Comment",
+              content: clientRes.data.recent_comment,
+              created_at: clientRes.data.updated_at
+            }]
+          : [];
       setTeamComments(seededComments);
 
       const initialWeights = {};
@@ -147,23 +139,29 @@ export function ClientDetailPage() {
     : 0;
   const latestFollowUp = followUps[0]?.scheduled_date || client.last_follow_up_date || "—";
   const upcomingFollowUp = followUps.find((followUp) => followUp.status === "scheduled")?.scheduled_date || client.upcoming_follow_up_date || "—";
+  const currentWeightForMetrics = client.current_weight_kg || client.initial_weight_kg;
+  const bmi = calculateBMI(currentWeightForMetrics, client.height_cm);
+  const healthyWeightRange = getHealthyWeightRange(client.height_cm);
+  const healthyWeightDelta = getHealthyWeightDelta(currentWeightForMetrics, client.height_cm);
+  const maintenanceCalories = calculateMaintenanceCalories(client);
 
   const addTeamComment = async () => {
     const comment = commentInput.trim();
     if (!comment) return;
-    const commentDoc = {
-      id: `local-${Date.now()}`,
-      author: user?.name || "Coach",
-      content: comment,
-      created_at: new Date().toISOString()
-    };
-    setTeamComments((prev) => [commentDoc, ...prev]);
-    setCommentInput("");
     try {
-      await api.put(`/clients/${clientId}`, { recent_comment: comment });
+      const res = await api.post(`/clients/${clientId}/comments`, { content: comment });
+      setTeamComments((prev) => [res.data, ...prev]);
       setClient((prev) => ({ ...prev, recent_comment: comment }));
+      setCommentInput("");
     } catch (err) {
-      toast.error("Comment saved locally, but could not sync to server");
+      toast.error(err.response?.data?.detail || "Failed to save comment");
+    }
+  };
+
+  const handleCommentKeyDown = (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      addTeamComment();
     }
   };
 
@@ -208,6 +206,11 @@ export function ClientDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <Link to={`/diet-plans?client_id=${clientId}`}>
+            <Button size="sm" className="bg-primary text-primary-foreground">
+              <Utensils className="w-4 h-4 mr-1" /> Create Diet Plan
+            </Button>
+          </Link>
           <Link to="/chat">
             <Button variant="outline" size="sm">
               <MessageCircle className="w-4 h-4 mr-1" /> Chat
@@ -289,6 +292,16 @@ export function ClientDetailPage() {
                   <p className="text-muted-foreground">Morning Freshness</p>
                   <p className="font-medium">{client.morning_freshness || "—"}</p>
                 </div>
+                <div>
+                  <p className="text-muted-foreground">BMI</p>
+                  <p className="font-medium">{bmi ? bmi.toFixed(1) : "—"}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Healthy Range</p>
+                  <p className="font-medium">
+                    {healthyWeightRange ? `${healthyWeightRange.minKg.toFixed(1)} - ${healthyWeightRange.maxKg.toFixed(1)} kg` : "—"}
+                  </p>
+                </div>
               </div>
               <div className="flex flex-wrap gap-2 mt-4">
                 {client.health_issues && <Badge variant="outline" className="bg-yellow-500/10 text-yellow-500">{client.health_issues}</Badge>}
@@ -333,7 +346,7 @@ export function ClientDetailPage() {
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-7 gap-4">
         <Card className="border-border/40 bg-card/50">
           <CardContent className="p-4">
             <p className="text-xs text-muted-foreground uppercase tracking-wider">Current Weight</p>
@@ -358,6 +371,28 @@ export function ClientDetailPage() {
           <CardContent className="p-4">
             <p className="text-xs text-muted-foreground uppercase tracking-wider">Adherence</p>
             <p className="text-2xl font-bold font-['Manrope'] mt-1 text-primary">{adherenceRate.toFixed(0)}%</p>
+          </CardContent>
+        </Card>
+        <Card className="border-border/40 bg-card/50">
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground uppercase tracking-wider">BMI</p>
+            <p className="text-2xl font-bold font-['Manrope'] mt-1">{bmi ? bmi.toFixed(1) : "—"}</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {healthyWeightDelta
+                ? healthyWeightDelta.direction === "lose"
+                  ? `Need to lose ${healthyWeightDelta.kg.toFixed(1)} kg`
+                  : healthyWeightDelta.direction === "gain"
+                    ? `Need to gain ${healthyWeightDelta.kg.toFixed(1)} kg`
+                    : "Within healthy BMI range"
+                : "Add height & weight"}
+            </p>
+          </CardContent>
+        </Card>
+        <Card className="border-border/40 bg-card/50">
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground uppercase tracking-wider">Maintenance Cals</p>
+            <p className="text-2xl font-bold font-['Manrope'] mt-1 text-primary">{maintenanceCalories || "—"}</p>
+            <p className="text-xs text-muted-foreground mt-1">kcal/day estimate</p>
           </CardContent>
         </Card>
         <Card className="border-border/40 bg-card/50">
@@ -447,7 +482,7 @@ export function ClientDetailPage() {
                 teamComments.map((comment) => (
                   <div key={comment.id} className="p-3 rounded-lg border border-border/40">
                     <div className="flex items-center justify-between gap-2">
-                      <p className="font-medium text-sm">{comment.author}</p>
+                      <p className="font-medium text-sm">{comment.author_name || comment.author || "Coach"}</p>
                       <p className="text-xs text-muted-foreground">{(comment.created_at || "").toString().slice(0, 16)}</p>
                     </div>
                     <p className="text-sm mt-1">{comment.content}</p>
@@ -459,6 +494,7 @@ export function ClientDetailPage() {
               <Input
                 value={commentInput}
                 onChange={(e) => setCommentInput(e.target.value)}
+                onKeyDown={handleCommentKeyDown}
                 placeholder="Add a team comment..."
               />
               <Button onClick={addTeamComment} className="bg-primary text-primary-foreground">Add</Button>

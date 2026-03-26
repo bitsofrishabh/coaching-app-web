@@ -21,6 +21,35 @@ code {
 
 @layer base {
     :root {
+        --background: 0 0% 99%;
+        --foreground: 224 17% 12%;
+        --card: 0 0% 100%;
+        --card-foreground: 224 17% 12%;
+        --popover: 0 0% 100%;
+        --popover-foreground: 224 17% 12%;
+        --primary: 82 78% 45%;
+        --primary-foreground: 0 0% 100%;
+        --secondary: 210 20% 96%;
+        --secondary-foreground: 224 17% 12%;
+        --muted: 210 20% 96%;
+        --muted-foreground: 220 9% 46%;
+        --accent: 210 20% 96%;
+        --accent-foreground: 224 17% 12%;
+        --destructive: 0 84% 60%;
+        --destructive-foreground: 0 0% 98%;
+        --border: 214 32% 91%;
+        --input: 214 32% 91%;
+        --ring: 82 78% 45%;
+        --chart-1: 82 78% 45%;
+        --chart-2: 142 71% 45%;
+        --chart-3: 160 84% 39%;
+        --chart-4: 217 91% 60%;
+        --chart-5: 38 92% 50%;
+        --radius: 0.5rem;
+        --glass-bg: rgba(255, 255, 255, 0.86);
+    }
+
+    .dark {
         --background: 0 0% 3.5%;
         --foreground: 0 0% 98%;
         --card: 0 0% 3.5%;
@@ -45,7 +74,7 @@ code {
         --chart-3: 160 84% 39%;
         --chart-4: 217 91% 60%;
         --chart-5: 38 92% 50%;
-        --radius: 0.5rem;
+        --glass-bg: rgba(9, 9, 11, 0.7);
     }
 }
 
@@ -55,6 +84,7 @@ code {
     }
     body {
         @apply bg-background text-foreground;
+        transition: background-color 0.2s ease, color 0.2s ease;
     }
 }
 
@@ -107,7 +137,7 @@ code {
 
 /* Glass effect */
 .glass {
-    background: rgba(9, 9, 11, 0.7);
+    background: var(--glass-bg);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
 }
