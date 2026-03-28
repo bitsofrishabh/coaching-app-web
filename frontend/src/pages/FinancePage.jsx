@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Plus, TrendingUp, TrendingDown, BarChart3, DollarSign } from "lucide-react";
+import { Plus, TrendingUp, TrendingDown, BarChart3, DollarSign, Upload } from "lucide-react";
+import { ResponsiveContainer, AreaChart, Area, CartesianGrid, XAxis, YAxis, Tooltip, BarChart, Bar } from "recharts";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -10,116 +11,453 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
+import { LoadingScreen } from "@/components/app/LoadingScreen";
+
+const INCOME_CATEGORIES = ["Program Fee", "Consultation", "Renewal", "Follow-up", "Package", "Other"];
+const EXPENSE_CATEGORIES = ["Equipment", "Supplies", "Marketing", "Rent", "Utilities", "Other"];
+const PAYMENT_METHOD_OPTIONS = ["UPI", "Cash", "Bank Transfer", "Card", "Razorpay", "Other"];
+const UNLINKED_CLIENT_VALUE = "unlinked";
+
+const getTodayIso = () => new Date().toISOString().slice(0, 10);
+
+const INITIAL_FORM_DATA = {
+  type: "income",
+  category: "Program Fee",
+  amount: "",
+  description: "",
+  client_id: UNLINKED_CLIENT_VALUE,
+  client_name: "",
+  program_duration: "",
+  source: "",
+  payment_method: "",
+  transaction_date: getTodayIso()
+};
+
+const formatCurrency = (value) => `₹${Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
+
+const formatDisplayDate = (value) => {
+  if (!value) return "—";
+  const parsed = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+};
+
+const getMonthKey = (value) => String(value || "").slice(0, 7);
+
+const formatMonthLabel = (monthKey) => {
+  if (!monthKey || !/^\d{4}-\d{2}$/.test(monthKey)) return "Unknown Month";
+  const [year, month] = monthKey.split("-").map(Number);
+  const parsed = new Date(year, month - 1, 1);
+  return parsed.toLocaleDateString("en-IN", { month: "long", year: "numeric" });
+};
+
+const buildMonthOptions = (transactions) => {
+  const keys = Array.from(
+    new Set(
+      transactions
+        .map((transaction) => getMonthKey(transaction.transaction_date))
+        .filter(Boolean)
+    )
+  ).sort((a, b) => b.localeCompare(a));
+
+  return keys.map((key) => ({
+    value: key,
+    label: formatMonthLabel(key)
+  }));
+};
+
+const getTransactionClientLabel = (transaction, clientsById) => {
+  if (transaction.client_name) return transaction.client_name;
+  if (transaction.client_id) return clientsById[transaction.client_id]?.name || "Linked Client";
+  return "—";
+};
+
+const getLastSixMonthChartData = (transactions, referenceMonthKey) => {
+  const referenceDate = referenceMonthKey && /^\d{4}-\d{2}$/.test(referenceMonthKey)
+    ? new Date(`${referenceMonthKey}-01T00:00:00`)
+    : new Date();
+
+  const months = [];
+  for (let offset = 5; offset >= 0; offset -= 1) {
+    const monthDate = new Date(referenceDate.getFullYear(), referenceDate.getMonth() - offset, 1);
+    const key = `${monthDate.getFullYear()}-${String(monthDate.getMonth() + 1).padStart(2, "0")}`;
+    months.push({
+      key,
+      label: monthDate.toLocaleDateString("en-IN", { month: "short", year: "2-digit" }),
+      income: 0,
+      expense: 0,
+      net: 0
+    });
+  }
+
+  const monthMap = Object.fromEntries(months.map((month) => [month.key, month]));
+  transactions.forEach((transaction) => {
+    const monthKey = getMonthKey(transaction.transaction_date);
+    if (!monthMap[monthKey]) return;
+    if (transaction.type === "income") monthMap[monthKey].income += Number(transaction.amount || 0);
+    else monthMap[monthKey].expense += Number(transaction.amount || 0);
+    monthMap[monthKey].net = monthMap[monthKey].income - monthMap[monthKey].expense;
+  });
+
+  return months;
+};
+
+const getDailyMonthChartData = (transactions, monthKey) => {
+  if (!monthKey || !/^\d{4}-\d{2}$/.test(monthKey)) return [];
+  const [year, month] = monthKey.split("-").map(Number);
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const rows = Array.from({ length: daysInMonth }, (_, index) => ({
+    day: index + 1,
+    label: String(index + 1).padStart(2, "0"),
+    income: 0,
+    expense: 0,
+    net: 0
+  }));
+
+  transactions.forEach((transaction) => {
+    if (getMonthKey(transaction.transaction_date) !== monthKey) return;
+    const day = Number(String(transaction.transaction_date || "").slice(8, 10));
+    if (!Number.isFinite(day) || day < 1 || day > daysInMonth) return;
+    const entry = rows[day - 1];
+    if (transaction.type === "income") entry.income += Number(transaction.amount || 0);
+    else entry.expense += Number(transaction.amount || 0);
+    entry.net = entry.income - entry.expense;
+  });
+
+  return rows;
+};
+
+function FinanceStatCard({ title, value, hint, icon: Icon, tone = "default" }) {
+  const iconTone = tone === "positive" ? "text-violet-500 bg-violet-500/10" : tone === "negative" ? "text-red-500 bg-red-500/10" : "text-primary bg-primary/10";
+  const valueTone = tone === "positive" ? "text-violet-500" : tone === "negative" ? "text-red-500" : "";
+
+  return (
+    <Card className="stat-highlight border-border/40 bg-card/50">
+      <CardContent className="p-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium text-muted-foreground">{title}</p>
+            <p className={`text-3xl font-bold font-['Manrope'] mt-2 ${valueTone}`}>{value}</p>
+            {hint ? <p className="text-xs text-muted-foreground mt-2">{hint}</p> : null}
+          </div>
+          <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${iconTone}`}>
+            <Icon className="w-6 h-6" />
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 export function FinancePage() {
   const [transactions, setTransactions] = useState([]);
-  const [summary, setSummary] = useState(null);
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [formData, setFormData] = useState({
-    type: "income", category: "", amount: "", description: "", client_id: "", transaction_date: ""
-  });
+  const [csvImporting, setCsvImporting] = useState(false);
+  const [selectedMonth, setSelectedMonth] = useState("");
+  const [formData, setFormData] = useState(INITIAL_FORM_DATA);
+  const csvInputRef = useRef(null);
 
-  useEffect(() => {
-    Promise.all([
-      api.get("/transactions"),
-      api.get("/transactions/summary"),
-      api.get("/clients")
-    ]).then(([txRes, summaryRes, clientsRes]) => {
-      setTransactions(txRes.data);
-      setSummary(summaryRes.data);
-      setClients(clientsRes.data);
-    }).catch(() => {
-      toast.error("Failed to load finance data");
-    }).finally(() => setLoading(false));
-  }, []);
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const loadFinanceData = async () => {
+    setLoading(true);
     try {
-      await api.post("/transactions", {
-        ...formData,
-        amount: parseFloat(formData.amount),
-        client_id: formData.client_id || null
-      });
-      toast.success("Transaction added");
-      setDialogOpen(false);
-      const [txRes, summaryRes] = await Promise.all([
-        api.get("/transactions"),
-        api.get("/transactions/summary")
+      const [transactionsRes, clientsRes] = await Promise.all([
+        api.get("/transactions", { params: { limit: 2000 } }),
+        api.get("/clients")
       ]);
-      setTransactions(txRes.data);
-      setSummary(summaryRes.data);
+      setTransactions(transactionsRes.data || []);
+      setClients(clientsRes.data || []);
     } catch (err) {
-      toast.error("Failed to add transaction");
+      toast.error("Failed to load finance data");
+    } finally {
+      setLoading(false);
     }
   };
 
-  const getClientName = (clientId) => clients.find((c) => c.id === clientId)?.name || null;
+  useEffect(() => {
+    loadFinanceData();
+  }, []);
 
-  const incomeCategories = ["Consultation", "Program Fee", "Follow-up", "Package", "Other"];
-  const expenseCategories = ["Equipment", "Supplies", "Marketing", "Rent", "Utilities", "Other"];
+  const clientsById = useMemo(
+    () => Object.fromEntries(clients.map((client) => [client.id, client])),
+    [clients]
+  );
+
+  const monthOptions = useMemo(() => buildMonthOptions(transactions), [transactions]);
+
+  useEffect(() => {
+    if (!monthOptions.length) {
+      if (!selectedMonth) setSelectedMonth("all");
+      return;
+    }
+    if (!selectedMonth || (selectedMonth !== "all" && !monthOptions.some((option) => option.value === selectedMonth))) {
+      setSelectedMonth(monthOptions[0].value);
+    }
+  }, [monthOptions, selectedMonth]);
+
+  const activeMonthKey = selectedMonth && selectedMonth !== "all"
+    ? selectedMonth
+    : (monthOptions[0]?.value || getMonthKey(getTodayIso()));
+
+  const filteredTransactions = useMemo(() => {
+    const list = [...transactions].sort((a, b) => String(b.transaction_date || "").localeCompare(String(a.transaction_date || "")));
+    if (!selectedMonth || selectedMonth === "all") return list;
+    return list.filter((transaction) => getMonthKey(transaction.transaction_date) === selectedMonth);
+  }, [transactions, selectedMonth]);
+
+  const selectedMonthSummary = useMemo(() => {
+    const base = { total_income: 0, total_expense: 0, net: 0, transaction_count: 0 };
+    filteredTransactions.forEach((transaction) => {
+      const amount = Number(transaction.amount || 0);
+      if (transaction.type === "income") base.total_income += amount;
+      else base.total_expense += amount;
+      base.transaction_count += 1;
+    });
+    base.net = base.total_income - base.total_expense;
+    return base;
+  }, [filteredTransactions]);
+
+  const averageTicketValue = selectedMonthSummary.transaction_count
+    ? selectedMonthSummary.total_income / selectedMonthSummary.transaction_count
+    : 0;
+
+  const sixMonthChartData = useMemo(
+    () => getLastSixMonthChartData(transactions, activeMonthKey),
+    [transactions, activeMonthKey]
+  );
+
+  const dailyChartData = useMemo(
+    () => getDailyMonthChartData(transactions, activeMonthKey),
+    [transactions, activeMonthKey]
+  );
+
+  const resetForm = () => {
+    setFormData({
+      ...INITIAL_FORM_DATA,
+      transaction_date: getTodayIso()
+    });
+  };
+
+  const openCreateDialog = () => {
+    resetForm();
+    setDialogOpen(true);
+  };
+
+  const handleClientLinkChange = (value) => {
+    if (value === UNLINKED_CLIENT_VALUE) {
+      setFormData((prev) => ({ ...prev, client_id: UNLINKED_CLIENT_VALUE }));
+      return;
+    }
+    const client = clients.find((entry) => entry.id === value);
+    setFormData((prev) => ({
+      ...prev,
+      client_id: value,
+      client_name: client?.name || prev.client_name
+    }));
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    const amount = parseFloat(formData.amount);
+    if (!Number.isFinite(amount)) {
+      toast.error("Enter a valid amount");
+      return;
+    }
+    if (!formData.category) {
+      toast.error("Select a category");
+      return;
+    }
+
+    try {
+      await api.post("/transactions", {
+        type: formData.type,
+        category: formData.category,
+        amount,
+        description: formData.description.trim() || null,
+        client_id: formData.client_id === UNLINKED_CLIENT_VALUE ? null : formData.client_id,
+        client_name: formData.client_name.trim() || null,
+        program_duration: formData.program_duration.trim() || null,
+        source: formData.source.trim() || null,
+        payment_method: formData.payment_method || null,
+        transaction_date: formData.transaction_date || null
+      });
+      toast.success("Transaction added");
+      setDialogOpen(false);
+      resetForm();
+      await loadFinanceData();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Failed to add transaction");
+    }
+  };
+
+  const triggerCsvPicker = () => {
+    if (csvImporting) return;
+    csvInputRef.current?.click();
+  };
+
+  const handleCsvUpload = async (event) => {
+    const files = Array.from(event.target.files || []);
+    event.target.value = "";
+    if (!files.length) return;
+
+    setCsvImporting(true);
+    try {
+      const payload = new FormData();
+      files.forEach((file) => payload.append("files", file));
+      const response = await api.post("/transactions/import-csv", payload);
+      const imported = response.data?.imported_count || 0;
+      const skipped = response.data?.skipped_count || 0;
+      toast.success(`Imported ${imported} transactions${skipped ? `, skipped ${skipped} duplicates` : ""}`);
+      await loadFinanceData();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Failed to import CSV");
+    } finally {
+      setCsvImporting(false);
+    }
+  };
+
+  if (loading) return <LoadingScreen />;
 
   return (
     <div className="space-y-6 animate-fade-in" data-testid="finance-page">
+      <input
+        ref={csvInputRef}
+        type="file"
+        accept=".csv,text/csv"
+        multiple
+        className="hidden"
+        onChange={handleCsvUpload}
+      />
+
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold font-['Manrope']">Finance</h1>
-          <p className="text-muted-foreground mt-1">Track your income and expenses</p>
+          <p className="text-muted-foreground mt-1">Track month-wise collections, import payment CSVs, and record new client enrollments.</p>
         </div>
-        <Button
-          data-testid="add-transaction-btn"
-          onClick={() => setDialogOpen(true)}
-          className="bg-primary text-primary-foreground hover:bg-primary/90 btn-glow"
-        >
-          <Plus className="w-4 h-4 mr-2" /> Add Transaction
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" onClick={triggerCsvPicker} disabled={csvImporting}>
+            <Upload className="w-4 h-4 mr-2" />
+            {csvImporting ? "Importing CSV..." : "Import CSV"}
+          </Button>
+          <Button
+            data-testid="add-transaction-btn"
+            onClick={openCreateDialog}
+            className="bg-primary text-primary-foreground hover:bg-primary/90 btn-glow"
+          >
+            <Plus className="w-4 h-4 mr-2" /> Add Transaction
+          </Button>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Card className="stat-highlight border-border/40 bg-card/50">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Total Income</p>
-                <p className="text-3xl font-bold font-['Manrope'] mt-2 text-green-500">
-                  ₹{(summary?.total_income || 0).toLocaleString()}
-                </p>
-              </div>
-              <div className="w-12 h-12 rounded-xl bg-green-500/10 flex items-center justify-center">
-                <TrendingUp className="w-6 h-6 text-green-500" />
-              </div>
+      <div className="flex flex-col lg:flex-row gap-3">
+        <div className="w-full lg:w-72">
+          <Label className="mb-2 block">Month Filter</Label>
+          <Select value={selectedMonth || "all"} onValueChange={setSelectedMonth}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Months</SelectItem>
+              {monthOptions.map((option) => (
+                <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+        <FinanceStatCard
+          title={selectedMonth === "all" ? "Total Income" : `${formatMonthLabel(activeMonthKey)} Income`}
+          value={formatCurrency(selectedMonthSummary.total_income)}
+          hint={`${selectedMonthSummary.transaction_count} transactions`}
+          icon={TrendingUp}
+          tone="positive"
+        />
+        <FinanceStatCard
+          title={selectedMonth === "all" ? "Total Expense" : `${formatMonthLabel(activeMonthKey)} Expense`}
+          value={formatCurrency(selectedMonthSummary.total_expense)}
+          hint="Recorded outgoing payments"
+          icon={TrendingDown}
+          tone="negative"
+        />
+        <FinanceStatCard
+          title="Net Collections"
+          value={formatCurrency(selectedMonthSummary.net)}
+          hint={selectedMonth === "all" ? "Across all imported months" : `Net for ${formatMonthLabel(activeMonthKey)}`}
+          icon={BarChart3}
+          tone={selectedMonthSummary.net >= 0 ? "default" : "negative"}
+        />
+        <FinanceStatCard
+          title="Average Ticket Size"
+          value={formatCurrency(averageTicketValue)}
+          hint="Income divided by transaction count"
+          icon={DollarSign}
+        />
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        <Card className="border-border/40 bg-card/50">
+          <CardHeader>
+            <CardTitle className="font-['Manrope']">Last 6 Months Progress</CardTitle>
+            <CardDescription>Monthly collection trend based on imported and manually added transactions.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="h-[300px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={sixMonthChartData}>
+                  <defs>
+                    <linearGradient id="financeMonthlyIncome" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#16a34a" stopOpacity={0.28} />
+                      <stop offset="95%" stopColor="#16a34a" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid stroke="#27272a" strokeDasharray="3 3" />
+                  <XAxis dataKey="label" stroke="#a1a1aa" fontSize={12} />
+                  <YAxis stroke="#a1a1aa" fontSize={12} tickFormatter={(value) => `₹${Number(value).toLocaleString("en-IN")}`} />
+                  <Tooltip
+                    formatter={(value, name) => [formatCurrency(value), name === "income" ? "Income" : "Net"]}
+                    contentStyle={{
+                      backgroundColor: "#09090b",
+                      borderColor: "#27272a",
+                      borderRadius: "8px",
+                      color: "#fafafa"
+                    }}
+                  />
+                  <Area type="monotone" dataKey="income" stroke="#16a34a" strokeWidth={2} fillOpacity={1} fill="url(#financeMonthlyIncome)" />
+                  <Area type="monotone" dataKey="net" stroke="#84cc16" strokeWidth={2} fillOpacity={0} />
+                </AreaChart>
+              </ResponsiveContainer>
             </div>
           </CardContent>
         </Card>
-        <Card className="stat-highlight border-border/40 bg-card/50">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Total Expenses</p>
-                <p className="text-3xl font-bold font-['Manrope'] mt-2 text-red-500">
-                  ₹{(summary?.total_expense || 0).toLocaleString()}
-                </p>
-              </div>
-              <div className="w-12 h-12 rounded-xl bg-red-500/10 flex items-center justify-center">
-                <TrendingDown className="w-6 h-6 text-red-500" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="stat-highlight border-border/40 bg-card/50">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Net Profit</p>
-                <p className={`text-3xl font-bold font-['Manrope'] mt-2 ${(summary?.net || 0) >= 0 ? "text-primary" : "text-red-500"}`}>
-                  ₹{(summary?.net || 0).toLocaleString()}
-                </p>
-              </div>
-              <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center">
-                <BarChart3 className="w-6 h-6 text-primary" />
-              </div>
+
+        <Card className="border-border/40 bg-card/50">
+          <CardHeader>
+            <CardTitle className="font-['Manrope']">{formatMonthLabel(activeMonthKey)} Daily Progress</CardTitle>
+            <CardDescription>Day-wise collections for the selected month.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="h-[300px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={dailyChartData}>
+                  <CartesianGrid stroke="#27272a" strokeDasharray="3 3" />
+                  <XAxis dataKey="label" stroke="#a1a1aa" fontSize={11} interval={Math.max(0, Math.floor(dailyChartData.length / 10))} />
+                  <YAxis stroke="#a1a1aa" fontSize={12} tickFormatter={(value) => `₹${Number(value).toLocaleString("en-IN")}`} />
+                  <Tooltip
+                    formatter={(value, name) => [formatCurrency(value), name === "income" ? "Income" : "Net"]}
+                    labelFormatter={(label) => `${formatMonthLabel(activeMonthKey)} ${label}`}
+                    contentStyle={{
+                      backgroundColor: "#09090b",
+                      borderColor: "#27272a",
+                      borderRadius: "8px",
+                      color: "#fafafa"
+                    }}
+                  />
+                  <Bar dataKey="income" fill="#2563eb" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
             </div>
           </CardContent>
         </Card>
@@ -127,110 +465,237 @@ export function FinancePage() {
 
       <Card className="border-border/40 bg-card/50">
         <CardHeader>
-          <CardTitle className="font-['Manrope']">Recent Transactions</CardTitle>
+          <CardTitle className="font-['Manrope']">
+            {selectedMonth === "all" ? "All Transactions" : `${formatMonthLabel(activeMonthKey)} Transactions`}
+          </CardTitle>
+          <CardDescription>
+            Review imported CSV payments and manually added enrollment transactions.
+          </CardDescription>
         </CardHeader>
         <CardContent className="p-0">
-          {loading ? (
-            <div className="py-12 text-center">Loading...</div>
-          ) : transactions.length === 0 ? (
+          {filteredTransactions.length === 0 ? (
             <div className="py-12 text-center">
               <DollarSign className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
-              <p className="text-muted-foreground">No transactions yet</p>
+              <p className="text-muted-foreground">No transactions found for this filter.</p>
             </div>
           ) : (
-            <div className="divide-y divide-border/50">
-              {transactions.map((tx) => (
-                <div key={tx.id} className="flex items-center gap-4 p-4 hover:bg-muted/20 transition-colors" data-testid={`transaction-${tx.id}`}>
-                  <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${tx.type === "income" ? "bg-green-500/10" : "bg-red-500/10"}`}>
-                    {tx.type === "income" ? (
-                      <TrendingUp className="w-5 h-5 text-green-500" />
-                    ) : (
-                      <TrendingDown className="w-5 h-5 text-red-500" />
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="font-medium">{tx.category}</p>
-                      {getClientName(tx.client_id) && (
-                        <Badge variant="outline" className="text-xs">{getClientName(tx.client_id)}</Badge>
-                      )}
-                    </div>
-                    {tx.description && <p className="text-sm text-muted-foreground truncate">{tx.description}</p>}
-                    <p className="text-xs text-muted-foreground mt-1">{tx.transaction_date}</p>
-                  </div>
-                  <p className={`font-semibold ${tx.type === "income" ? "text-green-500" : "text-red-500"}`}>
-                    {tx.type === "income" ? "+" : "-"}₹{tx.amount.toLocaleString()}
-                  </p>
-                </div>
-              ))}
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[1200px] text-sm">
+                <thead className="bg-muted/20 border-b border-border/50">
+                  <tr>
+                    <th className="px-4 py-3 text-left font-semibold">Date</th>
+                    <th className="px-4 py-3 text-left font-semibold">Client</th>
+                    <th className="px-4 py-3 text-left font-semibold">Amount</th>
+                    <th className="px-4 py-3 text-left font-semibold">Duration</th>
+                    <th className="px-4 py-3 text-left font-semibold">Source</th>
+                    <th className="px-4 py-3 text-left font-semibold">Payment</th>
+                    <th className="px-4 py-3 text-left font-semibold">Comment</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredTransactions.map((transaction) => (
+                    <tr key={transaction.id} className="border-b border-border/40 align-top hover:bg-muted/10 transition-colors" data-testid={`transaction-${transaction.id}`}>
+                      <td className="px-4 py-3 whitespace-nowrap">{formatDisplayDate(transaction.transaction_date)}</td>
+                      <td className="px-4 py-3">
+                        <div className="space-y-1">
+                          <p className="font-medium">{getTransactionClientLabel(transaction, clientsById)}</p>
+                          {transaction.client_id ? (
+                            <Badge variant="outline" className="text-[11px]">Linked Client</Badge>
+                          ) : null}
+                        </div>
+                      </td>
+                      <td className={`px-4 py-3 whitespace-nowrap font-semibold ${transaction.type === "income" ? "text-violet-500" : "text-red-500"}`}>
+                        {transaction.type === "income" ? "+" : "-"}{formatCurrency(transaction.amount)}
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">{transaction.program_duration || "—"}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{transaction.source || "—"}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{transaction.payment_method || "—"}</td>
+                      <td className="px-4 py-3 text-muted-foreground max-w-[320px]">
+                        <p className="whitespace-pre-wrap break-words">{transaction.description || "—"}</p>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </CardContent>
       </Card>
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent>
+      <Dialog
+        open={dialogOpen}
+        onOpenChange={(open) => {
+          setDialogOpen(open);
+          if (!open) resetForm();
+        }}
+      >
+        <DialogContent className="max-w-3xl">
           <DialogHeader>
             <DialogTitle className="font-['Manrope']">Add Transaction</DialogTitle>
-            <DialogDescription>Record a new income or expense</DialogDescription>
+            <DialogDescription>Record a client enrollment payment or any other finance entry.</DialogDescription>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label>Type *</Label>
-              <Select value={formData.type} onValueChange={(v) => setFormData({ ...formData, type: v, category: "" })}>
-                <SelectTrigger data-testid="transaction-type-select">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="income">Income</SelectItem>
-                  <SelectItem value="expense">Expense</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Category *</Label>
-              <Select value={formData.category} onValueChange={(v) => setFormData({ ...formData, category: v })}>
-                <SelectTrigger data-testid="transaction-category-select">
-                  <SelectValue placeholder="Select category" />
-                </SelectTrigger>
-                <SelectContent>
-                  {(formData.type === "income" ? incomeCategories : expenseCategories).map((cat) => (
-                    <SelectItem key={cat} value={cat}>{cat}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Amount (₹) *</Label>
-              <Input type="number" step="0.01" data-testid="transaction-amount-input" value={formData.amount} onChange={(e) => setFormData({ ...formData, amount: e.target.value })} required />
-            </div>
-            {formData.type === "income" && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Client (Optional)</Label>
-                <Select value={formData.client_id} onValueChange={(v) => setFormData({ ...formData, client_id: v })}>
-                  <SelectTrigger data-testid="transaction-client-select">
-                    <SelectValue placeholder="Select client" />
+                <Label>Type *</Label>
+                <Select
+                  value={formData.type}
+                  onValueChange={(value) => setFormData((prev) => ({
+                    ...prev,
+                    type: value,
+                    category: value === "income" ? "Program Fee" : "Marketing"
+                  }))}
+                >
+                  <SelectTrigger data-testid="transaction-type-select">
+                    <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">None</SelectItem>
-                    {clients.map((c) => (
-                      <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                    <SelectItem value="income">Income</SelectItem>
+                    <SelectItem value="expense">Expense</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Category *</Label>
+                <Select value={formData.category} onValueChange={(value) => setFormData((prev) => ({ ...prev, category: value }))}>
+                  <SelectTrigger data-testid="transaction-category-select">
+                    <SelectValue placeholder="Select category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(formData.type === "income" ? INCOME_CATEGORIES : EXPENSE_CATEGORIES).map((category) => (
+                      <SelectItem key={category} value={category}>{category}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Amount (₹) *</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  data-testid="transaction-amount-input"
+                  value={formData.amount}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, amount: e.target.value }))}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Date *</Label>
+                <Input
+                  type="date"
+                  data-testid="transaction-date-input"
+                  value={formData.transaction_date}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, transaction_date: e.target.value }))}
+                  required
+                />
+              </div>
+            </div>
+
+            {formData.type === "income" ? (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Client Name</Label>
+                    <Input
+                      value={formData.client_name}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, client_name: e.target.value }))}
+                      placeholder="Enter client name"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Link Existing Client (Optional)</Label>
+                    <Select value={formData.client_id} onValueChange={handleClientLinkChange}>
+                      <SelectTrigger data-testid="transaction-client-select">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={UNLINKED_CLIENT_VALUE}>No linked client</SelectItem>
+                        {clients.map((client) => (
+                          <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <Label>Program Duration</Label>
+                    <Input
+                      value={formData.program_duration}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, program_duration: e.target.value }))}
+                      placeholder="e.g. 3 months"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Payment Method</Label>
+                    <Select value={formData.payment_method || "none"} onValueChange={(value) => setFormData((prev) => ({ ...prev, payment_method: value === "none" ? "" : value }))}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select payment method" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Not specified</SelectItem>
+                        {PAYMENT_METHOD_OPTIONS.map((option) => (
+                          <SelectItem key={option} value={option}>{option}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Source</Label>
+                    <Input
+                      value={formData.source}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, source: e.target.value }))}
+                      placeholder="Where did the client come from?"
+                    />
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Payment Method</Label>
+                  <Select value={formData.payment_method || "none"} onValueChange={(value) => setFormData((prev) => ({ ...prev, payment_method: value === "none" ? "" : value }))}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select payment method" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Not specified</SelectItem>
+                      {PAYMENT_METHOD_OPTIONS.map((option) => (
+                        <SelectItem key={option} value={option}>{option}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Source / Vendor</Label>
+                  <Input
+                    value={formData.source}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, source: e.target.value }))}
+                    placeholder="Optional source"
+                  />
+                </div>
+              </div>
             )}
+
             <div className="space-y-2">
-              <Label>Date</Label>
-              <Input type="date" data-testid="transaction-date-input" value={formData.transaction_date} onChange={(e) => setFormData({ ...formData, transaction_date: e.target.value })} />
+              <Label>Comments</Label>
+              <Textarea
+                data-testid="transaction-description-input"
+                value={formData.description}
+                onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
+                placeholder="Add notes or payment comments"
+              />
             </div>
-            <div className="space-y-2">
-              <Label>Description</Label>
-              <Textarea data-testid="transaction-description-input" value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} />
-            </div>
+
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
-              <Button type="submit" data-testid="save-transaction-btn" className="bg-primary text-primary-foreground">Add Transaction</Button>
+              <Button type="submit" data-testid="save-transaction-btn" className="bg-primary text-primary-foreground">
+                Add Transaction
+              </Button>
             </DialogFooter>
           </form>
         </DialogContent>

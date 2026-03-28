@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
-import { Plus, Search, Edit, Trash2, Upload, Sparkles } from "lucide-react";
+import { Plus, Search, Edit, Trash2, Upload, Sparkles, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Input } from "@/components/ui/input";
@@ -49,10 +49,10 @@ const CLIENT_FORM_DEFAULTS = {
 const DURATION_OPTIONS = ["2 Weeks", "4 Weeks", "6 Weeks", "8 Weeks", "12 Weeks", "16 Weeks"];
 const DIET_PREFERENCE_OPTIONS = ["Vegetarian", "Non Vegetarian", "Eggetarian", "Vegan", "Jain"];
 const CLIENT_SORT_OPTIONS = [
-  { value: "name-asc", label: "Name (A-Z)" },
-  { value: "name-desc", label: "Name (Z-A)" },
-  { value: "newest", label: "Newest Added" },
-  { value: "recent-follow-up", label: "Recent Follow-up" }
+  { value: "client-asc", label: "Client (A-Z)" },
+  { value: "client-desc", label: "Client (Z-A)" },
+  { value: "created-at-desc", label: "Newest Added" },
+  { value: "last-follow-up-desc", label: "Last Follow-up" }
 ];
 
 const CLIENT_STATUS_OPTIONS = [
@@ -66,7 +66,7 @@ const CLIENT_STATUS_OPTIONS = [
 const CLIENT_STATUS_META = {
   active: {
     label: "Active",
-    dotClassName: "bg-emerald-500 shadow-[0_0_0_4px_rgba(16,185,129,0.14)]"
+    dotClassName: "bg-violet-500 shadow-[0_0_0_4px_rgba(139,92,246,0.16)]"
   },
   "on-hold": {
     label: "Paused",
@@ -338,19 +338,48 @@ const mapNotionStatus = (value) => {
 
 const getClientStatusMeta = (status) => CLIENT_STATUS_META[status] || CLIENT_STATUS_META.active;
 
+const getSortState = (sortValue) => {
+  if ((sortValue || "").endsWith("-asc")) {
+    return { key: sortValue.slice(0, -4), direction: "asc" };
+  }
+  if ((sortValue || "").endsWith("-desc")) {
+    return { key: sortValue.slice(0, -5), direction: "desc" };
+  }
+  return { key: "client", direction: "asc" };
+};
+
+const compareNullableValues = (leftValue, rightValue, direction, type = "text") => {
+  const leftMissing = leftValue === null || leftValue === undefined || leftValue === "";
+  const rightMissing = rightValue === null || rightValue === undefined || rightValue === "";
+  if (leftMissing && rightMissing) return 0;
+  if (leftMissing) return 1;
+  if (rightMissing) return -1;
+
+  let result = 0;
+  if (type === "number") {
+    result = Number(leftValue) - Number(rightValue);
+  } else {
+    result = String(leftValue).localeCompare(String(rightValue), undefined, { sensitivity: "base" });
+  }
+
+  return direction === "asc" ? result : -result;
+};
+
 export function ClientsPage() {
   const [clients, setClients] = useState([]);
   const [weightSummaries, setWeightSummaries] = useState({});
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [clientScope, setClientScope] = useState("active");
-  const [sortBy, setSortBy] = useState("name-asc");
+  const [sortBy, setSortBy] = useState("client-asc");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingClient, setEditingClient] = useState(null);
   const [csvImporting, setCsvImporting] = useState(false);
   const [formData, setFormData] = useState(CLIENT_FORM_DEFAULTS);
   const [rowDrafts, setRowDrafts] = useState({});
+  const [editingCommentClientId, setEditingCommentClientId] = useState(null);
   const csvInputRef = useRef(null);
+  const commentInputRefs = useRef({});
 
   const fetchClients = async () => {
     setLoading(true);
@@ -382,6 +411,12 @@ export function ClientsPage() {
   useEffect(() => {
     fetchClients();
   }, []);
+
+  useEffect(() => {
+    if (!editingCommentClientId) return;
+    const input = commentInputRefs.current[editingCommentClientId];
+    if (input) input.focus();
+  }, [editingCommentClientId]);
 
   const resetForm = () => setFormData(CLIENT_FORM_DEFAULTS);
 
@@ -497,14 +532,57 @@ export function ClientsPage() {
           recent_comment: "",
         },
       }));
+      setEditingCommentClientId((prev) => (prev === clientId ? null : prev));
       toast.success("Comment saved");
     } catch (err) {
       toast.error(err.response?.data?.detail || "Failed to save comment");
     }
   };
 
+  const startInlineCommentEdit = (clientId) => {
+    setRowDrafts((prev) => ({
+      ...prev,
+      [clientId]: {
+        ...prev[clientId],
+        recent_comment: "",
+      },
+    }));
+    setEditingCommentClientId(clientId);
+  };
+
+  const cancelInlineCommentEdit = (clientId) => {
+    setRowDrafts((prev) => ({
+      ...prev,
+      [clientId]: {
+        ...prev[clientId],
+        recent_comment: "",
+      },
+    }));
+    setEditingCommentClientId((prev) => (prev === clientId ? null : prev));
+  };
+
   const activeCount = clients.filter((client) => client.status === "active" || client.status === "out-of-town").length;
   const totalCount = clients.length;
+  const activeSort = getSortState(sortBy);
+
+  const toggleColumnSort = (columnKey) => {
+    setSortBy((currentValue) => {
+      const currentSort = getSortState(currentValue);
+      if (currentSort.key === columnKey) {
+        return `${columnKey}-${currentSort.direction === "asc" ? "desc" : "asc"}`;
+      }
+      return `${columnKey}-asc`;
+    });
+  };
+
+  const getColumnSortIcon = (columnKey) => {
+    if (activeSort.key !== columnKey) {
+      return <ArrowUpDown className="h-4 w-4 text-muted-foreground/70" />;
+    }
+    return activeSort.direction === "asc"
+      ? <ArrowUp className="h-4 w-4 text-primary" />
+      : <ArrowDown className="h-4 w-4 text-primary" />;
+  };
 
   const visibleClients = clients
     .filter((client) => {
@@ -514,10 +592,29 @@ export function ClientsPage() {
       return [client.name, client.email, client.phone].some((field) => (field || "").toLowerCase().includes(q));
     })
     .sort((a, b) => {
-      if (sortBy === "name-desc") return (b.name || "").localeCompare(a.name || "");
-      if (sortBy === "newest") return (b.created_at || "").localeCompare(a.created_at || "");
-      if (sortBy === "recent-follow-up") return (b.last_follow_up_date || "").localeCompare(a.last_follow_up_date || "");
-      return (a.name || "").localeCompare(b.name || "");
+      const weightDeltaA = weightSummaries[a.id]?.delta_kg;
+      const weightDeltaB = weightSummaries[b.id]?.delta_kg;
+
+      switch (activeSort.key) {
+        case "client":
+          return compareNullableValues(a.name, b.name, activeSort.direction);
+        case "weight-diff":
+          return compareNullableValues(weightDeltaA, weightDeltaB, activeSort.direction, "number");
+        case "recent-comment":
+          return compareNullableValues(a.recent_comment, b.recent_comment, activeSort.direction);
+        case "diet-start":
+          return compareNullableValues(a.diet_start_date, b.diet_start_date, activeSort.direction);
+        case "diet-expire":
+          return compareNullableValues(a.diet_end_date, b.diet_end_date, activeSort.direction);
+        case "last-follow-up":
+          return compareNullableValues(a.last_follow_up_date, b.last_follow_up_date, activeSort.direction);
+        case "upcoming-follow-up":
+          return compareNullableValues(a.upcoming_follow_up_date, b.upcoming_follow_up_date, activeSort.direction);
+        case "created-at":
+          return compareNullableValues(a.created_at, b.created_at, activeSort.direction);
+        default:
+          return compareNullableValues(a.name, b.name, "asc");
+      }
     });
 
   return (
@@ -597,14 +694,49 @@ export function ClientsPage() {
             <table className="w-full min-w-[1160px] table-fixed">
               <thead>
                 <tr className="border-b border-border/50 bg-muted/20">
-                  <th className="table-dense text-left w-[220px]">Client</th>
-                  <th className="table-dense text-left w-[160px]">10-Day Diff</th>
-                  <th className="table-dense text-left w-[260px]">Recent Comment</th>
-                  <th className="table-dense text-left w-[180px]">Diet Start</th>
-                  <th className="table-dense text-left w-[180px]">Diet Expire</th>
-                  <th className="table-dense text-left w-[180px]">Last Follow-up</th>
-                  <th className="table-dense text-left w-[210px]">Upcoming Follow-up</th>
-                  <th className="table-dense text-left w-[140px]">Actions</th>
+                  <th className="table-dense w-[220px] text-center">
+                    <button type="button" className="mx-auto inline-flex items-center justify-center gap-2 font-semibold" onClick={() => toggleColumnSort("client")}>
+                      <span>Client</span>
+                      {getColumnSortIcon("client")}
+                    </button>
+                  </th>
+                  <th className="table-dense w-[160px] text-center">
+                    <button type="button" className="mx-auto inline-flex items-center justify-center gap-2 font-semibold" onClick={() => toggleColumnSort("weight-diff")}>
+                      <span>10-Day Diff</span>
+                      {getColumnSortIcon("weight-diff")}
+                    </button>
+                  </th>
+                  <th className="table-dense w-[260px] text-center">
+                    <button type="button" className="mx-auto inline-flex items-center justify-center gap-2 font-semibold" onClick={() => toggleColumnSort("recent-comment")}>
+                      <span>Recent Comment</span>
+                      {getColumnSortIcon("recent-comment")}
+                    </button>
+                  </th>
+                  <th className="table-dense w-[180px] text-center">
+                    <button type="button" className="mx-auto inline-flex items-center justify-center gap-2 font-semibold" onClick={() => toggleColumnSort("diet-start")}>
+                      <span>Diet Start</span>
+                      {getColumnSortIcon("diet-start")}
+                    </button>
+                  </th>
+                  <th className="table-dense w-[180px] text-center">
+                    <button type="button" className="mx-auto inline-flex items-center justify-center gap-2 font-semibold" onClick={() => toggleColumnSort("diet-expire")}>
+                      <span>Diet Expire</span>
+                      {getColumnSortIcon("diet-expire")}
+                    </button>
+                  </th>
+                  <th className="table-dense w-[180px] text-center">
+                    <button type="button" className="mx-auto inline-flex items-center justify-center gap-2 font-semibold" onClick={() => toggleColumnSort("last-follow-up")}>
+                      <span>Last Follow-up</span>
+                      {getColumnSortIcon("last-follow-up")}
+                    </button>
+                  </th>
+                  <th className="table-dense w-[210px] text-center">
+                    <button type="button" className="mx-auto inline-flex items-center justify-center gap-2 font-semibold" onClick={() => toggleColumnSort("upcoming-follow-up")}>
+                      <span>Upcoming Follow-up</span>
+                      {getColumnSortIcon("upcoming-follow-up")}
+                    </button>
+                  </th>
+                  <th className="table-dense w-[140px] text-center">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -652,7 +784,7 @@ export function ClientsPage() {
                                 <button
                                   type="button"
                                   className={`text-sm font-semibold ${
-                                    weightDelta < 0 ? "text-green-500" : weightDelta > 0 ? "text-red-400" : "text-muted-foreground"
+                                    weightDelta < 0 ? "text-violet-500" : weightDelta > 0 ? "text-red-400" : "text-muted-foreground"
                                   }`}
                                 >
                                   {formattedWeightDelta}
@@ -690,17 +822,42 @@ export function ClientsPage() {
                           )}
                         </td>
                         <td>
-                          <Input
-                            value={draft.recent_comment ?? ""}
-                            onChange={(e) => setRowDrafts((prev) => ({ ...prev, [client.id]: { ...prev[client.id], recent_comment: e.target.value } }))}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") {
-                                e.preventDefault();
-                                submitInlineComment(client.id);
-                              }
-                            }}
-                            placeholder={client.recent_comment ? `Latest: ${client.recent_comment}` : "Add comment and press Enter"}
-                          />
+                          {editingCommentClientId === client.id ? (
+                            <Input
+                              ref={(node) => {
+                                if (node) {
+                                  commentInputRefs.current[client.id] = node;
+                                } else {
+                                  delete commentInputRefs.current[client.id];
+                                }
+                              }}
+                              value={draft.recent_comment ?? ""}
+                              onChange={(e) => setRowDrafts((prev) => ({ ...prev, [client.id]: { ...prev[client.id], recent_comment: e.target.value } }))}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  submitInlineComment(client.id);
+                                }
+                                if (e.key === "Escape") {
+                                  e.preventDefault();
+                                  cancelInlineCommentEdit(client.id);
+                                }
+                              }}
+                              onBlur={() => cancelInlineCommentEdit(client.id)}
+                              placeholder="Add comment and press Enter"
+                            />
+                          ) : (
+                            <button
+                              type="button"
+                              onDoubleClick={() => startInlineCommentEdit(client.id)}
+                              className="flex h-10 w-full items-center rounded-md border border-input bg-background px-3 text-left text-sm transition-colors hover:border-primary/40"
+                              title={client.recent_comment || "Double-click to add comment"}
+                            >
+                              <span className={`truncate ${client.recent_comment ? "text-foreground" : "text-muted-foreground"}`}>
+                                {client.recent_comment || "Double-click to add comment"}
+                              </span>
+                            </button>
+                          )}
                         </td>
                         <td>
                           <Input

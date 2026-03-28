@@ -20,7 +20,7 @@ function StatCard({ title, value, change, icon: Icon, trend }) {
             <p className="text-sm font-medium text-muted-foreground">{title}</p>
             <p className="text-3xl font-bold font-['Manrope'] mt-2">{value}</p>
             {change !== undefined && (
-              <div className={`flex items-center gap-1 mt-2 text-sm ${trend === "up" ? "text-green-500" : trend === "down" ? "text-red-500" : "text-muted-foreground"}`}>
+              <div className={`flex items-center gap-1 mt-2 text-sm ${trend === "up" ? "text-violet-500" : trend === "down" ? "text-red-500" : "text-muted-foreground"}`}>
                 {trend === "up" ? <TrendingUp className="w-4 h-4" /> : trend === "down" ? <TrendingDown className="w-4 h-4" /> : null}
                 <span>{change}</span>
               </div>

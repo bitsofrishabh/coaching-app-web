@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { api } from "@/lib/api";
 import { LoadingScreen } from "@/components/app/LoadingScreen";
@@ -17,6 +18,10 @@ import clinicLogo from "@/assets/clinic-logo.svg";
 import { calculateBMI, calculateMaintenanceCalories, getHealthyWeightDelta, getHealthyWeightRange } from "@/lib/health-metrics";
 
 const PLAN_DURATION_OPTIONS = [7, 10, 14];
+const PLAN_TYPE_CLIENT = "client_plan";
+const PLAN_TYPE_TEMPLATE = "master_template";
+const TAB_CLIENT_PLANS = "client-plans";
+const TAB_MASTER_TEMPLATES = "master-templates";
 const DEFAULT_VISIBLE_COLUMNS = ["breakfast", "mid_morning", "lunch", "evening_snack", "dinner"];
 const EDITABLE_COLUMN_KEYS = ["breakfast", "mid_morning", "lunch", "evening_snack", "dinner", "bedtime"];
 const DAY_SLOT_KEYS = ["morning_drink", "breakfast", "mid_morning", "lunch", "evening_snack", "dinner", "night_drink", "bedtime"];
@@ -222,13 +227,15 @@ const buildMealsFromDayWisePlan = (dayWisePlan) =>
       }))
   );
 
-const getInitialFormData = (clientId = "") => ({
-  client_id: clientId,
+const getInitialFormData = (clientId = "", planType = PLAN_TYPE_CLIENT) => ({
+  client_id: planType === PLAN_TYPE_CLIENT ? clientId : "",
   name: "",
   description: "",
   daily_calories: "",
   instructions: "",
   is_active: true,
+  plan_type: planType,
+  source_template_id: "",
   plan_days: 7,
   day_wise_plan: createEmptyDayWisePlan(7),
   summary_slots: { ...SUMMARY_DEFAULT },
@@ -244,11 +251,40 @@ const formatBmiLabel = (bmi) => {
   return "Obese";
 };
 
+const normalizePlanType = (plan) => (plan?.plan_type === PLAN_TYPE_TEMPLATE ? PLAN_TYPE_TEMPLATE : PLAN_TYPE_CLIENT);
+
+const buildFormDataFromPlan = (plan, overrides = {}) => {
+  const planType = overrides.plan_type || normalizePlanType(plan);
+  const planDays = Number(plan?.plan_days || plan?.day_wise_plan?.length || 7);
+  const normalizedDays = syncDayWisePlanLength(normalizeDayWisePlan(plan?.day_wise_plan, planDays), planDays);
+  const normalizedColumns = (Array.isArray(plan?.visible_columns) ? plan.visible_columns : DEFAULT_VISIBLE_COLUMNS)
+    .filter((column) => EDITABLE_COLUMN_KEYS.includes(column));
+  const resolvedClientId = overrides.client_id ?? (plan?.client_id || "");
+
+  return {
+    ...getInitialFormData(planType === PLAN_TYPE_CLIENT ? resolvedClientId : "", planType),
+    client_id: planType === PLAN_TYPE_CLIENT ? resolvedClientId : "",
+    name: overrides.name ?? plan?.name ?? "",
+    description: plan?.description || "",
+    daily_calories: plan?.daily_calories ? String(plan.daily_calories) : "",
+    instructions: plan?.instructions || "",
+    is_active: typeof plan?.is_active === "boolean" ? plan.is_active : true,
+    plan_type: planType,
+    source_template_id: overrides.source_template_id ?? plan?.source_template_id ?? (normalizePlanType(plan) === PLAN_TYPE_TEMPLATE ? plan?.id || "" : ""),
+    plan_days: planDays,
+    day_wise_plan: normalizedDays,
+    summary_slots: buildSummarySlots(normalizedDays, plan?.summary_slots || {}),
+    visible_columns: normalizedColumns.length ? normalizedColumns : [...DEFAULT_VISIBLE_COLUMNS],
+    footer_note: plan?.footer_note || "Prepared by DietTracker. Follow meal timings and hydrate adequately."
+  };
+};
+
 export function DietPlansPage() {
   const [plans, setPlans] = useState([]);
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState(TAB_CLIENT_PLANS);
   const [pdfParsing, setPdfParsing] = useState(false);
   const [orEnabledCells, setOrEnabledCells] = useState({});
   const [activeCellKey, setActiveCellKey] = useState("");
@@ -263,6 +299,19 @@ export function DietPlansPage() {
     () => clients.find((client) => client.id === formData.client_id) || null,
     [clients, formData.client_id]
   );
+  const clientPlans = useMemo(
+    () => plans.filter((plan) => normalizePlanType(plan) === PLAN_TYPE_CLIENT),
+    [plans]
+  );
+  const masterTemplates = useMemo(
+    () => plans.filter((plan) => normalizePlanType(plan) === PLAN_TYPE_TEMPLATE),
+    [plans]
+  );
+  const templateNameById = useMemo(
+    () => Object.fromEntries(masterTemplates.map((plan) => [plan.id, plan.name])),
+    [masterTemplates]
+  );
+  const isTemplateDialog = formData.plan_type === PLAN_TYPE_TEMPLATE;
 
   const selectedClientBmi = calculateBMI(selectedClient?.current_weight_kg ?? selectedClient?.initial_weight_kg, selectedClient?.height_cm);
   const selectedClientHealthyRange = getHealthyWeightRange(selectedClient?.height_cm);
@@ -291,18 +340,27 @@ export function DietPlansPage() {
     const client = clients.find((entry) => entry.id === queryClientId);
     if (!client) return;
     const calories = calculateMaintenanceCalories(client);
-    const next = getInitialFormData(queryClientId);
+    const next = getInitialFormData(queryClientId, PLAN_TYPE_CLIENT);
     next.name = `${client.name} Diet Plan`;
     if (calories) next.daily_calories = String(calories);
     setFormData(next);
     setOrEnabledCells({});
     setActiveCellKey("");
+    setActiveTab(TAB_CLIENT_PLANS);
     setDialogOpen(true);
     setPrefillConsumed(queryClientId);
   }, [queryClientId, clients, prefillConsumed]);
 
-  const openCreateDialog = () => {
-    setFormData(getInitialFormData());
+  const openCreateDialog = (planType = PLAN_TYPE_CLIENT) => {
+    const initialClientId = planType === PLAN_TYPE_CLIENT ? queryClientId : "";
+    const next = getInitialFormData(initialClientId, planType);
+    if (planType === PLAN_TYPE_CLIENT && initialClientId) {
+      const client = clients.find((entry) => entry.id === initialClientId);
+      const calories = calculateMaintenanceCalories(client);
+      if (client) next.name = `${client.name} Diet Plan`;
+      if (calories) next.daily_calories = String(calories);
+    }
+    setFormData(next);
     setOrEnabledCells({});
     setActiveCellKey("");
     setDialogOpen(true);
@@ -310,7 +368,29 @@ export function DietPlansPage() {
 
   const getClientName = (clientId) => clients.find((client) => client.id === clientId)?.name || "Unknown";
 
+  const getTemplateName = (templateId) => templateNameById[templateId] || "Custom Template";
+
+  const openUseTemplateDialog = (template) => {
+    const seeded = buildFormDataFromPlan(template, {
+      plan_type: PLAN_TYPE_CLIENT,
+      client_id: queryClientId || "",
+      source_template_id: template.id
+    });
+    if (queryClientId) {
+      const client = clients.find((entry) => entry.id === queryClientId);
+      const calories = calculateMaintenanceCalories(client);
+      if (client) seeded.name = `${client.name} Diet Plan`;
+      if (calories && !seeded.daily_calories) seeded.daily_calories = String(calories);
+    }
+    setFormData(seeded);
+    setOrEnabledCells({});
+    setActiveCellKey("");
+    setActiveTab(TAB_CLIENT_PLANS);
+    setDialogOpen(true);
+  };
+
   const onClientChange = (clientId) => {
+    if (isTemplateDialog) return;
     const client = clients.find((entry) => entry.id === clientId);
     const maintenanceCalories = calculateMaintenanceCalories(client);
     setFormData((prev) => {
@@ -450,7 +530,7 @@ export function DietPlansPage() {
       const payload = new FormData();
       payload.append("file", file);
       payload.append("duration_days", String(formData.plan_days));
-      if (formData.client_id) payload.append("client_id", formData.client_id);
+      if (!isTemplateDialog && formData.client_id) payload.append("client_id", formData.client_id);
       if (selectedClient?.diet_preference) payload.append("diet_preference", selectedClient.diet_preference);
 
       const res = await api.post("/diet-plans/parse-template-pdf", payload);
@@ -577,6 +657,10 @@ export function DietPlansPage() {
   };
 
   const exportDraftPdf = () => {
+    if (isTemplateDialog) {
+      toast.error("Assign the template to a client before exporting");
+      return;
+    }
     if (!formData.client_id) {
       toast.error("Select a client before exporting");
       return;
@@ -586,7 +670,7 @@ export function DietPlansPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!formData.client_id) {
+    if (!isTemplateDialog && !formData.client_id) {
       toast.error("Select a client");
       return;
     }
@@ -601,32 +685,34 @@ export function DietPlansPage() {
 
     const payload = {
       ...formData,
+      client_id: isTemplateDialog ? null : formData.client_id,
       name: formData.name.trim(),
       daily_calories: formData.daily_calories ? parseInt(formData.daily_calories, 10) : null,
       day_wise_plan: normalizedDayWisePlan,
       summary_slots: summarySlots,
       visible_columns: visibleColumns.length ? visibleColumns : [...DEFAULT_VISIBLE_COLUMNS],
+      source_template_id: formData.source_template_id || null,
       meals: buildMealsFromDayWisePlan(normalizedDayWisePlan)
     };
 
     try {
       await api.post("/diet-plans", payload);
-      toast.success("Diet plan created");
+      toast.success(isTemplateDialog ? "Master template created" : "Diet plan created");
       setDialogOpen(false);
-      setFormData(getInitialFormData());
+      setFormData(getInitialFormData("", PLAN_TYPE_CLIENT));
       const res = await api.get("/diet-plans");
       setPlans(res.data);
     } catch (err) {
-      toast.error(err.response?.data?.detail || "Failed to create diet plan");
+      toast.error(err.response?.data?.detail || `Failed to create ${isTemplateDialog ? "template" : "diet plan"}`);
     }
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm("Delete this diet plan?")) return;
+  const handleDelete = async (plan) => {
+    if (!window.confirm(`Delete this ${normalizePlanType(plan) === PLAN_TYPE_TEMPLATE ? "master template" : "diet plan"}?`)) return;
     try {
-      await api.delete(`/diet-plans/${id}`);
-      toast.success("Diet plan deleted");
-      setPlans((prev) => prev.filter((plan) => plan.id !== id));
+      await api.delete(`/diet-plans/${plan.id}`);
+      toast.success(normalizePlanType(plan) === PLAN_TYPE_TEMPLATE ? "Master template deleted" : "Diet plan deleted");
+      setPlans((prev) => prev.filter((entry) => entry.id !== plan.id));
     } catch (err) {
       toast.error("Failed to delete");
     }
@@ -645,96 +731,178 @@ export function DietPlansPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold font-['Manrope']">Diet Plans</h1>
-          <p className="text-muted-foreground mt-1">Upload reference PDF, auto-generate plan, customize columns, and export compact PDF.</p>
+          <p className="text-muted-foreground mt-1">Manage reusable master templates and assign them into client-specific diet plans.</p>
         </div>
-        <Button data-testid="create-diet-plan-btn" onClick={openCreateDialog} className="bg-primary text-primary-foreground hover:bg-primary/90 btn-glow">
-          <Plus className="w-4 h-4 mr-2" /> Create Plan
+        <Button
+          data-testid="create-diet-plan-btn"
+          onClick={() => openCreateDialog(activeTab === TAB_MASTER_TEMPLATES ? PLAN_TYPE_TEMPLATE : PLAN_TYPE_CLIENT)}
+          className="bg-primary text-primary-foreground hover:bg-primary/90 btn-glow"
+        >
+          <Plus className="w-4 h-4 mr-2" />
+          {activeTab === TAB_MASTER_TEMPLATES ? "Create Master Template" : "Create Client Plan"}
         </Button>
       </div>
 
       {loading ? (
         <LoadingScreen />
-      ) : plans.length === 0 ? (
-        <Card className="border-border/40 bg-card/50">
-          <CardContent className="py-12 text-center">
-            <Utensils className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
-            <p className="text-muted-foreground">No diet plans yet. Create your first plan.</p>
-          </CardContent>
-        </Card>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {plans.map((plan) => (
-            <Card key={plan.id} className="border-border/40 bg-card/50 hover:border-primary/30 transition-all" data-testid={`diet-plan-${plan.id}`}>
-              <CardHeader className="pb-3">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <CardTitle className="font-['Manrope'] text-lg">{plan.name}</CardTitle>
-                    <CardDescription className="mt-1">{getClientName(plan.client_id)}</CardDescription>
-                  </div>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon">
-                        <MoreHorizontal className="w-4 h-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => void exportPlanToPdf(plan)}>
-                        <FileDown className="w-4 h-4 mr-2" /> Export PDF
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => handleDelete(plan.id)} className="text-destructive">
-                        <Trash2 className="w-4 h-4 mr-2" /> Delete
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {plan.description && <p className="text-sm text-muted-foreground">{plan.description}</p>}
-                <div className="flex flex-wrap items-center gap-3 text-sm">
-                  {plan.daily_calories && (
-                    <span className="flex items-center gap-1">
-                      <Activity className="w-4 h-4 text-primary" /> {plan.daily_calories} cal/day
-                    </span>
-                  )}
-                  <Badge variant="outline">{plan.plan_days || plan.day_wise_plan?.length || 0} days</Badge>
-                  <Badge variant="outline">{(plan.visible_columns || DEFAULT_VISIBLE_COLUMNS).length} cols</Badge>
-                </div>
-                <div className="flex items-center justify-between pt-3 border-t border-border/50">
-                  <Badge variant={plan.is_active ? "default" : "secondary"}>{plan.is_active ? "Active" : "Inactive"}</Badge>
-                  <span className="text-xs text-muted-foreground">v{plan.version}</span>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+          <TabsList className="bg-muted/50 p-1">
+            <TabsTrigger value={TAB_CLIENT_PLANS}>Client Plans ({clientPlans.length})</TabsTrigger>
+            <TabsTrigger value={TAB_MASTER_TEMPLATES}>Master Templates ({masterTemplates.length})</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value={TAB_CLIENT_PLANS} className="space-y-6">
+            {clientPlans.length === 0 ? (
+              <Card className="border-border/40 bg-card/50">
+                <CardContent className="py-12 text-center">
+                  <Utensils className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
+                  <p className="text-muted-foreground">No client diet plans yet. Create a plan directly or use a master template.</p>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {clientPlans.map((plan) => (
+                  <Card key={plan.id} className="border-border/40 bg-card/50 hover:border-primary/30 transition-all" data-testid={`diet-plan-${plan.id}`}>
+                    <CardHeader className="pb-3">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <CardTitle className="font-['Manrope'] text-lg">{plan.name}</CardTitle>
+                          <CardDescription className="mt-1">{getClientName(plan.client_id)}</CardDescription>
+                        </div>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon">
+                              <MoreHorizontal className="w-4 h-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => void exportPlanToPdf(plan)}>
+                              <FileDown className="w-4 h-4 mr-2" /> Export PDF
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleDelete(plan)} className="text-destructive">
+                              <Trash2 className="w-4 h-4 mr-2" /> Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      {plan.description && <p className="text-sm text-muted-foreground">{plan.description}</p>}
+                      <div className="flex flex-wrap items-center gap-3 text-sm">
+                        {plan.daily_calories && (
+                          <span className="flex items-center gap-1">
+                            <Activity className="w-4 h-4 text-primary" /> {plan.daily_calories} cal/day
+                          </span>
+                        )}
+                        <Badge variant="outline">{plan.plan_days || plan.day_wise_plan?.length || 0} days</Badge>
+                        <Badge variant="outline">{(plan.visible_columns || DEFAULT_VISIBLE_COLUMNS).length} cols</Badge>
+                        {plan.source_template_id ? <Badge variant="secondary">From {getTemplateName(plan.source_template_id)}</Badge> : null}
+                      </div>
+                      <div className="flex items-center justify-between pt-3 border-t border-border/50">
+                        <Badge variant={plan.is_active ? "default" : "secondary"}>{plan.is_active ? "Active" : "Inactive"}</Badge>
+                        <span className="text-xs text-muted-foreground">v{plan.version}</span>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value={TAB_MASTER_TEMPLATES} className="space-y-6">
+            {masterTemplates.length === 0 ? (
+              <Card className="border-border/40 bg-card/50">
+                <CardContent className="py-12 text-center">
+                  <Utensils className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
+                  <p className="text-muted-foreground">No reusable templates yet. Create a master template and assign it to clients later.</p>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {masterTemplates.map((plan) => (
+                  <Card key={plan.id} className="border-border/40 bg-card/50 hover:border-primary/30 transition-all" data-testid={`diet-template-${plan.id}`}>
+                    <CardHeader className="pb-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <CardTitle className="font-['Manrope'] text-lg">{plan.name}</CardTitle>
+                          <CardDescription className="mt-1">Reusable master template</CardDescription>
+                        </div>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon">
+                              <MoreHorizontal className="w-4 h-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => openUseTemplateDialog(plan)}>
+                              <Plus className="w-4 h-4 mr-2" /> Use for Client
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleDelete(plan)} className="text-destructive">
+                              <Trash2 className="w-4 h-4 mr-2" /> Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      {plan.description && <p className="text-sm text-muted-foreground">{plan.description}</p>}
+                      <div className="flex flex-wrap items-center gap-3 text-sm">
+                        <Badge variant="outline">{plan.plan_days || plan.day_wise_plan?.length || 0} days</Badge>
+                        <Badge variant="outline">{(plan.visible_columns || DEFAULT_VISIBLE_COLUMNS).length} cols</Badge>
+                        {plan.daily_calories ? (
+                          <span className="flex items-center gap-1 text-muted-foreground">
+                            <Activity className="w-4 h-4 text-primary" /> {plan.daily_calories} cal/day
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="flex items-center justify-between pt-3 border-t border-border/50">
+                        <Badge variant="secondary">Reusable</Badge>
+                        <Button type="button" variant="outline" size="sm" onClick={() => openUseTemplateDialog(plan)}>
+                          Use for Client
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </TabsContent>
+        </Tabs>
       )}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="w-[97vw] max-w-[97vw] h-[95vh] max-h-[95vh] p-0">
           <div className="h-full overflow-y-auto px-6 py-5">
             <DialogHeader className="pr-8">
-              <DialogTitle className="font-['Manrope']">Create Diet Plan</DialogTitle>
-              <DialogDescription>Upload a reference PDF or edit manually. Export is optimized for 1-2 page A4 portrait.</DialogDescription>
+              <DialogTitle className="font-['Manrope']">{isTemplateDialog ? "Create Master Template" : "Create Diet Plan"}</DialogTitle>
+              <DialogDescription>
+                {isTemplateDialog
+                  ? "Build a reusable template once, then assign it to multiple clients from the templates tab."
+                  : "Create a client-specific diet plan manually or start from a reusable template. Export is optimized for 1-2 page A4 portrait."}
+              </DialogDescription>
             </DialogHeader>
 
             <form onSubmit={handleSubmit} className="space-y-6 mt-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-              <div className="space-y-2">
-                <Label>Client *</Label>
-                <Select value={formData.client_id} onValueChange={onClientChange}>
-                  <SelectTrigger data-testid="plan-client-select">
-                    <SelectValue placeholder="Select client" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {clients.map((client) => (
-                      <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+            <div className={`grid grid-cols-1 md:grid-cols-2 ${isTemplateDialog ? "xl:grid-cols-3" : "xl:grid-cols-4"} gap-4`}>
+              {!isTemplateDialog ? (
+                <div className="space-y-2">
+                  <Label>Client *</Label>
+                  <Select value={formData.client_id} onValueChange={onClientChange}>
+                    <SelectTrigger data-testid="plan-client-select">
+                      <SelectValue placeholder="Select client" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {clients.map((client) => (
+                        <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : null}
 
               <div className="space-y-2">
-                <Label>Plan Name *</Label>
+                <Label>{isTemplateDialog ? "Template Name *" : "Plan Name *"}</Label>
                 <Input data-testid="plan-name-input" value={formData.name} onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))} required />
               </div>
 
@@ -753,53 +921,61 @@ export function DietPlansPage() {
               </div>
 
               <div className="space-y-2">
-                <Label>Daily Calories (BMI method)</Label>
+                <Label>{isTemplateDialog ? "Daily Calories (optional)" : "Daily Calories (BMI method)"}</Label>
                 <Input
                   type="number"
                   data-testid="plan-calories-input"
                   value={formData.daily_calories}
                   onChange={(e) => setFormData((prev) => ({ ...prev, daily_calories: e.target.value }))}
-                  placeholder={selectedClientMaintenance ? `${selectedClientMaintenance}` : "Auto calculated"}
+                  placeholder={!isTemplateDialog && selectedClientMaintenance ? `${selectedClientMaintenance}` : "Optional"}
                 />
               </div>
             </div>
 
-            <Card className="border-border/40 bg-card/40">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-lg font-['Manrope']">Header Preview</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {!selectedClient ? (
-                  <p className="text-sm text-muted-foreground">Select a client to prefill header metrics.</p>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 text-sm">
-                    <div><span className="text-muted-foreground">Name:</span> {selectedClient.name}</div>
-                    <div><span className="text-muted-foreground">Age:</span> {selectedClient.age || "—"}</div>
-                    <div><span className="text-muted-foreground">Height:</span> {selectedClient.height_cm || "—"} cm</div>
-                    <div><span className="text-muted-foreground">Start Weight:</span> {selectedClient.initial_weight_kg || "—"} kg</div>
-                    <div><span className="text-muted-foreground">Current Weight:</span> {selectedClient.current_weight_kg || selectedClient.initial_weight_kg || "—"} kg</div>
-                    <div><span className="text-muted-foreground">BMI:</span> {selectedClientBmi ? selectedClientBmi.toFixed(1) : "—"} ({formatBmiLabel(selectedClientBmi)})</div>
-                    <div><span className="text-muted-foreground">Maintenance:</span> {formData.daily_calories || selectedClientMaintenance || "—"} kcal/day</div>
-                    <div>
-                      <span className="text-muted-foreground">Guidance:</span>{" "}
-                      {!selectedClientWeightDelta
-                        ? "—"
-                        : selectedClientWeightDelta.direction === "lose"
-                          ? `Lose ${selectedClientWeightDelta.kg.toFixed(1)} kg`
-                          : selectedClientWeightDelta.direction === "gain"
-                            ? `Gain ${selectedClientWeightDelta.kg.toFixed(1)} kg`
-                            : "Within healthy range"}
+            {!isTemplateDialog ? (
+              <Card className="border-border/40 bg-card/40">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-lg font-['Manrope']">Header Preview</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {!selectedClient ? (
+                    <p className="text-sm text-muted-foreground">Select a client to prefill header metrics.</p>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 text-sm">
+                      <div><span className="text-muted-foreground">Name:</span> {selectedClient.name}</div>
+                      <div><span className="text-muted-foreground">Age:</span> {selectedClient.age || "—"}</div>
+                      <div><span className="text-muted-foreground">Height:</span> {selectedClient.height_cm || "—"} cm</div>
+                      <div><span className="text-muted-foreground">Start Weight:</span> {selectedClient.initial_weight_kg || "—"} kg</div>
+                      <div><span className="text-muted-foreground">Current Weight:</span> {selectedClient.current_weight_kg || selectedClient.initial_weight_kg || "—"} kg</div>
+                      <div><span className="text-muted-foreground">BMI:</span> {selectedClientBmi ? selectedClientBmi.toFixed(1) : "—"} ({formatBmiLabel(selectedClientBmi)})</div>
+                      <div><span className="text-muted-foreground">Maintenance:</span> {formData.daily_calories || selectedClientMaintenance || "—"} kcal/day</div>
+                      <div>
+                        <span className="text-muted-foreground">Guidance:</span>{" "}
+                        {!selectedClientWeightDelta
+                          ? "—"
+                          : selectedClientWeightDelta.direction === "lose"
+                            ? `Lose ${selectedClientWeightDelta.kg.toFixed(1)} kg`
+                            : selectedClientWeightDelta.direction === "gain"
+                              ? `Gain ${selectedClientWeightDelta.kg.toFixed(1)} kg`
+                              : "Within healthy range"}
+                      </div>
+                      <div className="md:col-span-2 xl:col-span-4">
+                        <span className="text-muted-foreground">Healthy Weight Range:</span>{" "}
+                        {selectedClientHealthyRange
+                          ? `${selectedClientHealthyRange.minKg.toFixed(1)} - ${selectedClientHealthyRange.maxKg.toFixed(1)} kg`
+                          : "—"}
+                      </div>
                     </div>
-                    <div className="md:col-span-2 xl:col-span-4">
-                      <span className="text-muted-foreground">Healthy Weight Range:</span>{" "}
-                      {selectedClientHealthyRange
-                        ? `${selectedClientHealthyRange.minKg.toFixed(1)} - ${selectedClientHealthyRange.maxKg.toFixed(1)} kg`
-                        : "—"}
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                  )}
+                </CardContent>
+              </Card>
+            ) : (
+              <Card className="border-border/40 bg-card/40">
+                <CardContent className="py-4 text-sm text-muted-foreground">
+                  Master templates are reusable layouts. Use “Use for Client” later to assign this template and generate a client-specific diet plan with header metrics.
+                </CardContent>
+              </Card>
+            )}
 
             <div className="space-y-2">
               <Label>Reference PDF Parser</Label>
@@ -865,6 +1041,12 @@ export function DietPlansPage() {
               <Label>Footer Note</Label>
               <Textarea value={formData.footer_note} onChange={(e) => setFormData((prev) => ({ ...prev, footer_note: e.target.value }))} />
             </div>
+
+            {!isTemplateDialog && formData.source_template_id ? (
+              <div className="rounded-lg border border-border/50 bg-muted/20 px-3 py-2 text-sm">
+                <span className="text-muted-foreground">Using template:</span> {getTemplateName(formData.source_template_id)}
+              </div>
+            ) : null}
 
             <Card className="border-border/40 bg-card/40">
               <CardHeader className="pb-3">
@@ -949,10 +1131,14 @@ export function DietPlansPage() {
 
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
-              <Button type="button" variant="outline" onClick={exportDraftPdf}>
-                <FileDown className="w-4 h-4 mr-2" /> Export Draft PDF
+              {!isTemplateDialog ? (
+                <Button type="button" variant="outline" onClick={exportDraftPdf}>
+                  <FileDown className="w-4 h-4 mr-2" /> Export Draft PDF
+                </Button>
+              ) : null}
+              <Button type="submit" data-testid="save-plan-btn" className="bg-primary text-primary-foreground">
+                {isTemplateDialog ? "Save Master Template" : "Create Plan"}
               </Button>
-              <Button type="submit" data-testid="save-plan-btn" className="bg-primary text-primary-foreground">Create Plan</Button>
             </DialogFooter>
           </form>
           </div>
