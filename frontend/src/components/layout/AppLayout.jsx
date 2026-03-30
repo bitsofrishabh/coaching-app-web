@@ -3,11 +3,12 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import {
   Users, LayoutDashboard, Utensils, DollarSign, CalendarCheck, Settings,
-  LogOut, Menu, MessageCircle, Camera, Activity
+  LogOut, Menu, MessageCircle, Camera, Activity, ClipboardList
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useAuth } from "@/context/auth-context";
+import { PendingTasksBell } from "@/components/layout/PendingTasksBell";
 
 function Sidebar({ collapsed, setCollapsed }) {
   const { user, logout } = useAuth();
@@ -22,6 +23,7 @@ function Sidebar({ collapsed, setCollapsed }) {
     { icon: Camera, label: "Meal Reviews", path: "/meal-reviews" },
     { icon: CalendarCheck, label: "Follow-ups", path: "/follow-ups" },
     { icon: DollarSign, label: "Finance", path: "/finance" },
+    { icon: ClipboardList, label: "Audit Logs", path: "/audit-logs" },
     { icon: Settings, label: "Settings", path: "/settings" },
   ];
 
@@ -124,6 +126,7 @@ export function Layout({ children }) {
             <Menu className="w-5 h-5" />
           </Button>
           <div className="flex-1" />
+          <PendingTasksBell />
         </header>
 
         <main className="flex-1 p-4 md:p-6 lg:p-8">

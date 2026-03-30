@@ -359,6 +359,45 @@ class FileRecordResponse(BaseModel):
     size: Optional[int] = None
     created_at: str
 
+
+class PendingTaskResponse(BaseModel):
+    id: str
+    task_type: str
+    title: str
+    client_id: str
+    client_name: str
+    due_date: str
+    days_left: int
+    status: Optional[str] = None
+    follow_up_id: Optional[str] = None
+
+
+class PendingTasksFeedResponse(BaseModel):
+    window_days: int
+    total_count: int
+    diet_expiry_count: int
+    follow_up_count: int
+    tasks: List[PendingTaskResponse]
+
+
+class AuditLogResponse(BaseModel):
+    id: str
+    coach_id: str
+    actor_id: Optional[str] = None
+    actor_name: str
+    actor_email: Optional[str] = None
+    event_type: str
+    entity_type: str
+    event_label: Optional[str] = None
+    entity_id: Optional[str] = None
+    client_id: Optional[str] = None
+    client_name: Optional[str] = None
+    summary: str
+    old_value: Optional[str] = None
+    new_value: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    created_at: str
+
 # Diet Plan Models
 class MealItem(BaseModel):
     name: str
@@ -1271,6 +1310,89 @@ def _extract_tracker_activities(meals: Optional[List[dict]]) -> Dict[str, bool]:
         activities[key] = bool(meal.get("completed"))
     return activities
 
+
+async def _build_pending_tasks_feed(user: dict, window_days: int = 3) -> Dict[str, Any]:
+    now = datetime.now(timezone.utc)
+    today = now.date()
+    cutoff = today + timedelta(days=window_days)
+    today_iso = today.isoformat()
+    cutoff_iso = cutoff.isoformat()
+
+    visible_clients = await db.clients.find(
+        _visible_clients_query(user),
+        {"_id": 0, "id": 1, "name": 1, "diet_end_date": 1, "status": 1},
+    ).to_list(2000)
+    client_map = {client["id"]: client for client in visible_clients if client.get("id")}
+    visible_client_ids = list(client_map.keys())
+
+    diet_tasks: List[Dict[str, Any]] = []
+    for client_row in visible_clients:
+        diet_end_date = client_row.get("diet_end_date")
+        client_status = (client_row.get("status") or "active").lower()
+        if client_status not in {"active"}:
+            continue
+        if not diet_end_date or not (today_iso <= diet_end_date <= cutoff_iso):
+            continue
+        parsed_due_date = _parse_datetime_or_date(diet_end_date)
+        if not parsed_due_date:
+            continue
+        diet_tasks.append(
+            {
+                "id": f"diet-expiry:{client_row['id']}:{diet_end_date}",
+                "task_type": "diet-expiry",
+                "title": "Diet plan expiring soon",
+                "client_id": client_row["id"],
+                "client_name": client_row.get("name", "Client"),
+                "due_date": diet_end_date,
+                "days_left": max(0, (parsed_due_date.date() - today).days),
+                "status": client_row.get("status", "active"),
+                "follow_up_id": None,
+            }
+        )
+
+    follow_up_tasks: List[Dict[str, Any]] = []
+    if visible_client_ids:
+        follow_ups = await db.follow_ups.find(
+            {
+                "client_id": {"$in": visible_client_ids},
+                "status": "scheduled",
+                "scheduled_date": {"$gte": today_iso, "$lte": cutoff_iso},
+            },
+            {"_id": 0, "id": 1, "client_id": 1, "scheduled_date": 1, "status": 1, "type": 1},
+        ).sort("scheduled_date", 1).to_list(2000)
+
+        for follow_up in follow_ups:
+            parsed_due_date = _parse_datetime_or_date(follow_up.get("scheduled_date"))
+            client_row = client_map.get(follow_up.get("client_id"))
+            if not parsed_due_date or not client_row:
+                continue
+            follow_up_tasks.append(
+                {
+                    "id": f"follow-up:{follow_up['id']}",
+                    "task_type": "follow-up",
+                    "title": "Follow-up call due soon",
+                    "client_id": client_row["id"],
+                    "client_name": client_row.get("name", "Client"),
+                    "due_date": follow_up.get("scheduled_date"),
+                    "days_left": max(0, (parsed_due_date.date() - today).days),
+                    "status": follow_up.get("status", "scheduled"),
+                    "follow_up_id": follow_up.get("id"),
+                }
+            )
+
+    all_tasks = sorted(
+        diet_tasks + follow_up_tasks,
+        key=lambda item: (item.get("due_date") or "", item.get("task_type") or "", item.get("client_name") or ""),
+    )
+
+    return {
+        "window_days": window_days,
+        "total_count": len(all_tasks),
+        "diet_expiry_count": len(diet_tasks),
+        "follow_up_count": len(follow_up_tasks),
+        "tasks": all_tasks,
+    }
+
 # ============ AUTH HELPERS ============
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
@@ -1305,15 +1427,164 @@ def _visible_client_owner_ids(user: dict) -> List[str]:
     return [owner_id for owner_id in [SHARED_CLIENT_OWNER_ID, user_id] if owner_id]
 
 
-def _visible_clients_query(user: dict, extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def _visible_shared_owner_query(user: dict, extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     query: Dict[str, Any] = {"coach_id": {"$in": _visible_client_owner_ids(user)}}
     if extra:
         query.update(extra)
     return query
 
 
+def _visible_clients_query(user: dict, extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    return _visible_shared_owner_query(user, extra)
+
+
 async def _get_visible_client(client_id: str, user: dict, projection: Optional[Dict[str, int]] = None) -> Optional[dict]:
     return await db.clients.find_one(_visible_clients_query(user, {"id": client_id}), projection or {"_id": 0})
+
+
+def _humanize_audit_field_name(field_name: str) -> str:
+    return str(field_name or "").replace("_", " ").strip().title()
+
+
+def _format_audit_value_scalar(key: Optional[str], value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return "Yes" if value else "No"
+    if isinstance(value, float):
+        if key == "amount":
+            return f"₹{value:,.2f}"
+        return f"{value:.2f}".rstrip("0").rstrip(".")
+    if isinstance(value, int):
+        if key == "amount":
+            return f"₹{value:,}"
+        return str(value)
+    if isinstance(value, list):
+        formatted = [_format_audit_value_scalar(key, item) for item in value]
+        return ", ".join(item for item in formatted if item)
+    return str(value)
+
+
+def _format_audit_snapshot(snapshot: Optional[Dict[str, Any]]) -> Optional[str]:
+    if not snapshot:
+        return None
+
+    lines: List[str] = []
+    for key, value in snapshot.items():
+        formatted_value = _format_audit_value_scalar(key, value)
+        if not formatted_value:
+            continue
+        lines.append(f"{_humanize_audit_field_name(key)}: {formatted_value}")
+    return "\n".join(lines) if lines else None
+
+
+def _derive_audit_event_label(event_type: str, entity_type: str, metadata: Optional[Dict[str, Any]]) -> str:
+    if entity_type == "transaction":
+        return "Transaction"
+    if entity_type == "follow-up":
+        return "Follow-up"
+    if entity_type != "client":
+        return _humanize_audit_field_name(entity_type)
+
+    changes = metadata.get("changes") if metadata else None
+    changed_fields = {change.get("field") for change in changes or [] if change.get("field")}
+    if not changed_fields:
+        return "Client"
+
+    if changed_fields.issubset({"diet_start_date", "diet_end_date"}):
+        return "Diet"
+    if changed_fields.issubset({"last_follow_up_date", "upcoming_follow_up_date"}):
+        return "Follow-up"
+    if changed_fields.issubset({"program_start_date", "program_end_date"}):
+        return "Program"
+    return "Client"
+
+
+def _derive_audit_value_columns(
+    *,
+    event_type: str,
+    entity_type: str,
+    metadata: Optional[Dict[str, Any]],
+) -> tuple[Optional[str], Optional[str]]:
+    payload = metadata or {}
+
+    if event_type == "client-date-updated":
+        old_lines = []
+        new_lines = []
+        for change in payload.get("changes", []):
+            field_label = _humanize_audit_field_name(change.get("field"))
+            old_lines.append(f"{field_label}: {_format_audit_value_scalar(change.get('field'), change.get('from')) or '—'}")
+            new_lines.append(f"{field_label}: {_format_audit_value_scalar(change.get('field'), change.get('to')) or '—'}")
+        return ("\n".join(old_lines) or None, "\n".join(new_lines) or None)
+
+    if isinstance(payload.get("from"), dict) or isinstance(payload.get("to"), dict):
+        return (
+            _format_audit_snapshot(payload.get("from")),
+            _format_audit_snapshot(payload.get("to")),
+        )
+
+    if event_type.endswith("created"):
+        return (None, _format_audit_snapshot(payload))
+
+    if event_type.endswith("deleted"):
+        return (_format_audit_snapshot(payload), None)
+
+    if event_type == "transaction-imported":
+        return (
+            None,
+            _format_audit_snapshot(
+                {
+                    "imported_count": payload.get("imported_count"),
+                    "skipped_count": payload.get("skipped_count"),
+                }
+            ),
+        )
+
+    if entity_type in {"follow-up", "transaction", "client"}:
+        return (None, _format_audit_snapshot(payload))
+
+    return (None, None)
+
+
+async def _write_audit_log(
+    *,
+    user: dict,
+    event_type: str,
+    entity_type: str,
+    entity_id: Optional[str],
+    summary: str,
+    client_id: Optional[str] = None,
+    client_name: Optional[str] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+    event_label: Optional[str] = None,
+    old_value: Optional[str] = None,
+    new_value: Optional[str] = None,
+) -> None:
+    now = datetime.now(timezone.utc).isoformat()
+    derived_old_value, derived_new_value = _derive_audit_value_columns(
+        event_type=event_type,
+        entity_type=entity_type,
+        metadata=metadata,
+    )
+    log_doc = {
+        "id": str(uuid.uuid4()),
+        "coach_id": SHARED_CLIENT_OWNER_ID,
+        "actor_id": user.get("id"),
+        "actor_name": user.get("name") or "Coach",
+        "actor_email": user.get("email"),
+        "event_type": event_type,
+        "entity_type": entity_type,
+        "event_label": event_label or _derive_audit_event_label(event_type, entity_type, metadata),
+        "entity_id": entity_id,
+        "client_id": client_id,
+        "client_name": client_name,
+        "summary": summary,
+        "old_value": old_value if old_value is not None else derived_old_value,
+        "new_value": new_value if new_value is not None else derived_new_value,
+        "metadata": metadata or {},
+        "created_at": now,
+    }
+    await db.audit_logs.insert_one(log_doc)
 
 # ============ AUTH ROUTES ============
 @api_router.post("/auth/register", response_model=TokenResponse)
@@ -1443,6 +1714,19 @@ async def create_client(data: ClientCreate, user: dict = Depends(get_current_use
         "updated_at": now
     }
     await db.clients.insert_one(client_doc)
+    await _write_audit_log(
+        user=user,
+        event_type="client-created",
+        entity_type="client",
+        entity_id=client_id,
+        client_id=client_id,
+        client_name=client_doc.get("name"),
+        summary=f"Added client {client_doc.get('name')}",
+        metadata={
+            "created_at": now,
+            "status": client_doc.get("status"),
+        },
+    )
     client_doc.pop("_id", None)
     return ClientResponse(**client_doc)
 
@@ -1455,6 +1739,10 @@ async def get_client(client_id: str, user: dict = Depends(get_current_user)):
 
 @api_router.put("/clients/{client_id}", response_model=ClientResponse)
 async def update_client(client_id: str, data: ClientUpdate, user: dict = Depends(get_current_user)):
+    existing = await _get_visible_client(client_id, user, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Client not found")
+
     update_data = {k: v for k, v in data.model_dump().items() if v is not None}
     update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
     
@@ -1465,6 +1753,41 @@ async def update_client(client_id: str, data: ClientUpdate, user: dict = Depends
     )
     if not result:
         raise HTTPException(status_code=404, detail="Client not found")
+
+    tracked_date_fields = [
+        "diet_start_date",
+        "diet_end_date",
+        "last_follow_up_date",
+        "upcoming_follow_up_date",
+        "program_start_date",
+        "program_end_date",
+    ]
+    changed_date_fields = []
+    for field in tracked_date_fields:
+        if field not in update_data:
+            continue
+        if existing.get(field) == result.get(field):
+            continue
+        changed_date_fields.append(
+            {
+                "field": field,
+                "from": existing.get(field),
+                "to": result.get(field),
+            }
+        )
+
+    if changed_date_fields:
+        await _write_audit_log(
+            user=user,
+            event_type="client-date-updated",
+            entity_type="client",
+            entity_id=client_id,
+            client_id=client_id,
+            client_name=result.get("name"),
+            summary=f"Updated client date fields for {result.get('name')}",
+            metadata={"changes": changed_date_fields},
+        )
+
     result.pop("_id", None)
     return ClientResponse(**result)
 
@@ -1512,9 +1835,20 @@ async def add_client_comment(client_id: str, data: ClientCommentCreate, user: di
 
 @api_router.delete("/clients/{client_id}")
 async def delete_client(client_id: str, user: dict = Depends(get_current_user)):
+    existing = await _get_visible_client(client_id, user, {"_id": 0, "id": 1, "name": 1})
     result = await db.clients.delete_one(_visible_clients_query(user, {"id": client_id}))
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Client not found")
+    if existing:
+        await _write_audit_log(
+            user=user,
+            event_type="client-deleted",
+            entity_type="client",
+            entity_id=client_id,
+            client_id=client_id,
+            client_name=existing.get("name"),
+            summary=f"Deleted client {existing.get('name')}",
+        )
     return {"message": "Client deleted"}
 
 # ============ WEIGHT ENTRY ROUTES ============
@@ -2021,9 +2355,10 @@ async def get_follow_ups(
 
 @api_router.post("/follow-ups", response_model=FollowUpResponse)
 async def create_follow_up(data: FollowUpCreate, user: dict = Depends(get_current_user)):
-    client = await _get_visible_client(data.client_id, user, {"_id": 0, "id": 1})
+    client = await _get_visible_client(data.client_id, user, {"_id": 0, "id": 1, "name": 1})
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
+    client_name = client.get("name") or "Client"
 
     follow_up_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat()
@@ -2037,11 +2372,30 @@ async def create_follow_up(data: FollowUpCreate, user: dict = Depends(get_curren
     }
     await db.follow_ups.insert_one(follow_up_doc)
     await _sync_client_follow_up_dates(data.client_id)
+    await _write_audit_log(
+        user=user,
+        event_type="follow-up-created",
+        entity_type="follow-up",
+        entity_id=follow_up_id,
+        client_id=data.client_id,
+        client_name=client_name,
+        summary=f"Created {data.type.replace('-', ' ')} follow-up for {client_name}",
+        metadata={
+            "scheduled_date": data.scheduled_date,
+            "type": data.type,
+            "notes": data.notes,
+            "status": "scheduled",
+        },
+    )
     follow_up_doc.pop("_id", None)
     return FollowUpResponse(**follow_up_doc)
 
 @api_router.put("/follow-ups/{follow_up_id}", response_model=FollowUpResponse)
 async def update_follow_up(follow_up_id: str, data: FollowUpUpdate, user: dict = Depends(get_current_user)):
+    existing = await db.follow_ups.find_one({"id": follow_up_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Follow-up not found")
+
     update_data = {k: v for k, v in data.model_dump().items() if v is not None}
     result = await db.follow_ups.find_one_and_update(
         {"id": follow_up_id},
@@ -2051,18 +2405,57 @@ async def update_follow_up(follow_up_id: str, data: FollowUpUpdate, user: dict =
     if not result:
         raise HTTPException(status_code=404, detail="Follow-up not found")
     await _sync_client_follow_up_dates(result["client_id"])
+    client = await db.clients.find_one({"id": result["client_id"]}, {"_id": 0, "name": 1})
+    await _write_audit_log(
+        user=user,
+        event_type="follow-up-updated",
+        entity_type="follow-up",
+        entity_id=follow_up_id,
+        client_id=result["client_id"],
+        client_name=(client or {}).get("name"),
+        summary=f"Updated follow-up for {(client or {}).get('name', 'Client')}",
+        metadata={
+            "from": {
+                "scheduled_date": existing.get("scheduled_date"),
+                "status": existing.get("status"),
+                "notes": existing.get("notes"),
+                "type": existing.get("type"),
+            },
+            "to": {
+                "scheduled_date": result.get("scheduled_date"),
+                "status": result.get("status"),
+                "notes": result.get("notes"),
+                "type": result.get("type"),
+            },
+        },
+    )
     result.pop("_id", None)
     return FollowUpResponse(**result)
 
 @api_router.delete("/follow-ups/{follow_up_id}")
 async def delete_follow_up(follow_up_id: str, user: dict = Depends(get_current_user)):
-    existing = await db.follow_ups.find_one({"id": follow_up_id}, {"_id": 0, "client_id": 1})
+    existing = await db.follow_ups.find_one({"id": follow_up_id}, {"_id": 0})
     if not existing:
         raise HTTPException(status_code=404, detail="Follow-up not found")
     result = await db.follow_ups.delete_one({"id": follow_up_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Follow-up not found")
     await _sync_client_follow_up_dates(existing["client_id"])
+    client = await db.clients.find_one({"id": existing["client_id"]}, {"_id": 0, "name": 1})
+    await _write_audit_log(
+        user=user,
+        event_type="follow-up-deleted",
+        entity_type="follow-up",
+        entity_id=follow_up_id,
+        client_id=existing["client_id"],
+        client_name=(client or {}).get("name"),
+        summary=f"Deleted follow-up for {(client or {}).get('name', 'Client')}",
+        metadata={
+            "scheduled_date": existing.get("scheduled_date"),
+            "status": existing.get("status"),
+            "type": existing.get("type"),
+        },
+    )
     return {"message": "Follow-up deleted"}
 
 # ============ TRANSACTION ROUTES ============
@@ -2162,7 +2555,7 @@ def _resolve_tracker_header_map(headers: List[str]) -> Dict[str, int]:
 
 def _build_transaction_dedupe_key(doc: Dict[str, Any]) -> str:
     return "|".join([
-        str(doc.get("coach_id") or ""),
+        SHARED_CLIENT_OWNER_ID,
         str(doc.get("type") or ""),
         str(doc.get("category") or ""),
         str(doc.get("transaction_date") or ""),
@@ -2218,7 +2611,7 @@ def _parse_transaction_import_rows(csv_text: str, filename: str, client_lookup: 
 
         parsed_docs.append({
             "id": str(uuid.uuid4()),
-            "coach_id": coach_id,
+            "coach_id": SHARED_CLIENT_OWNER_ID,
             "type": "income",
             "category": "Program Fee",
             "amount": amount,
@@ -2246,7 +2639,7 @@ async def get_transactions(
     limit: int = 50,
     user: dict = Depends(get_current_user)
 ):
-    query = {"coach_id": user["id"]}
+    query = _visible_shared_owner_query(user)
     if type:
         query["type"] = type
     if category:
@@ -2266,7 +2659,7 @@ async def get_transaction_summary(
     month: Optional[str] = None,
     user: dict = Depends(get_current_user)
 ):
-    query = {"coach_id": user["id"]}
+    query = _visible_shared_owner_query(user)
     if month:
         query["transaction_date"] = {"$regex": f"^{month}"}
     
@@ -2295,18 +2688,38 @@ async def create_transaction(data: TransactionCreate, user: dict = Depends(get_c
     now = datetime.now(timezone.utc).isoformat()
     transaction_doc = {
         "id": transaction_id,
-        "coach_id": user["id"],
+        "coach_id": SHARED_CLIENT_OWNER_ID,
         **data.model_dump(),
         "client_name": client_name,
         "transaction_date": data.transaction_date or now[:10],
         "created_at": now
     }
     await db.transactions.insert_one(transaction_doc)
+    await _write_audit_log(
+        user=user,
+        event_type="transaction-created",
+        entity_type="transaction",
+        entity_id=transaction_id,
+        client_id=data.client_id,
+        client_name=client_name,
+        summary=f"Added {transaction_doc['type']} transaction for {client_name or 'unlinked client'}",
+        metadata={
+            "amount": transaction_doc["amount"],
+            "category": transaction_doc["category"],
+            "transaction_date": transaction_doc["transaction_date"],
+            "payment_method": transaction_doc.get("payment_method"),
+            "program_duration": transaction_doc.get("program_duration"),
+        },
+    )
     transaction_doc.pop("_id", None)
     return TransactionResponse(**transaction_doc)
 
 @api_router.put("/transactions/{transaction_id}", response_model=TransactionResponse)
 async def update_transaction(transaction_id: str, data: TransactionUpdate, user: dict = Depends(get_current_user)):
+    existing = await db.transactions.find_one(_visible_shared_owner_query(user, {"id": transaction_id}), {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+
     update_data = {k: v for k, v in data.model_dump().items() if v is not None}
     if "client_id" in update_data and update_data["client_id"]:
         client = await _get_visible_client(update_data["client_id"], user, {"_id": 0, "name": 1})
@@ -2314,20 +2727,59 @@ async def update_transaction(transaction_id: str, data: TransactionUpdate, user:
             raise HTTPException(status_code=404, detail="Client not found")
         update_data["client_name"] = client.get("name") or update_data.get("client_name")
     result = await db.transactions.find_one_and_update(
-        {"id": transaction_id, "coach_id": user["id"]},
+        _visible_shared_owner_query(user, {"id": transaction_id}),
         {"$set": update_data},
         return_document=True
     )
     if not result:
         raise HTTPException(status_code=404, detail="Transaction not found")
+    await _write_audit_log(
+        user=user,
+        event_type="transaction-updated",
+        entity_type="transaction",
+        entity_id=transaction_id,
+        client_id=result.get("client_id"),
+        client_name=result.get("client_name"),
+        summary=f"Updated transaction for {result.get('client_name') or 'unlinked client'}",
+        metadata={
+            "from": {
+                "amount": existing.get("amount"),
+                "category": existing.get("category"),
+                "transaction_date": existing.get("transaction_date"),
+                "payment_method": existing.get("payment_method"),
+            },
+            "to": {
+                "amount": result.get("amount"),
+                "category": result.get("category"),
+                "transaction_date": result.get("transaction_date"),
+                "payment_method": result.get("payment_method"),
+            },
+        },
+    )
     result.pop("_id", None)
     return TransactionResponse(**result)
 
 @api_router.delete("/transactions/{transaction_id}")
 async def delete_transaction(transaction_id: str, user: dict = Depends(get_current_user)):
-    result = await db.transactions.delete_one({"id": transaction_id, "coach_id": user["id"]})
+    existing = await db.transactions.find_one(_visible_shared_owner_query(user, {"id": transaction_id}), {"_id": 0})
+    result = await db.transactions.delete_one(_visible_shared_owner_query(user, {"id": transaction_id}))
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Transaction not found")
+    if existing:
+        await _write_audit_log(
+            user=user,
+            event_type="transaction-deleted",
+            entity_type="transaction",
+            entity_id=transaction_id,
+            client_id=existing.get("client_id"),
+            client_name=existing.get("client_name"),
+            summary=f"Deleted transaction for {existing.get('client_name') or 'unlinked client'}",
+            metadata={
+                "amount": existing.get("amount"),
+                "category": existing.get("category"),
+                "transaction_date": existing.get("transaction_date"),
+            },
+        )
     return {"message": "Transaction deleted"}
 
 
@@ -2346,7 +2798,7 @@ async def import_transactions_csv(
         if normalized_name and normalized_name not in client_lookup:
             client_lookup[normalized_name] = {"id": client.get("id"), "name": client.get("name")}
 
-    existing_transactions = await db.transactions.find({"coach_id": user["id"]}, {"_id": 0}).to_list(5000)
+    existing_transactions = await db.transactions.find(_visible_shared_owner_query(user), {"_id": 0}).to_list(5000)
     existing_keys = {_build_transaction_dedupe_key(transaction) for transaction in existing_transactions}
 
     docs_to_insert: List[Dict[str, Any]] = []
@@ -2369,7 +2821,7 @@ async def import_transactions_csv(
         except UnicodeDecodeError:
             csv_text = raw_bytes.decode("latin-1")
 
-        parsed_docs = _parse_transaction_import_rows(csv_text, filename, client_lookup, user["id"])
+        parsed_docs = _parse_transaction_import_rows(csv_text, filename, client_lookup, SHARED_CLIENT_OWNER_ID)
         file_imported = 0
         file_skipped = 0
         for doc in parsed_docs:
@@ -2393,6 +2845,18 @@ async def import_transactions_csv(
 
     if docs_to_insert:
         await db.transactions.insert_many(docs_to_insert)
+        await _write_audit_log(
+            user=user,
+            event_type="transaction-imported",
+            entity_type="transaction",
+            entity_id=None,
+            summary=f"Imported {imported_count} transactions",
+            metadata={
+                "imported_count": imported_count,
+                "skipped_count": skipped_count,
+                "files": [result.model_dump() if hasattr(result, "model_dump") else result for result in file_results],
+            },
+        )
 
     return TransactionImportResponse(
         imported_count=imported_count,
@@ -2504,7 +2968,10 @@ async def get_dashboard_stats(user: dict = Depends(get_current_user)):
     pending_follow_ups = await db.follow_ups.count_documents({"status": "scheduled", "scheduled_date": {"$lte": today}})
     
     # Revenue stats (current month)
-    month_transactions = await db.transactions.find({"coach_id": user["id"], "transaction_date": {"$regex": f"^{current_month}"}}, {"_id": 0}).to_list(1000)
+    month_transactions = await db.transactions.find(
+        _visible_shared_owner_query(user, {"transaction_date": {"$regex": f"^{current_month}"}}),
+        {"_id": 0},
+    ).to_list(1000)
     monthly_income = sum(t["amount"] for t in month_transactions if t["type"] == "income")
     monthly_expense = sum(t["amount"] for t in month_transactions if t["type"] == "expense")
     
@@ -2539,7 +3006,7 @@ async def get_recent_activity(limit: int = 10, user: dict = Depends(get_current_
         {"_id": 0, "created_at": 1}
     ).to_list(1000)
     month_transaction_rows = await db.transactions.find(
-        {"coach_id": user["id"], "transaction_date": {"$regex": f"^{current_month}"}},
+        _visible_shared_owner_query(user, {"transaction_date": {"$regex": f"^{current_month}"}}),
         {"_id": 0, "transaction_date": 1, "amount": 1, "type": 1}
     ).to_list(1000)
 
@@ -2620,6 +3087,44 @@ async def get_recent_activity(limit: int = 10, user: dict = Depends(get_current_
         "upcoming_follow_ups": follow_up_items,
         "expiring_diet_plans": expiring_plan_items,
     }
+
+
+@api_router.get("/tasks/pending", response_model=PendingTasksFeedResponse)
+async def get_pending_tasks(window_days: int = 3, user: dict = Depends(get_current_user)):
+    window_days = max(1, min(window_days, 14))
+    payload = await _build_pending_tasks_feed(user, window_days=window_days)
+    return PendingTasksFeedResponse(**payload)
+
+
+@api_router.get("/audit-logs", response_model=List[AuditLogResponse])
+async def get_audit_logs(
+    event_type: Optional[str] = None,
+    limit: int = 100,
+    user: dict = Depends(get_current_user),
+):
+    limit = max(1, min(limit, 500))
+    query = _visible_shared_owner_query(user)
+    if event_type:
+        query["event_type"] = event_type
+    logs = await db.audit_logs.find(query, {"_id": 0}).sort("created_at", -1).limit(limit).to_list(limit)
+    normalized_logs = []
+    for log in logs:
+        if not log.get("event_label"):
+            log["event_label"] = _derive_audit_event_label(
+                log.get("event_type", ""),
+                log.get("entity_type", ""),
+                log.get("metadata"),
+            )
+        if "old_value" not in log or "new_value" not in log:
+            derived_old_value, derived_new_value = _derive_audit_value_columns(
+                event_type=log.get("event_type", ""),
+                entity_type=log.get("entity_type", ""),
+                metadata=log.get("metadata"),
+            )
+            log.setdefault("old_value", derived_old_value)
+            log.setdefault("new_value", derived_new_value)
+        normalized_logs.append(AuditLogResponse(**log))
+    return normalized_logs
 
 # ============ CLIENT MOBILE APP MODELS ============
 
@@ -3514,6 +4019,8 @@ async def startup():
     await db.follow_ups.create_index([("coach_id", 1), ("scheduled_date", 1)])
     await db.follow_ups.create_index([("client_id", 1), ("scheduled_date", 1)])
     await db.transactions.create_index([("coach_id", 1), ("transaction_date", -1)])
+    await db.audit_logs.create_index([("coach_id", 1), ("created_at", -1)])
+    await db.audit_logs.create_index([("entity_type", 1), ("created_at", -1)])
     # Mobile app indexes
     await db.daily_checkins.create_index([("client_id", 1), ("date", -1)])
     await db.meal_uploads.create_index([("client_id", 1), ("uploaded_at", -1)])
@@ -3521,6 +4028,13 @@ async def startup():
     await db.chat_conversations.create_index("client_id")
     await db.chat_conversations.create_index("coach_id")
     await db.chat_messages.create_index([("conversation_id", 1), ("created_at", -1)])
+
+    transaction_migration = await db.transactions.update_many(
+        {"coach_id": {"$ne": SHARED_CLIENT_OWNER_ID}},
+        {"$set": {"coach_id": SHARED_CLIENT_OWNER_ID}},
+    )
+    if transaction_migration.modified_count:
+        logger.info("Shared transaction migration updated %s record(s)", transaction_migration.modified_count)
     logger.info("Database indexes created")
 
 @app.on_event("shutdown")

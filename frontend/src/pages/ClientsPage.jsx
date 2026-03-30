@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
-import { Plus, Search, Edit, Trash2, Upload, Sparkles, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
+import { Plus, Search, Edit, Trash2, Upload, Sparkles, ArrowUp, ArrowDown, ArrowUpDown, CalendarDays } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Input } from "@/components/ui/input";
@@ -108,6 +108,48 @@ const normalizeToIsoDate = (value) => {
   const parsed = new Date(raw);
   if (Number.isNaN(parsed.getTime())) return null;
   return parsed.toISOString().slice(0, 10);
+};
+
+const parseIsoDateToLocal = (value) => {
+  const raw = (value ?? "").toString().trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
+  const [year, month, day] = raw.split("-").map((part) => parseInt(part, 10));
+  if ([year, month, day].some((part) => Number.isNaN(part))) return null;
+  return new Date(year, month - 1, day);
+};
+
+const getDateUrgencyMeta = (value) => {
+  const targetDate = parseIsoDateToLocal(value);
+  if (!targetDate) {
+    return {
+      className: "",
+      title: ""
+    };
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  targetDate.setHours(0, 0, 0, 0);
+  const diffInDays = Math.round((targetDate.getTime() - today.getTime()) / 86400000);
+
+  if (diffInDays <= 3) {
+    return {
+      className: "border-red-500/60 bg-red-500/8 text-red-500 focus-visible:ring-red-500/30",
+      title: diffInDays < 0 ? `${Math.abs(diffInDays)} day${Math.abs(diffInDays) === 1 ? "" : "s"} overdue` : `Due in ${diffInDays} day${diffInDays === 1 ? "" : "s"}`
+    };
+  }
+
+  if (diffInDays <= 5) {
+    return {
+      className: "border-orange-400/60 bg-orange-400/8 text-orange-500 focus-visible:ring-orange-400/30",
+      title: `Due in ${diffInDays} day${diffInDays === 1 ? "" : "s"}`
+    };
+  }
+
+  return {
+    className: "border-emerald-500/50 bg-emerald-500/8 text-emerald-600 focus-visible:ring-emerald-500/30",
+    title: `Due in ${diffInDays} days`
+  };
 };
 
 const parseHeightToCm = (value) => {
@@ -337,6 +379,10 @@ const mapNotionStatus = (value) => {
 };
 
 const getClientStatusMeta = (status) => CLIENT_STATUS_META[status] || CLIENT_STATUS_META.active;
+const TRACKER_HEADER_CLASS = "sticky top-0 z-10 bg-background/95 px-3 py-3 text-center text-[12px] font-medium text-muted-foreground backdrop-blur supports-[backdrop-filter]:bg-background/85";
+const TRACKER_HEADER_BUTTON_CLASS = "mx-auto inline-flex items-center justify-center gap-2 rounded-md px-2 py-1 text-[12px] font-semibold text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground";
+const TRACKER_CELL_INPUT_CLASS = "h-9 rounded-md border-transparent bg-transparent px-2.5 text-[13px] shadow-none transition-colors hover:bg-muted/40 focus-visible:border-border/60 focus-visible:bg-background focus-visible:ring-1 focus-visible:ring-ring/20";
+const TRACKER_COMMENT_BUTTON_CLASS = "flex h-9 w-full items-center rounded-md border border-transparent bg-transparent px-2.5 text-left text-[13px] transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/20";
 
 const getSortState = (sortValue) => {
   if ((sortValue || "").endsWith("-asc")) {
@@ -647,18 +693,18 @@ export function ClientsPage() {
       </div>
 
       <div className="flex flex-col xl:flex-row gap-3">
-        <div className="flex rounded-xl border border-border/50 bg-muted/20 p-1">
+        <div className="flex rounded-xl border border-border/50 bg-background p-1 shadow-sm">
           <button
             type="button"
             onClick={() => setClientScope("active")}
-            className={`px-4 py-2 rounded-lg text-sm transition-colors ${clientScope === "active" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground"}`}
+            className={`px-4 py-2 rounded-lg text-sm transition-colors ${clientScope === "active" ? "bg-muted text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
           >
             Active Clients ({activeCount})
           </button>
           <button
             type="button"
             onClick={() => setClientScope("all")}
-            className={`px-4 py-2 rounded-lg text-sm transition-colors ${clientScope === "all" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground"}`}
+            className={`px-4 py-2 rounded-lg text-sm transition-colors ${clientScope === "all" ? "bg-muted text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
           >
             All Clients ({totalCount})
           </button>
@@ -689,54 +735,60 @@ export function ClientsPage() {
       </div>
 
       <TooltipProvider delayDuration={120}>
-        <Card className="border-border/40 bg-card/50 overflow-hidden">
+        <Card className="overflow-hidden rounded-2xl border border-border/50 bg-background shadow-[0_1px_0_rgba(15,23,42,0.02),0_8px_30px_rgba(15,23,42,0.04)]">
+          <div className="border-b border-border/50 bg-background px-4 py-3">
+            <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+              <CalendarDays className="h-4 w-4" />
+              Client database view
+            </div>
+          </div>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1160px] table-fixed">
+            <table className="w-full min-w-[1100px] table-fixed">
               <thead>
-                <tr className="border-b border-border/50 bg-muted/20">
-                  <th className="table-dense w-[220px] text-center">
-                    <button type="button" className="mx-auto inline-flex items-center justify-center gap-2 font-semibold" onClick={() => toggleColumnSort("client")}>
+                <tr className="border-b border-border/50">
+                  <th className={`${TRACKER_HEADER_CLASS} w-[220px]`}>
+                    <button type="button" className={TRACKER_HEADER_BUTTON_CLASS} onClick={() => toggleColumnSort("client")}>
                       <span>Client</span>
                       {getColumnSortIcon("client")}
                     </button>
                   </th>
-                  <th className="table-dense w-[160px] text-center">
-                    <button type="button" className="mx-auto inline-flex items-center justify-center gap-2 font-semibold" onClick={() => toggleColumnSort("weight-diff")}>
+                  <th className={`${TRACKER_HEADER_CLASS} w-[160px]`}>
+                    <button type="button" className={TRACKER_HEADER_BUTTON_CLASS} onClick={() => toggleColumnSort("weight-diff")}>
                       <span>10-Day Diff</span>
                       {getColumnSortIcon("weight-diff")}
                     </button>
                   </th>
-                  <th className="table-dense w-[260px] text-center">
-                    <button type="button" className="mx-auto inline-flex items-center justify-center gap-2 font-semibold" onClick={() => toggleColumnSort("recent-comment")}>
+                  <th className={`${TRACKER_HEADER_CLASS} w-[240px]`}>
+                    <button type="button" className={TRACKER_HEADER_BUTTON_CLASS} onClick={() => toggleColumnSort("recent-comment")}>
                       <span>Recent Comment</span>
                       {getColumnSortIcon("recent-comment")}
                     </button>
                   </th>
-                  <th className="table-dense w-[180px] text-center">
-                    <button type="button" className="mx-auto inline-flex items-center justify-center gap-2 font-semibold" onClick={() => toggleColumnSort("diet-start")}>
+                  <th className={`${TRACKER_HEADER_CLASS} w-[170px]`}>
+                    <button type="button" className={TRACKER_HEADER_BUTTON_CLASS} onClick={() => toggleColumnSort("diet-start")}>
                       <span>Diet Start</span>
                       {getColumnSortIcon("diet-start")}
                     </button>
                   </th>
-                  <th className="table-dense w-[180px] text-center">
-                    <button type="button" className="mx-auto inline-flex items-center justify-center gap-2 font-semibold" onClick={() => toggleColumnSort("diet-expire")}>
+                  <th className={`${TRACKER_HEADER_CLASS} w-[170px]`}>
+                    <button type="button" className={TRACKER_HEADER_BUTTON_CLASS} onClick={() => toggleColumnSort("diet-expire")}>
                       <span>Diet Expire</span>
                       {getColumnSortIcon("diet-expire")}
                     </button>
                   </th>
-                  <th className="table-dense w-[180px] text-center">
-                    <button type="button" className="mx-auto inline-flex items-center justify-center gap-2 font-semibold" onClick={() => toggleColumnSort("last-follow-up")}>
+                  <th className={`${TRACKER_HEADER_CLASS} w-[170px]`}>
+                    <button type="button" className={TRACKER_HEADER_BUTTON_CLASS} onClick={() => toggleColumnSort("last-follow-up")}>
                       <span>Last Follow-up</span>
                       {getColumnSortIcon("last-follow-up")}
                     </button>
                   </th>
-                  <th className="table-dense w-[210px] text-center">
-                    <button type="button" className="mx-auto inline-flex items-center justify-center gap-2 font-semibold" onClick={() => toggleColumnSort("upcoming-follow-up")}>
+                  <th className={`${TRACKER_HEADER_CLASS} w-[180px]`}>
+                    <button type="button" className={TRACKER_HEADER_BUTTON_CLASS} onClick={() => toggleColumnSort("upcoming-follow-up")}>
                       <span>Upcoming Follow-up</span>
                       {getColumnSortIcon("upcoming-follow-up")}
                     </button>
                   </th>
-                  <th className="table-dense w-[140px] text-center">Actions</th>
+                  <th className={`${TRACKER_HEADER_CLASS} w-[110px]`}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -753,13 +805,15 @@ export function ClientsPage() {
                     const draft = rowDrafts[client.id] || {};
                     const statusMeta = getClientStatusMeta(client.status);
                     const weightSummary = weightSummaries[client.id];
+                    const dietExpiryUrgency = getDateUrgencyMeta(draft.diet_end_date ?? client.diet_end_date);
+                    const upcomingFollowUpUrgency = getDateUrgencyMeta(draft.upcoming_follow_up_date ?? client.upcoming_follow_up_date);
                     const weightDelta = weightSummary?.delta_kg;
                     const hasWeightTrend = typeof weightDelta === "number";
                     const formattedWeightDelta = hasWeightTrend
                       ? `${weightDelta > 0 ? "+" : ""}${weightDelta.toFixed(1)} kg`
                       : "—";
                     return (
-                      <tr key={client.id} className="table-dense align-top" data-testid={`client-row-${client.id}`}>
+                      <tr key={client.id} className="table-dense align-top odd:bg-background even:bg-muted/[0.18]" data-testid={`client-row-${client.id}`}>
                         <td>
                           <div className="flex items-center gap-2">
                             <Tooltip>
@@ -772,7 +826,7 @@ export function ClientsPage() {
                               </TooltipTrigger>
                               <TooltipContent>{statusMeta.label}</TooltipContent>
                             </Tooltip>
-                            <Link to={`/clients/${client.id}`} className="font-semibold text-primary hover:underline">
+                            <Link to={`/clients/${client.id}`} className="font-medium text-foreground transition-colors hover:text-primary">
                               {client.name}
                             </Link>
                           </div>
@@ -845,12 +899,13 @@ export function ClientsPage() {
                               }}
                               onBlur={() => cancelInlineCommentEdit(client.id)}
                               placeholder="Add comment and press Enter"
+                              className={TRACKER_CELL_INPUT_CLASS}
                             />
                           ) : (
                             <button
                               type="button"
                               onDoubleClick={() => startInlineCommentEdit(client.id)}
-                              className="flex h-10 w-full items-center rounded-md border border-input bg-background px-3 text-left text-sm transition-colors hover:border-primary/40"
+                              className={TRACKER_COMMENT_BUTTON_CLASS}
                               title={client.recent_comment || "Double-click to add comment"}
                             >
                               <span className={`truncate ${client.recent_comment ? "text-foreground" : "text-muted-foreground"}`}>
@@ -865,14 +920,17 @@ export function ClientsPage() {
                             value={draft.diet_start_date ?? ""}
                             onChange={(e) => setRowDrafts((prev) => ({ ...prev, [client.id]: { ...prev[client.id], diet_start_date: e.target.value } }))}
                             onBlur={(e) => saveInlineField(client.id, "diet_start_date", e.target.value)}
+                            className={TRACKER_CELL_INPUT_CLASS}
                           />
                         </td>
                         <td>
                           <Input
                             type="date"
+                            title={dietExpiryUrgency.title}
                             value={draft.diet_end_date ?? ""}
                             onChange={(e) => setRowDrafts((prev) => ({ ...prev, [client.id]: { ...prev[client.id], diet_end_date: e.target.value } }))}
                             onBlur={(e) => saveInlineField(client.id, "diet_end_date", e.target.value)}
+                            className={`${TRACKER_CELL_INPUT_CLASS} ${dietExpiryUrgency.className}`}
                           />
                         </td>
                         <td>
@@ -881,22 +939,25 @@ export function ClientsPage() {
                             value={draft.last_follow_up_date ?? ""}
                             onChange={(e) => setRowDrafts((prev) => ({ ...prev, [client.id]: { ...prev[client.id], last_follow_up_date: e.target.value } }))}
                             onBlur={(e) => saveInlineField(client.id, "last_follow_up_date", e.target.value)}
+                            className={TRACKER_CELL_INPUT_CLASS}
                           />
                         </td>
                         <td>
                           <Input
                             type="date"
+                            title={upcomingFollowUpUrgency.title}
                             value={draft.upcoming_follow_up_date ?? ""}
                             onChange={(e) => setRowDrafts((prev) => ({ ...prev, [client.id]: { ...prev[client.id], upcoming_follow_up_date: e.target.value } }))}
                             onBlur={(e) => saveInlineField(client.id, "upcoming_follow_up_date", e.target.value)}
+                            className={`${TRACKER_CELL_INPUT_CLASS} ${upcomingFollowUpUrgency.className}`}
                           />
                         </td>
                         <td>
-                          <div className="flex items-center gap-1">
-                            <Button variant="ghost" size="icon" onClick={() => openEditDialog(client)}>
+                          <div className="flex items-center gap-0.5">
+                            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-md text-muted-foreground hover:text-foreground" onClick={() => openEditDialog(client)}>
                               <Edit className="w-4 h-4" />
                             </Button>
-                            <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" onClick={() => handleDelete(client.id)}>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-md text-muted-foreground hover:text-destructive" onClick={() => handleDelete(client.id)}>
                               <Trash2 className="w-4 h-4" />
                             </Button>
                           </div>

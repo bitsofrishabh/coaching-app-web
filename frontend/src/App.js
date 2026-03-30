@@ -13,6 +13,8 @@ import { MealReviewsPage } from "@/pages/MealReviewsPage";
 import { FollowUpsPage } from "@/pages/FollowUpsPage";
 import { FinancePage } from "@/pages/FinancePage";
 import { SettingsPage } from "@/pages/SettingsPage";
+import { PendingTasksPage } from "@/pages/PendingTasksPage";
+import { AuditLogsPage } from "@/pages/AuditLogsPage";
 
 function AppRoutes() {
   return (
@@ -32,6 +34,8 @@ function AppRoutes() {
                 <Route path="/meal-reviews" element={<MealReviewsPage />} />
                 <Route path="/follow-ups" element={<FollowUpsPage />} />
                 <Route path="/finance" element={<FinancePage />} />
+                <Route path="/pending-tasks" element={<PendingTasksPage />} />
+                <Route path="/audit-logs" element={<AuditLogsPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
