@@ -6,6 +6,15 @@ import { LoadingScreen } from "@/components/app/LoadingScreen";
 const AuthContext = createContext(null);
 
 export const useAuth = () => useContext(AuthContext);
+export const normalizeRole = (role) => {
+  const raw = String(role || "").toLowerCase();
+  if (raw === "coach" || raw === "super_admin") return "super_admin";
+  if (raw === "admin") return "admin";
+  if (raw === "dietitian") return "dietitian";
+  if (raw === "client") return "client";
+  return raw;
+};
+export const hasAnyRole = (user, allowedRoles = []) => allowedRoles.includes(normalizeRole(user?.role));
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(() => {
@@ -41,7 +50,7 @@ export function AuthProvider({ children }) {
   };
 
   const register = async (name, email, password) => {
-    const res = await api.post("/auth/register", { name, email, password, role: "coach" });
+    const res = await api.post("/auth/register", { name, email, password });
     localStorage.setItem("token", res.data.access_token);
     localStorage.setItem("user", JSON.stringify(res.data.user));
     setUser(res.data.user);
@@ -65,5 +74,13 @@ export function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
   if (loading) return <LoadingScreen />;
   if (!user) return <Navigate to="/login" replace />;
+  return children;
+}
+
+export function RoleProtectedRoute({ children, allowedRoles = [] }) {
+  const { user, loading } = useAuth();
+  if (loading) return <LoadingScreen />;
+  if (!user) return <Navigate to="/login" replace />;
+  if (!hasAnyRole(user, allowedRoles)) return <Navigate to="/unauthorized" replace />;
   return children;
 }

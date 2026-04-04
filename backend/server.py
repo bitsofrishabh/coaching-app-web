@@ -48,6 +48,14 @@ EMERGENT_KEY = os.environ.get("EMERGENT_LLM_KEY")
 APP_NAME = "diettracker-pro"
 storage_key = None
 SHARED_CLIENT_OWNER_ID = "shared"
+ROLE_SUPER_ADMIN = "super_admin"
+ROLE_ADMIN = "admin"
+ROLE_DIETITIAN = "dietitian"
+ROLE_CLIENT = "client"
+LEGACY_ROLE_COACH = "coach"
+SUPER_ADMIN_ROLES = {ROLE_SUPER_ADMIN, LEGACY_ROLE_COACH}
+ADMIN_ROLES = {ROLE_SUPER_ADMIN, LEGACY_ROLE_COACH, ROLE_ADMIN}
+STAFF_ROLES = {ROLE_SUPER_ADMIN, LEGACY_ROLE_COACH, ROLE_ADMIN, ROLE_DIETITIAN}
 LOCAL_STORAGE_ROOT = ROOT_DIR / "local_uploads"
 TRACKER_ACTIVITY_ORDER = [
     "morning_drink",
@@ -156,6 +164,38 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
     user: UserResponse
 
+
+class StaffMemberCreate(BaseModel):
+    name: str
+    email: EmailStr
+    phone: Optional[str] = None
+    role: str = ROLE_DIETITIAN
+
+
+class StaffMemberUpdate(BaseModel):
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    role: Optional[str] = None
+    status: Optional[str] = None
+
+
+class StaffMemberResponse(BaseModel):
+    id: str
+    name: str
+    email: str
+    phone: Optional[str] = None
+    role: str
+    status: str
+    user_id: Optional[str] = None
+    assigned_client_ids: List[str] = Field(default_factory=list)
+    assigned_client_count: int = 0
+    created_at: str
+    updated_at: str
+
+
+class StaffAssignClientsRequest(BaseModel):
+    client_ids: List[str] = Field(default_factory=list)
+
 # Client Models
 class ClientCreate(BaseModel):
     name: str
@@ -166,6 +206,7 @@ class ClientCreate(BaseModel):
     age: Optional[int] = None
     gender: Optional[str] = None
     diet_preference: Optional[str] = None
+    primary_coach_id: Optional[str] = None
     primary_coach: Optional[str] = None
     height_cm: Optional[float] = None
     initial_weight_kg: Optional[float] = None
@@ -198,6 +239,7 @@ class ClientUpdate(BaseModel):
     age: Optional[int] = None
     gender: Optional[str] = None
     diet_preference: Optional[str] = None
+    primary_coach_id: Optional[str] = None
     primary_coach: Optional[str] = None
     height_cm: Optional[float] = None
     initial_weight_kg: Optional[float] = None
@@ -232,6 +274,7 @@ class ClientResponse(BaseModel):
     age: Optional[int] = None
     gender: Optional[str] = None
     diet_preference: Optional[str] = None
+    primary_coach_id: Optional[str] = None
     primary_coach: Optional[str] = None
     height_cm: Optional[float] = None
     initial_weight_kg: Optional[float] = None
@@ -366,10 +409,12 @@ class PendingTaskResponse(BaseModel):
     title: str
     client_id: str
     client_name: str
+    comment: Optional[str] = None
     due_date: str
     days_left: int
     status: Optional[str] = None
     follow_up_id: Optional[str] = None
+    created_by_name: Optional[str] = None
 
 
 class PendingTasksFeedResponse(BaseModel):
@@ -377,7 +422,27 @@ class PendingTasksFeedResponse(BaseModel):
     total_count: int
     diet_expiry_count: int
     follow_up_count: int
+    manual_task_count: int = 0
     tasks: List[PendingTaskResponse]
+
+
+class ManualTaskCreate(BaseModel):
+    client_id: str
+    comment: str
+    due_date: str
+
+
+class ManualTaskResponse(BaseModel):
+    id: str
+    coach_id: str
+    client_id: str
+    client_name: str
+    comment: str
+    due_date: str
+    status: str
+    created_by_id: Optional[str] = None
+    created_by_name: Optional[str] = None
+    created_at: str
 
 
 class AuditLogResponse(BaseModel):
@@ -415,6 +480,9 @@ class MealSlot(BaseModel):
 DIET_PLAN_TYPE_CLIENT = "client_plan"
 DIET_PLAN_TYPE_TEMPLATE = "master_template"
 DIET_PLAN_TYPES = {DIET_PLAN_TYPE_CLIENT, DIET_PLAN_TYPE_TEMPLATE}
+DIET_EXPORT_LAYOUT_TABLE = "table"
+DIET_EXPORT_LAYOUT_DOCUMENT = "document"
+DIET_EXPORT_LAYOUTS = {DIET_EXPORT_LAYOUT_TABLE, DIET_EXPORT_LAYOUT_DOCUMENT}
 
 class DietPlanCreate(BaseModel):
     client_id: Optional[str] = None
@@ -431,6 +499,7 @@ class DietPlanCreate(BaseModel):
     is_active: bool = True
     plan_type: str = DIET_PLAN_TYPE_CLIENT
     source_template_id: Optional[str] = None
+    export_layout: str = DIET_EXPORT_LAYOUT_TABLE
 
 class DietPlanUpdate(BaseModel):
     client_id: Optional[str] = None
@@ -447,6 +516,7 @@ class DietPlanUpdate(BaseModel):
     is_active: Optional[bool] = None
     plan_type: Optional[str] = None
     source_template_id: Optional[str] = None
+    export_layout: Optional[str] = None
 
 class DietPlanResponse(BaseModel):
     id: str
@@ -465,6 +535,7 @@ class DietPlanResponse(BaseModel):
     is_active: bool
     plan_type: str = DIET_PLAN_TYPE_CLIENT
     source_template_id: Optional[str] = None
+    export_layout: str = DIET_EXPORT_LAYOUT_TABLE
     version: int
     created_at: str
     updated_at: str
@@ -811,6 +882,10 @@ def _normalize_diet_plan_doc(plan_doc: Optional[Dict[str, Any]]) -> Optional[Dic
     normalized["plan_type"] = plan_type
     normalized["client_id"] = normalized.get("client_id")
     normalized["source_template_id"] = normalized.get("source_template_id")
+    export_layout = normalized.get("export_layout")
+    if export_layout not in DIET_EXPORT_LAYOUTS:
+        export_layout = DIET_EXPORT_LAYOUT_TABLE
+    normalized["export_layout"] = export_layout
     return normalized
 
 
@@ -1343,10 +1418,12 @@ async def _build_pending_tasks_feed(user: dict, window_days: int = 3) -> Dict[st
                 "title": "Diet plan expiring soon",
                 "client_id": client_row["id"],
                 "client_name": client_row.get("name", "Client"),
+                "comment": "Diet plan expiring soon",
                 "due_date": diet_end_date,
                 "days_left": max(0, (parsed_due_date.date() - today).days),
                 "status": client_row.get("status", "active"),
                 "follow_up_id": None,
+                "created_by_name": None,
             }
         )
 
@@ -1373,15 +1450,60 @@ async def _build_pending_tasks_feed(user: dict, window_days: int = 3) -> Dict[st
                     "title": "Follow-up call due soon",
                     "client_id": client_row["id"],
                     "client_name": client_row.get("name", "Client"),
+                    "comment": "Follow-up call due soon",
                     "due_date": follow_up.get("scheduled_date"),
                     "days_left": max(0, (parsed_due_date.date() - today).days),
                     "status": follow_up.get("status", "scheduled"),
                     "follow_up_id": follow_up.get("id"),
+                    "created_by_name": None,
+                }
+            )
+
+    manual_tasks: List[Dict[str, Any]] = []
+    if visible_client_ids:
+        manual_task_rows = await db.manual_tasks.find(
+            _visible_shared_owner_query(
+                user,
+                {
+                    "client_id": {"$in": visible_client_ids},
+                    "status": "open",
+                    "due_date": {"$gte": today_iso, "$lte": cutoff_iso},
+                },
+            ),
+            {
+                "_id": 0,
+                "id": 1,
+                "client_id": 1,
+                "due_date": 1,
+                "status": 1,
+                "comment": 1,
+                "created_by_name": 1,
+            },
+        ).sort("due_date", 1).to_list(2000)
+
+        for task in manual_task_rows:
+            parsed_due_date = _parse_datetime_or_date(task.get("due_date"))
+            client_row = client_map.get(task.get("client_id"))
+            if not parsed_due_date or not client_row:
+                continue
+            manual_tasks.append(
+                {
+                    "id": f"manual-task:{task['id']}",
+                    "task_type": "manual",
+                    "title": "Manual task",
+                    "client_id": client_row["id"],
+                    "client_name": client_row.get("name", "Client"),
+                    "comment": task.get("comment") or "Manual task",
+                    "due_date": task.get("due_date"),
+                    "days_left": max(0, (parsed_due_date.date() - today).days),
+                    "status": task.get("status", "open"),
+                    "follow_up_id": None,
+                    "created_by_name": task.get("created_by_name"),
                 }
             )
 
     all_tasks = sorted(
-        diet_tasks + follow_up_tasks,
+        diet_tasks + follow_up_tasks + manual_tasks,
         key=lambda item: (item.get("due_date") or "", item.get("task_type") or "", item.get("client_name") or ""),
     )
 
@@ -1390,6 +1512,7 @@ async def _build_pending_tasks_feed(user: dict, window_days: int = 3) -> Dict[st
         "total_count": len(all_tasks),
         "diet_expiry_count": len(diet_tasks),
         "follow_up_count": len(follow_up_tasks),
+        "manual_task_count": len(manual_tasks),
         "tasks": all_tasks,
     }
 
@@ -1400,11 +1523,111 @@ def hash_password(password: str) -> str:
 def verify_password(password: str, hashed: str) -> bool:
     return bcrypt.checkpw(password.encode(), hashed.encode())
 
+
+def normalize_staff_role(role: Optional[str]) -> str:
+    raw_role = str(role or "").strip().lower()
+    if raw_role in {ROLE_SUPER_ADMIN, LEGACY_ROLE_COACH}:
+        return ROLE_SUPER_ADMIN
+    if raw_role == ROLE_ADMIN:
+        return ROLE_ADMIN
+    if raw_role == ROLE_DIETITIAN:
+        return ROLE_DIETITIAN
+    if raw_role == ROLE_CLIENT:
+        return ROLE_CLIENT
+    return ROLE_DIETITIAN
+
+
+def is_super_admin(user: dict) -> bool:
+    return normalize_staff_role(user.get("role")) == ROLE_SUPER_ADMIN
+
+
+def is_admin_user(user: dict) -> bool:
+    return normalize_staff_role(user.get("role")) in {ROLE_SUPER_ADMIN, ROLE_ADMIN}
+
+
+def is_staff_user(user: dict) -> bool:
+    return normalize_staff_role(user.get("role")) in {ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_DIETITIAN}
+
+
+def ensure_super_admin(user: dict) -> None:
+    if not is_super_admin(user):
+        raise HTTPException(status_code=403, detail="Only super admins can perform this action")
+
+
+def ensure_admin_user(user: dict) -> None:
+    if not is_admin_user(user):
+        raise HTTPException(status_code=403, detail="Only admins can access this section")
+
+
+async def _get_staff_member_by_email(email: str) -> Optional[dict]:
+    return await db.staff_members.find_one({"email": str(email).strip().lower()}, {"_id": 0})
+
+
+async def _build_staff_response(staff_doc: dict) -> StaffMemberResponse:
+    assigned_client_ids = staff_doc.get("assigned_client_ids") or []
+    if staff_doc.get("id"):
+        assigned_client_ids = await db.clients.distinct("id", {"primary_coach_id": staff_doc["id"]})
+    return StaffMemberResponse(
+        **{
+            **staff_doc,
+            "role": normalize_staff_role(staff_doc.get("role")),
+            "assigned_client_ids": assigned_client_ids,
+            "assigned_client_count": len(assigned_client_ids),
+        }
+    )
+
+
+async def _sync_staff_directory_from_users() -> None:
+    now = datetime.now(timezone.utc).isoformat()
+    users = await db.users.find(
+        {"role": {"$in": [ROLE_SUPER_ADMIN, LEGACY_ROLE_COACH, ROLE_ADMIN, ROLE_DIETITIAN]}},
+        {"_id": 0},
+    ).to_list(1000)
+
+    for user in users:
+        email = str(user.get("email") or "").strip().lower()
+        if not email:
+            continue
+
+        normalized_role = normalize_staff_role(user.get("role"))
+        existing_staff = await db.staff_members.find_one({"email": email}, {"_id": 0})
+        if existing_staff:
+            resolved_role = normalize_staff_role(existing_staff.get("role") or user.get("role"))
+            updates = {
+                "name": user.get("name") or existing_staff.get("name") or email,
+                "role": resolved_role,
+                "user_id": user.get("id"),
+                "updated_at": now,
+            }
+            if not existing_staff.get("status"):
+                updates["status"] = "active"
+            await db.staff_members.update_one({"id": existing_staff["id"]}, {"$set": updates})
+            await db.users.update_one(
+                {"id": user.get("id")},
+                {"$set": {"role": resolved_role, "updated_at": now}},
+            )
+            continue
+
+        await db.staff_members.insert_one(
+            {
+                "id": str(uuid.uuid4()),
+                "name": user.get("name") or email,
+                "email": email,
+                "phone": None,
+                "role": normalized_role,
+                "status": "active",
+                "user_id": user.get("id"),
+                "assigned_client_ids": [],
+                "created_at": user.get("created_at") or now,
+                "updated_at": now,
+            }
+        )
+
 def create_token(user_id: str, email: str, role: str) -> str:
     payload = {
         "sub": user_id,
         "email": email,
-        "role": role,
+        "role": normalize_staff_role(role),
         "exp": datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRATION_HOURS)
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
@@ -1415,6 +1638,12 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0})
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
+        staff_member = await _get_staff_member_by_email(user.get("email", ""))
+        resolved_role = normalize_staff_role((staff_member or {}).get("role") or user.get("role"))
+        user["role"] = resolved_role
+        if resolved_role in {ROLE_ADMIN, ROLE_DIETITIAN}:
+            if not staff_member or staff_member.get("status") != "active":
+                raise HTTPException(status_code=403, detail="Unauthorized account")
         return user
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
@@ -1592,41 +1821,215 @@ async def register(data: UserRegister):
     existing = await db.users.find_one({"email": data.email})
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
-    
+
+    email = str(data.email).strip().lower()
+    normalized_requested_role = normalize_staff_role(data.role)
+    users_count = await db.users.count_documents({})
+    staff_member = await _get_staff_member_by_email(email)
+
+    if users_count == 0 and normalized_requested_role == ROLE_SUPER_ADMIN:
+        assigned_role = ROLE_SUPER_ADMIN
+    else:
+        if not staff_member or staff_member.get("status") != "active":
+            raise HTTPException(status_code=403, detail="Unauthorized email. Please contact the super admin.")
+        assigned_role = normalize_staff_role(staff_member.get("role"))
+
     user_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat()
     user_doc = {
         "id": user_id,
-        "email": data.email,
+        "email": email,
         "password": hash_password(data.password),
         "name": data.name,
-        "role": data.role,
+        "role": assigned_role,
         "created_at": now,
         "updated_at": now
     }
     await db.users.insert_one(user_doc)
-    
-    token = create_token(user_id, data.email, data.role)
+
+    if staff_member:
+        await db.staff_members.update_one(
+            {"id": staff_member["id"]},
+            {
+                "$set": {
+                    "name": data.name,
+                    "role": assigned_role,
+                    "status": "active",
+                    "user_id": user_id,
+                    "updated_at": now,
+                }
+            },
+        )
+    else:
+        await db.staff_members.insert_one(
+            {
+                "id": str(uuid.uuid4()),
+                "name": data.name,
+                "email": email,
+                "phone": None,
+                "role": assigned_role,
+                "status": "active",
+                "user_id": user_id,
+                "assigned_client_ids": [],
+                "created_at": now,
+                "updated_at": now,
+            }
+        )
+
+    token = create_token(user_id, email, assigned_role)
     return TokenResponse(
         access_token=token,
-        user=UserResponse(id=user_id, email=data.email, name=data.name, role=data.role, created_at=now)
+        user=UserResponse(id=user_id, email=email, name=data.name, role=normalize_staff_role(assigned_role), created_at=now)
     )
 
 @api_router.post("/auth/login", response_model=TokenResponse)
 async def login(data: UserLogin):
-    user = await db.users.find_one({"email": data.email}, {"_id": 0})
+    email = str(data.email).strip().lower()
+    user = await db.users.find_one({"email": email}, {"_id": 0})
     if not user or not verify_password(data.password, user["password"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
-    
-    token = create_token(user["id"], user["email"], user["role"])
+
+    staff_member = await _get_staff_member_by_email(email)
+    normalized_role = normalize_staff_role((staff_member or {}).get("role") or user.get("role"))
+    if normalized_role in {ROLE_ADMIN, ROLE_DIETITIAN}:
+        if not staff_member or staff_member.get("status") != "active":
+            raise HTTPException(status_code=403, detail="Unauthorized account")
+
+    token = create_token(user["id"], user["email"], normalized_role)
     return TokenResponse(
         access_token=token,
-        user=UserResponse(id=user["id"], email=user["email"], name=user["name"], role=user["role"], created_at=user["created_at"])
+        user=UserResponse(id=user["id"], email=user["email"], name=user["name"], role=normalized_role, created_at=user["created_at"])
     )
 
 @api_router.get("/auth/me", response_model=UserResponse)
 async def get_me(user: dict = Depends(get_current_user)):
-    return UserResponse(id=user["id"], email=user["email"], name=user["name"], role=user["role"], created_at=user["created_at"])
+    return UserResponse(id=user["id"], email=user["email"], name=user["name"], role=normalize_staff_role(user["role"]), created_at=user["created_at"])
+
+
+@api_router.get("/staff", response_model=List[StaffMemberResponse])
+async def get_staff_members(user: dict = Depends(get_current_user)):
+    ensure_super_admin(user)
+    staff_rows = await db.staff_members.find({}, {"_id": 0}).sort("created_at", 1).to_list(500)
+    return [await _build_staff_response(row) for row in staff_rows]
+
+
+@api_router.post("/staff", response_model=StaffMemberResponse)
+async def create_staff_member(data: StaffMemberCreate, user: dict = Depends(get_current_user)):
+    ensure_super_admin(user)
+    email = str(data.email).strip().lower()
+    existing_staff = await _get_staff_member_by_email(email)
+    if existing_staff and existing_staff.get("status") != "inactive":
+        raise HTTPException(status_code=400, detail="Staff member already exists for this email")
+
+    normalized_role = normalize_staff_role(data.role)
+    if normalized_role not in {ROLE_ADMIN, ROLE_DIETITIAN}:
+        raise HTTPException(status_code=400, detail="Staff role must be admin or dietitian")
+
+    existing_user = await db.users.find_one({"email": email}, {"_id": 0, "id": 1})
+    now = datetime.now(timezone.utc).isoformat()
+    staff_doc = {
+        "id": existing_staff.get("id") if existing_staff else str(uuid.uuid4()),
+        "name": data.name.strip(),
+        "email": email,
+        "phone": (data.phone or "").strip() or None,
+        "role": normalized_role,
+        "status": "active",
+        "user_id": (existing_user or {}).get("id"),
+        "assigned_client_ids": existing_staff.get("assigned_client_ids", []) if existing_staff else [],
+        "created_at": existing_staff.get("created_at", now) if existing_staff else now,
+        "updated_at": now,
+    }
+
+    await db.staff_members.update_one({"email": email}, {"$set": staff_doc}, upsert=True)
+    if existing_user:
+        await db.users.update_one({"id": existing_user["id"]}, {"$set": {"role": normalized_role, "updated_at": now}})
+    return await _build_staff_response(staff_doc)
+
+
+@api_router.put("/staff/{staff_id}", response_model=StaffMemberResponse)
+async def update_staff_member(staff_id: str, data: StaffMemberUpdate, user: dict = Depends(get_current_user)):
+    ensure_super_admin(user)
+    staff_row = await db.staff_members.find_one({"id": staff_id}, {"_id": 0})
+    if not staff_row:
+        raise HTTPException(status_code=404, detail="Staff member not found")
+
+    update_data = data.model_dump(exclude_unset=True)
+    if "role" in update_data:
+        normalized_role = normalize_staff_role(update_data["role"])
+        if normalized_role not in {ROLE_ADMIN, ROLE_DIETITIAN}:
+            raise HTTPException(status_code=400, detail="Staff role must be admin or dietitian")
+        update_data["role"] = normalized_role
+    if "name" in update_data and update_data["name"] is not None:
+        update_data["name"] = update_data["name"].strip()
+    if "phone" in update_data:
+        update_data["phone"] = (update_data["phone"] or "").strip() or None
+
+    update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+    updated_row = {**staff_row, **update_data}
+    await db.staff_members.update_one({"id": staff_id}, {"$set": update_data})
+    if staff_row.get("user_id") and ("role" in update_data or "name" in update_data):
+        user_updates = {"updated_at": update_data["updated_at"]}
+        if "role" in update_data:
+            user_updates["role"] = update_data["role"]
+        if "name" in update_data:
+            user_updates["name"] = update_data["name"]
+        await db.users.update_one({"id": staff_row["user_id"]}, {"$set": user_updates})
+    return await _build_staff_response(updated_row)
+
+
+@api_router.delete("/staff/{staff_id}")
+async def delete_staff_member(staff_id: str, user: dict = Depends(get_current_user)):
+    ensure_super_admin(user)
+    staff_row = await db.staff_members.find_one({"id": staff_id}, {"_id": 0})
+    if not staff_row:
+        raise HTTPException(status_code=404, detail="Staff member not found")
+
+    now = datetime.now(timezone.utc).isoformat()
+    await db.staff_members.update_one(
+        {"id": staff_id},
+        {"$set": {"status": "inactive", "updated_at": now}},
+    )
+    await db.clients.update_many(
+        {"primary_coach_id": staff_id},
+        {"$set": {"primary_coach_id": None, "primary_coach": None, "updated_at": now}},
+    )
+    if staff_row.get("user_id"):
+        await db.users.update_one({"id": staff_row["user_id"]}, {"$set": {"updated_at": now}})
+    return {"message": "Staff member removed"}
+
+
+@api_router.put("/staff/{staff_id}/assign-clients", response_model=StaffMemberResponse)
+async def assign_clients_to_staff(staff_id: str, data: StaffAssignClientsRequest, user: dict = Depends(get_current_user)):
+    ensure_super_admin(user)
+    staff_row = await db.staff_members.find_one({"id": staff_id, "status": "active"}, {"_id": 0})
+    if not staff_row:
+        raise HTTPException(status_code=404, detail="Staff member not found")
+
+    visible_clients = await db.clients.find(_visible_clients_query(user), {"_id": 0, "id": 1}).to_list(5000)
+    visible_client_ids = {client["id"] for client in visible_clients if client.get("id")}
+    requested_client_ids = [client_id for client_id in data.client_ids if client_id in visible_client_ids]
+
+    previous_client_ids = set(staff_row.get("assigned_client_ids") or [])
+    next_client_ids = set(requested_client_ids)
+
+    if previous_client_ids - next_client_ids:
+        await db.clients.update_many(
+            {"id": {"$in": list(previous_client_ids - next_client_ids)}, "primary_coach_id": staff_id},
+            {"$set": {"primary_coach_id": None, "primary_coach": None, "updated_at": datetime.now(timezone.utc).isoformat()}},
+        )
+    if next_client_ids:
+        await db.clients.update_many(
+            {"id": {"$in": list(next_client_ids)}},
+            {"$set": {"primary_coach_id": staff_id, "primary_coach": staff_row.get("name"), "updated_at": datetime.now(timezone.utc).isoformat()}},
+        )
+
+    updated_at = datetime.now(timezone.utc).isoformat()
+    await db.staff_members.update_one(
+        {"id": staff_id},
+        {"$set": {"assigned_client_ids": list(next_client_ids), "updated_at": updated_at}},
+    )
+    updated_row = {**staff_row, "assigned_client_ids": list(next_client_ids), "updated_at": updated_at}
+    return await _build_staff_response(updated_row)
 
 # ============ CLIENT ROUTES ============
 @api_router.get("/clients", response_model=List[ClientResponse])
@@ -1704,10 +2107,16 @@ async def create_client(data: ClientCreate, user: dict = Depends(get_current_use
     client_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat()
     current_weight = data.current_weight_kg if data.current_weight_kg is not None else data.initial_weight_kg
+    payload = data.model_dump()
+    primary_coach_id = payload.get("primary_coach_id")
+    if primary_coach_id:
+        staff_member = await db.staff_members.find_one({"id": primary_coach_id, "status": "active"}, {"_id": 0, "name": 1})
+        if staff_member:
+            payload["primary_coach"] = staff_member.get("name")
     client_doc = {
         "id": client_id,
         "coach_id": SHARED_CLIENT_OWNER_ID,
-        **data.model_dump(),
+        **payload,
         "current_weight_kg": current_weight,
         "adherence_rate": 0.0,
         "created_at": now,
@@ -1743,7 +2152,12 @@ async def update_client(client_id: str, data: ClientUpdate, user: dict = Depends
     if not existing:
         raise HTTPException(status_code=404, detail="Client not found")
 
-    update_data = {k: v for k, v in data.model_dump().items() if v is not None}
+    update_data = data.model_dump(exclude_unset=True)
+    primary_coach_id = update_data.get("primary_coach_id")
+    if primary_coach_id:
+        staff_member = await db.staff_members.find_one({"id": primary_coach_id, "status": "active"}, {"_id": 0, "name": 1})
+        if staff_member:
+            update_data["primary_coach"] = staff_member.get("name")
     update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
     
     result = await db.clients.find_one_and_update(
@@ -2166,6 +2580,8 @@ async def create_diet_plan(data: DietPlanCreate, user: dict = Depends(get_curren
     plan_type = data.plan_type or DIET_PLAN_TYPE_CLIENT
     if plan_type not in DIET_PLAN_TYPES:
         raise HTTPException(status_code=400, detail="Invalid plan_type")
+    if data.export_layout not in DIET_EXPORT_LAYOUTS:
+        raise HTTPException(status_code=400, detail="Invalid export_layout")
 
     if plan_type == DIET_PLAN_TYPE_CLIENT:
         if not data.client_id:
@@ -2215,8 +2631,8 @@ async def parse_template_pdf(
     if file.content_type not in ["application/pdf", "application/octet-stream"] and not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are supported")
 
-    if user.get("role") != "coach":
-        raise HTTPException(status_code=403, detail="Coach access required")
+    if not is_staff_user(user):
+        raise HTTPException(status_code=403, detail="Staff access required")
 
     if client_id:
         client = await _get_visible_client(client_id, user, {"_id": 0})
@@ -2309,6 +2725,8 @@ async def update_diet_plan(plan_id: str, data: DietPlanUpdate, user: dict = Depe
     update_data = {k: v for k, v in data.model_dump().items() if v is not None}
     if "plan_type" in update_data and update_data["plan_type"] not in DIET_PLAN_TYPES:
         raise HTTPException(status_code=400, detail="Invalid plan_type")
+    if "export_layout" in update_data and update_data["export_layout"] not in DIET_EXPORT_LAYOUTS:
+        raise HTTPException(status_code=400, detail="Invalid export_layout")
     if "meals" in update_data:
         update_data["meals"] = [m.model_dump() if hasattr(m, 'model_dump') else m for m in update_data["meals"]]
     if update_data.get("plan_type") == DIET_PLAN_TYPE_TEMPLATE:
@@ -2639,6 +3057,7 @@ async def get_transactions(
     limit: int = 50,
     user: dict = Depends(get_current_user)
 ):
+    ensure_admin_user(user)
     query = _visible_shared_owner_query(user)
     if type:
         query["type"] = type
@@ -2659,6 +3078,7 @@ async def get_transaction_summary(
     month: Optional[str] = None,
     user: dict = Depends(get_current_user)
 ):
+    ensure_admin_user(user)
     query = _visible_shared_owner_query(user)
     if month:
         query["transaction_date"] = {"$regex": f"^{month}"}
@@ -2677,6 +3097,7 @@ async def get_transaction_summary(
 
 @api_router.post("/transactions", response_model=TransactionResponse)
 async def create_transaction(data: TransactionCreate, user: dict = Depends(get_current_user)):
+    ensure_admin_user(user)
     client_name = data.client_name
     if data.client_id:
         client = await _get_visible_client(data.client_id, user, {"_id": 0, "name": 1})
@@ -2716,6 +3137,7 @@ async def create_transaction(data: TransactionCreate, user: dict = Depends(get_c
 
 @api_router.put("/transactions/{transaction_id}", response_model=TransactionResponse)
 async def update_transaction(transaction_id: str, data: TransactionUpdate, user: dict = Depends(get_current_user)):
+    ensure_admin_user(user)
     existing = await db.transactions.find_one(_visible_shared_owner_query(user, {"id": transaction_id}), {"_id": 0})
     if not existing:
         raise HTTPException(status_code=404, detail="Transaction not found")
@@ -2761,6 +3183,7 @@ async def update_transaction(transaction_id: str, data: TransactionUpdate, user:
 
 @api_router.delete("/transactions/{transaction_id}")
 async def delete_transaction(transaction_id: str, user: dict = Depends(get_current_user)):
+    ensure_admin_user(user)
     existing = await db.transactions.find_one(_visible_shared_owner_query(user, {"id": transaction_id}), {"_id": 0})
     result = await db.transactions.delete_one(_visible_shared_owner_query(user, {"id": transaction_id}))
     if result.deleted_count == 0:
@@ -2788,6 +3211,7 @@ async def import_transactions_csv(
     files: List[UploadFile] = File(...),
     user: dict = Depends(get_current_user)
 ):
+    ensure_admin_user(user)
     if not files:
         raise HTTPException(status_code=400, detail="At least one CSV file is required")
 
@@ -3096,9 +3520,43 @@ async def get_pending_tasks(window_days: int = 3, user: dict = Depends(get_curre
     return PendingTasksFeedResponse(**payload)
 
 
+@api_router.post("/tasks", response_model=ManualTaskResponse)
+async def create_manual_task(data: ManualTaskCreate, user: dict = Depends(get_current_user)):
+    client_row = await _get_visible_client(data.client_id, user, {"_id": 0, "id": 1, "name": 1})
+    if not client_row:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    parsed_due_date = _parse_datetime_or_date(data.due_date)
+    if not parsed_due_date:
+        raise HTTPException(status_code=400, detail="Valid task date is required")
+    due_date = parsed_due_date.date().isoformat()
+
+    comment = (data.comment or "").strip()
+    if not comment:
+        raise HTTPException(status_code=400, detail="Task comment is required")
+
+    now = datetime.now(timezone.utc).isoformat()
+    task_doc = {
+        "id": str(uuid.uuid4()),
+        "coach_id": SHARED_CLIENT_OWNER_ID,
+        "client_id": client_row["id"],
+        "client_name": client_row.get("name") or "Client",
+        "comment": comment,
+        "due_date": due_date,
+        "status": "open",
+        "created_by_id": user.get("id"),
+        "created_by_name": user.get("name") or "Coach",
+        "created_at": now,
+    }
+    await db.manual_tasks.insert_one(task_doc)
+    task_doc.pop("_id", None)
+    return ManualTaskResponse(**task_doc)
+
+
 @api_router.get("/audit-logs", response_model=List[AuditLogResponse])
 async def get_audit_logs(
     event_type: Optional[str] = None,
+    client_id: Optional[str] = None,
     limit: int = 100,
     user: dict = Depends(get_current_user),
 ):
@@ -3106,6 +3564,8 @@ async def get_audit_logs(
     query = _visible_shared_owner_query(user)
     if event_type:
         query["event_type"] = event_type
+    if client_id:
+        query["client_id"] = client_id
     logs = await db.audit_logs.find(query, {"_id": 0}).sort("created_at", -1).limit(limit).to_list(limit)
     normalized_logs = []
     for log in logs:
@@ -3204,7 +3664,7 @@ async def client_register(data: ClientRegister):
     # Find coach by invite code if provided
     coach_id = None
     if data.invite_code:
-        coach = await db.users.find_one({"invite_code": data.invite_code, "role": "coach"}, {"_id": 0})
+        coach = await db.users.find_one({"invite_code": data.invite_code, "role": {"$in": list(STAFF_ROLES)}}, {"_id": 0})
         if coach:
             coach_id = coach["id"]
     
@@ -3787,8 +4247,8 @@ async def get_client_dashboard(user: dict = Depends(get_current_user)):
 @api_router.get("/coach/chats")
 async def get_coach_conversations(user: dict = Depends(get_current_user)):
     """Get all chat conversations for coach"""
-    if user.get("role") != "coach":
-        raise HTTPException(status_code=403, detail="Coach access required")
+    if not is_staff_user(user):
+        raise HTTPException(status_code=403, detail="Staff access required")
     
     conversations = await db.chat_conversations.find(
         {"coach_id": user["id"]},
@@ -3818,8 +4278,8 @@ async def get_coach_conversations(user: dict = Depends(get_current_user)):
 @api_router.get("/coach/chat/{client_id}/messages")
 async def get_coach_chat_messages(client_id: str, limit: int = 50, user: dict = Depends(get_current_user)):
     """Get chat messages for a specific client"""
-    if user.get("role") != "coach":
-        raise HTTPException(status_code=403, detail="Coach access required")
+    if not is_staff_user(user):
+        raise HTTPException(status_code=403, detail="Staff access required")
     
     conversation = await db.chat_conversations.find_one(
         {"client_id": client_id, "coach_id": user["id"]},
@@ -3845,8 +4305,8 @@ async def get_coach_chat_messages(client_id: str, limit: int = 50, user: dict = 
 @api_router.post("/coach/chat/{client_id}/send")
 async def coach_send_message(client_id: str, data: ChatMessageCreate, user: dict = Depends(get_current_user)):
     """Coach sends message to client"""
-    if user.get("role") != "coach":
-        raise HTTPException(status_code=403, detail="Coach access required")
+    if not is_staff_user(user):
+        raise HTTPException(status_code=403, detail="Staff access required")
     
     # Get or create conversation
     conversation = await db.chat_conversations.find_one(
@@ -3897,8 +4357,8 @@ async def get_meal_uploads_for_review(
     user: dict = Depends(get_current_user)
 ):
     """Get meal uploads for coach to review"""
-    if user.get("role") != "coach":
-        raise HTTPException(status_code=403, detail="Coach access required")
+    if not is_staff_user(user):
+        raise HTTPException(status_code=403, detail="Staff access required")
     
     query = {"coach_id": user["id"]}
     if client_id:
@@ -3918,8 +4378,8 @@ async def get_meal_uploads_for_review(
 @api_router.put("/coach/meal-uploads/{upload_id}/feedback")
 async def add_meal_feedback(upload_id: str, feedback: str = Query(...), user: dict = Depends(get_current_user)):
     """Add feedback to a meal upload"""
-    if user.get("role") != "coach":
-        raise HTTPException(status_code=403, detail="Coach access required")
+    if not is_staff_user(user):
+        raise HTTPException(status_code=403, detail="Staff access required")
     
     result = await db.meal_uploads.update_one(
         {"id": upload_id, "coach_id": user["id"]},
@@ -3936,8 +4396,8 @@ async def add_meal_feedback(upload_id: str, feedback: str = Query(...), user: di
 @api_router.post("/coach/generate-invite")
 async def generate_invite_code(user: dict = Depends(get_current_user)):
     """Generate an invite code for clients to register"""
-    if user.get("role") != "coach":
-        raise HTTPException(status_code=403, detail="Coach access required")
+    if not is_staff_user(user):
+        raise HTTPException(status_code=403, detail="Staff access required")
     
     invite_code = str(uuid.uuid4())[:8].upper()
     await db.users.update_one(
@@ -3950,8 +4410,8 @@ async def generate_invite_code(user: dict = Depends(get_current_user)):
 @api_router.get("/coach/invite-code")
 async def get_invite_code(user: dict = Depends(get_current_user)):
     """Get coach's current invite code"""
-    if user.get("role") != "coach":
-        raise HTTPException(status_code=403, detail="Coach access required")
+    if not is_staff_user(user):
+        raise HTTPException(status_code=403, detail="Staff access required")
     
     coach = await db.users.find_one({"id": user["id"]}, {"_id": 0})
     return {"invite_code": coach.get("invite_code")}
@@ -4008,6 +4468,9 @@ async def startup():
     # Create indexes
     await db.users.create_index("email", unique=True)
     await db.users.create_index("invite_code", sparse=True)
+    await db.staff_members.create_index("email", unique=True)
+    await db.staff_members.create_index("user_id", sparse=True)
+    await db.staff_members.create_index([("status", 1), ("role", 1)])
     await db.clients.create_index([("coach_id", 1), ("status", 1)])
     await db.clients.create_index("email", sparse=True)
     await db.clients.create_index("user_id", sparse=True)
@@ -4019,6 +4482,8 @@ async def startup():
     await db.follow_ups.create_index([("coach_id", 1), ("scheduled_date", 1)])
     await db.follow_ups.create_index([("client_id", 1), ("scheduled_date", 1)])
     await db.transactions.create_index([("coach_id", 1), ("transaction_date", -1)])
+    await db.manual_tasks.create_index([("coach_id", 1), ("due_date", 1)])
+    await db.manual_tasks.create_index([("client_id", 1), ("due_date", 1)])
     await db.audit_logs.create_index([("coach_id", 1), ("created_at", -1)])
     await db.audit_logs.create_index([("entity_type", 1), ("created_at", -1)])
     # Mobile app indexes
@@ -4035,6 +4500,7 @@ async def startup():
     )
     if transaction_migration.modified_count:
         logger.info("Shared transaction migration updated %s record(s)", transaction_migration.modified_count)
+    await _sync_staff_directory_from_users()
     logger.info("Database indexes created")
 
 @app.on_event("shutdown")

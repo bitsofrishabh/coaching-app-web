@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { useAuth } from "@/context/auth-context";
+import { hasAnyRole, useAuth } from "@/context/auth-context";
 import { PendingTasksBell } from "@/components/layout/PendingTasksBell";
 
 function Sidebar({ collapsed, setCollapsed }) {
@@ -22,7 +22,7 @@ function Sidebar({ collapsed, setCollapsed }) {
     { icon: MessageCircle, label: "Chat", path: "/chat", badge: true },
     { icon: Camera, label: "Meal Reviews", path: "/meal-reviews" },
     { icon: CalendarCheck, label: "Follow-ups", path: "/follow-ups" },
-    { icon: DollarSign, label: "Finance", path: "/finance" },
+    ...(hasAnyRole(user, ["super_admin", "admin"]) ? [{ icon: DollarSign, label: "Finance", path: "/finance" }] : []),
     { icon: ClipboardList, label: "Audit Logs", path: "/audit-logs" },
     { icon: Settings, label: "Settings", path: "/settings" },
   ];

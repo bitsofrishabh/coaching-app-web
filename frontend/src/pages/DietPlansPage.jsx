@@ -22,9 +22,12 @@ const PLAN_TYPE_CLIENT = "client_plan";
 const PLAN_TYPE_TEMPLATE = "master_template";
 const TAB_CLIENT_PLANS = "client-plans";
 const TAB_MASTER_TEMPLATES = "master-templates";
+const EXPORT_LAYOUT_TABLE = "table";
+const EXPORT_LAYOUT_DOCUMENT = "document";
 const DEFAULT_VISIBLE_COLUMNS = ["breakfast", "mid_morning", "lunch", "evening_snack", "dinner"];
 const EDITABLE_COLUMN_KEYS = ["breakfast", "mid_morning", "lunch", "evening_snack", "dinner", "bedtime"];
 const DAY_SLOT_KEYS = ["morning_drink", "breakfast", "mid_morning", "lunch", "evening_snack", "dinner", "night_drink", "bedtime"];
+const PDF_LOGO_CANDIDATES = ["/assests/Logo.png", clinicLogo];
 
 const SUMMARY_DEFAULT = {
   morning_drink: "",
@@ -105,23 +108,55 @@ const sanitizeFilePart = (value) => {
   return cleaned || "client";
 };
 
+const formatMealValueHtml = (value) =>
+  escapeHtml(value || "—")
+    .replace(/\s*\|\s*OR\s*\|\s*/gi, "<br/><span class=\"or-divider\">OR</span><br/>")
+    .replace(/\s+OR\s+/gi, "<br/><span class=\"or-divider\">OR</span><br/>")
+    .replace(/\n/g, "<br/>");
+
+const readBlobAsDataUrl = (blob) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+
 const PDF_EXPORT_STYLES = `
   @page { size: A4 portrait; margin: 12mm; }
-  .diet-pdf-root { font-family: Arial, sans-serif; color: #111827; margin: 0; font-size: 12px; line-height: 1.5; }
-  .diet-pdf-root .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-  .diet-pdf-root .brand { display: flex; align-items: center; gap: 8px; }
-  .diet-pdf-root .logo { width: 46px; height: 46px; object-fit: contain; border-radius: 8px; }
-  .diet-pdf-root .title { font-size: 18px; font-weight: 700; }
-  .diet-pdf-root .subtitle { font-size: 12px; color: #4b5563; }
-  .diet-pdf-root .meta { font-size: 11px; color: #6b7280; }
-  .diet-pdf-root .client-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 6px 12px; border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px; margin-bottom: 10px; }
-  .diet-pdf-root .summary { border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px; margin-bottom: 10px; }
-  .diet-pdf-root .summary-row { display: grid; grid-template-columns: 140px 1fr; gap: 8px; margin-bottom: 5px; }
-  .diet-pdf-root .summary-row:last-child { margin-bottom: 0; }
-  .diet-pdf-root table { width: 100%; border-collapse: collapse; font-size: 11px; }
-  .diet-pdf-root th, .diet-pdf-root td { border: 1px solid #d1d5db; padding: 6px 7px; vertical-align: top; text-align: left; }
-  .diet-pdf-root th { background: #f3f4f6; font-weight: 700; }
-  .diet-pdf-root .footer { margin-top: 10px; border-top: 1px solid #e5e7eb; padding-top: 8px; color: #374151; font-size: 11px; }
+  .diet-pdf-root { font-family: Arial, sans-serif; color: #111827; margin: 0; font-size: 13px; line-height: 1.58; background: #ffffff; padding: 4px; }
+  .diet-pdf-root * { box-sizing: border-box; }
+  .diet-pdf-root .header { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 14px; }
+  .diet-pdf-root .brand { display: flex; align-items: center; gap: 12px; }
+  .diet-pdf-root .logo { width: 52px; height: 52px; object-fit: contain; border-radius: 10px; background: #ffffff; }
+  .diet-pdf-root .title { font-size: 20px; font-weight: 700; margin-bottom: 2px; }
+  .diet-pdf-root .subtitle { font-size: 13px; color: #4b5563; }
+  .diet-pdf-root .meta { font-size: 12px; color: #6b7280; text-align: right; }
+  .diet-pdf-root .section-title { font-size: 13px; font-weight: 700; margin-bottom: 8px; color: #111827; }
+  .diet-pdf-root .client-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 8px 14px; border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px; margin-bottom: 14px; }
+  .diet-pdf-root .client-field { min-width: 0; }
+  .diet-pdf-root .client-label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: #6b7280; margin-bottom: 2px; }
+  .diet-pdf-root .client-value { font-size: 13px; font-weight: 600; }
+  .diet-pdf-root .summary { border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px; margin-bottom: 14px; }
+  .diet-pdf-root .summary-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 8px 14px; }
+  .diet-pdf-root .summary-row { margin-bottom: 0; }
+  .diet-pdf-root .summary-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: #6b7280; margin-bottom: 2px; }
+  .diet-pdf-root .summary-value { font-size: 13px; font-weight: 600; white-space: pre-wrap; }
+  .diet-pdf-root .table-wrap { border: 1px solid #d1d5db; border-radius: 10px; overflow: hidden; }
+  .diet-pdf-root table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .diet-pdf-root th, .diet-pdf-root td { border: 1px solid #d1d5db; padding: 9px 10px; vertical-align: top; text-align: left; }
+  .diet-pdf-root th { background: #f6f4ff; font-weight: 700; }
+  .diet-pdf-root .day-cell { width: 74px; font-weight: 700; white-space: nowrap; background: #fafafa; }
+  .diet-pdf-root .meal-text { white-space: pre-wrap; }
+  .diet-pdf-root .or-divider { display: inline-block; margin: 5px 0; font-size: 10px; font-weight: 700; letter-spacing: 0.08em; color: #7c3aed; text-transform: uppercase; }
+  .diet-pdf-root .document-days { display: grid; gap: 10px; }
+  .diet-pdf-root .document-day { border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px; page-break-inside: avoid; break-inside: avoid; }
+  .diet-pdf-root .document-day-header { font-size: 15px; font-weight: 700; margin-bottom: 8px; }
+  .diet-pdf-root .document-day-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 8px 16px; }
+  .diet-pdf-root .document-row { display: grid; grid-template-columns: 132px 1fr; gap: 10px; align-items: start; }
+  .diet-pdf-root .document-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: #6b7280; padding-top: 2px; }
+  .diet-pdf-root .document-value { font-size: 13px; white-space: pre-wrap; }
+  .diet-pdf-root .footer { margin-top: 14px; border-top: 1px solid #e5e7eb; padding-top: 10px; color: #374151; font-size: 12px; white-space: pre-wrap; }
 `;
 
 const normalizeSlotKey = (raw) => {
@@ -236,6 +271,7 @@ const getInitialFormData = (clientId = "", planType = PLAN_TYPE_CLIENT) => ({
   is_active: true,
   plan_type: planType,
   source_template_id: "",
+  export_layout: EXPORT_LAYOUT_TABLE,
   plan_days: 7,
   day_wise_plan: createEmptyDayWisePlan(7),
   summary_slots: { ...SUMMARY_DEFAULT },
@@ -271,6 +307,7 @@ const buildFormDataFromPlan = (plan, overrides = {}) => {
     is_active: typeof plan?.is_active === "boolean" ? plan.is_active : true,
     plan_type: planType,
     source_template_id: overrides.source_template_id ?? plan?.source_template_id ?? (normalizePlanType(plan) === PLAN_TYPE_TEMPLATE ? plan?.id || "" : ""),
+    export_layout: [EXPORT_LAYOUT_TABLE, EXPORT_LAYOUT_DOCUMENT].includes(plan?.export_layout) ? plan.export_layout : EXPORT_LAYOUT_TABLE,
     plan_days: planDays,
     day_wise_plan: normalizedDays,
     summary_slots: buildSummarySlots(normalizedDays, plan?.summary_slots || {}),
@@ -292,6 +329,7 @@ export function DietPlansPage() {
   const [searchParams] = useSearchParams();
   const [prefillConsumed, setPrefillConsumed] = useState("");
   const pdfInputRef = useRef(null);
+  const logoDataUrlRef = useRef("");
 
   const queryClientId = searchParams.get("client_id") || "";
 
@@ -436,22 +474,52 @@ export function DietPlansPage() {
     }
   };
 
+  const getExportLogoSource = async () => {
+    if (logoDataUrlRef.current) return logoDataUrlRef.current;
+
+    for (const candidate of PDF_LOGO_CANDIDATES) {
+      try {
+        const response = await fetch(candidate);
+        if (!response.ok) continue;
+        const blob = await response.blob();
+        const dataUrl = await readBlobAsDataUrl(blob);
+        logoDataUrlRef.current = dataUrl;
+        return dataUrl;
+      } catch (_error) {
+        // Try next candidate.
+      }
+    }
+
+    logoDataUrlRef.current = clinicLogo;
+    return clinicLogo;
+  };
+
   const downloadHtmlAsPdf = async (html, filename) => {
     const { default: html2pdf } = await import("html2pdf.js");
-    const container = document.createElement("div");
-    container.style.position = "fixed";
-    container.style.left = "0";
-    container.style.top = "0";
-    container.style.width = "794px";
-    container.style.opacity = "0";
-    container.style.pointerEvents = "none";
-    container.style.zIndex = "-1";
-    container.style.background = "#ffffff";
-    container.innerHTML = `<style>${PDF_EXPORT_STYLES}</style>${html}`;
-    document.body.appendChild(container);
+    const host = document.createElement("div");
+    host.style.position = "fixed";
+    host.style.left = "-10000px";
+    host.style.top = "0";
+    host.style.width = "794px";
+    host.style.pointerEvents = "none";
+    host.style.zIndex = "-1";
+    host.style.background = "#ffffff";
+
+    const styleTag = document.createElement("style");
+    styleTag.textContent = PDF_EXPORT_STYLES;
+    const root = document.createElement("div");
+    root.innerHTML = html;
+
+    host.appendChild(styleTag);
+    host.appendChild(root);
+    document.body.appendChild(host);
 
     try {
-      const images = Array.from(container.querySelectorAll("img"));
+      if (document.fonts?.ready) {
+        await document.fonts.ready;
+      }
+
+      const images = Array.from(host.querySelectorAll("img"));
       if (images.length > 0) {
         await Promise.all(
           images.map((img) =>
@@ -465,7 +533,7 @@ export function DietPlansPage() {
         );
       }
 
-      await new Promise((resolve) => setTimeout(resolve, 60));
+      await new Promise((resolve) => setTimeout(resolve, 120));
 
       await html2pdf()
         .set({
@@ -476,10 +544,10 @@ export function DietPlansPage() {
           jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
           pagebreak: { mode: ["css", "legacy"] }
         })
-        .from(container)
+        .from(root.firstElementChild || root)
         .save();
     } finally {
-      container.remove();
+      host.remove();
     }
   };
 
@@ -578,6 +646,8 @@ export function DietPlansPage() {
     const weightDelta = getHealthyWeightDelta(client.current_weight_kg ?? client.initial_weight_kg, client.height_cm);
     const maintenanceCalories = planData.daily_calories || calculateMaintenanceCalories(client) || "—";
     const today = new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+    const exportLayout = planData.export_layout === EXPORT_LAYOUT_DOCUMENT ? EXPORT_LAYOUT_DOCUMENT : EXPORT_LAYOUT_TABLE;
+    const logoSource = await getExportLogoSource();
 
     const summaryRows = [
       ["Morning Drink", summarySlots.morning_drink || "—"],
@@ -587,69 +657,124 @@ export function DietPlansPage() {
       ["Bedtime", summarySlots.bedtime || "—"]
     ];
 
-    const dayRows = dayWisePlan.map((day) => {
-      const mealCells = visibleColumns
-        .map((column) => `<td>${escapeHtml(day[column] || "—").replace(/\n/g, "<br/>")}</td>`)
-        .join("");
-      return `<tr><td><strong>Day ${day.day}</strong></td>${mealCells}</tr>`;
-    }).join("");
+    const clientGrid = `
+      <div class="client-grid">
+        <div class="client-field"><span class="client-label">Name</span><div class="client-value">${escapeHtml(client.name)}</div></div>
+        <div class="client-field"><span class="client-label">Age</span><div class="client-value">${escapeHtml(client.age || "—")}</div></div>
+        <div class="client-field"><span class="client-label">Height</span><div class="client-value">${escapeHtml(client.height_cm || "—")} cm</div></div>
+        <div class="client-field"><span class="client-label">Start Weight</span><div class="client-value">${escapeHtml(client.initial_weight_kg || "—")} kg</div></div>
+        <div class="client-field"><span class="client-label">Current Weight</span><div class="client-value">${escapeHtml(client.current_weight_kg || client.initial_weight_kg || "—")} kg</div></div>
+        <div class="client-field"><span class="client-label">BMI</span><div class="client-value">${bmi ? bmi.toFixed(1) : "—"} (${escapeHtml(formatBmiLabel(bmi))})</div></div>
+        <div class="client-field"><span class="client-label">Maintenance</span><div class="client-value">${escapeHtml(maintenanceCalories)} kcal/day</div></div>
+        <div class="client-field"><span class="client-label">Healthy Range</span><div class="client-value">${
+          healthyRange ? `${healthyRange.minKg.toFixed(1)} - ${healthyRange.maxKg.toFixed(1)} kg` : "—"
+        }</div></div>
+        <div class="client-field"><span class="client-label">Guidance</span><div class="client-value">${
+          !weightDelta
+            ? "—"
+            : weightDelta.direction === "lose"
+              ? `Lose ${weightDelta.kg.toFixed(1)} kg`
+              : weightDelta.direction === "gain"
+                ? `Gain ${weightDelta.kg.toFixed(1)} kg`
+                : "Within healthy range"
+        }</div></div>
+      </div>
+    `;
 
-    const html = `<div class="diet-pdf-root">
-    <div class="header">
-      <div class="brand">
-        <img src="${clinicLogo}" alt="Clinic Logo" class="logo" />
-        <div>
-          <div class="title">Diet Plan</div>
-          <div class="subtitle">${escapeHtml(planData.name || "Personalized Diet Plan")}</div>
+    const summaryBlock = `
+      <div class="summary">
+        <div class="section-title">Daily Summary</div>
+        <div class="summary-grid">
+          ${summaryRows
+            .map(
+              ([label, value]) => `
+                <div class="summary-row">
+                  <div class="summary-label">${escapeHtml(label)}</div>
+                  <div class="summary-value">${formatMealValueHtml(value)}</div>
+                </div>
+              `
+            )
+            .join("")}
         </div>
       </div>
-      <div class="meta">Generated on ${escapeHtml(today)}</div>
-    </div>
+    `;
 
-    <div class="client-grid">
-      <div><strong>Name:</strong> ${escapeHtml(client.name)}</div>
-      <div><strong>Age:</strong> ${escapeHtml(client.age || "—")}</div>
-      <div><strong>Height:</strong> ${escapeHtml(client.height_cm || "—")} cm</div>
-      <div><strong>Start Weight:</strong> ${escapeHtml(client.initial_weight_kg || "—")} kg</div>
-      <div><strong>Current Weight:</strong> ${escapeHtml(client.current_weight_kg || client.initial_weight_kg || "—")} kg</div>
-      <div><strong>BMI:</strong> ${bmi ? bmi.toFixed(1) : "—"} (${escapeHtml(formatBmiLabel(bmi))})</div>
-      <div><strong>Maintenance:</strong> ${escapeHtml(maintenanceCalories)} kcal/day</div>
-      <div><strong>Healthy Range:</strong> ${
-        healthyRange ? `${healthyRange.minKg.toFixed(1)} - ${healthyRange.maxKg.toFixed(1)} kg` : "—"
-      }</div>
-      <div><strong>Guidance:</strong> ${
-        !weightDelta
-          ? "—"
-          : weightDelta.direction === "lose"
-            ? `Lose ${weightDelta.kg.toFixed(1)} kg`
-            : weightDelta.direction === "gain"
-              ? `Gain ${weightDelta.kg.toFixed(1)} kg`
-              : "Within healthy range"
-      }</div>
-    </div>
+    const tableLayoutHtml = `
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th class="day-cell">Day</th>
+              ${visibleColumns.map((column) => `<th>${escapeHtml(SLOT_LABELS[column])}</th>`).join("")}
+            </tr>
+          </thead>
+          <tbody>
+            ${dayWisePlan
+              .map((day) => {
+                const mealCells = visibleColumns
+                  .map((column) => `<td><div class="meal-text">${formatMealValueHtml(day[column] || "—")}</div></td>`)
+                  .join("");
+                return `<tr><td class="day-cell">Day ${day.day}</td>${mealCells}</tr>`;
+              })
+              .join("")}
+          </tbody>
+        </table>
+      </div>
+    `;
 
-    <div class="summary">
-      ${summaryRows
-        .map(([label, value]) => `<div class="summary-row"><div><strong>${escapeHtml(label)}:</strong></div><div>${escapeHtml(value)}</div></div>`)
-        .join("")}
-    </div>
+    const documentLayoutHtml = `
+      <div class="document-days">
+        ${dayWisePlan
+          .map((day) => {
+            const rows = visibleColumns
+              .filter((column) => String(day[column] || "").trim())
+              .map(
+                (column) => `
+                  <div class="document-row">
+                    <div class="document-label">${escapeHtml(SLOT_LABELS[column])}</div>
+                    <div class="document-value">${formatMealValueHtml(day[column])}</div>
+                  </div>
+                `
+              )
+              .join("");
+            return `
+              <section class="document-day">
+                <div class="document-day-header">Day ${day.day}</div>
+                <div class="document-day-grid">
+                  ${rows || `<div class="document-row"><div class="document-label">Meals</div><div class="document-value">—</div></div>`}
+                </div>
+              </section>
+            `;
+          })
+          .join("")}
+      </div>
+    `;
 
-    <table>
-      <thead>
-        <tr>
-          <th>Day</th>
-          ${visibleColumns.map((column) => `<th>${escapeHtml(SLOT_LABELS[column])}</th>`).join("")}
-        </tr>
-      </thead>
-      <tbody>${dayRows}</tbody>
-    </table>
+    const html = `<div class="diet-pdf-root">
+      <div class="header">
+        <div class="brand">
+          <img src="${logoSource}" alt="Clinic Logo" class="logo" />
+          <div>
+            <div class="title">Diet Plan</div>
+            <div class="subtitle">${escapeHtml(planData.name || "Personalized Diet Plan")}</div>
+          </div>
+        </div>
+        <div class="meta">
+          <div>Generated on ${escapeHtml(today)}</div>
+          <div>${escapeHtml(exportLayout === EXPORT_LAYOUT_DOCUMENT ? "Document Layout" : "Table Layout")}</div>
+        </div>
+      </div>
 
-    ${planData.instructions ? `<div class="footer"><strong>Instructions:</strong><br/>${escapeHtml(planData.instructions).replace(/\n/g, "<br/>")}</div>` : ""}
-    <div class="footer">${escapeHtml(planData.footer_note || "Prepared by DietTracker. Follow meal timings and hydrate adequately.")}</div>
+      ${clientGrid}
+      ${summaryBlock}
+      <div class="section-title">${escapeHtml(exportLayout === EXPORT_LAYOUT_DOCUMENT ? "Day-wise Diet Document" : "Day-wise Diet Table")}</div>
+      ${exportLayout === EXPORT_LAYOUT_DOCUMENT ? documentLayoutHtml : tableLayoutHtml}
+      ${planData.instructions ? `<div class="footer"><strong>Instructions</strong>\n${escapeHtml(planData.instructions)}</div>` : ""}
+      <div class="footer">${escapeHtml(planData.footer_note || "Prepared by DietTracker. Follow meal timings and hydrate adequately.")}</div>
     </div>`;
 
     try {
-      const filename = `${sanitizeFilePart(client.name)}_diet_${days}days.pdf`;
+      const filename = `${sanitizeFilePart(client.name)}_diet_${days}days_${exportLayout}.pdf`;
       await downloadHtmlAsPdf(html, filename);
     } catch (err) {
       toast.error("Failed to download PDF");
@@ -797,6 +922,7 @@ export function DietPlansPage() {
                         )}
                         <Badge variant="outline">{plan.plan_days || plan.day_wise_plan?.length || 0} days</Badge>
                         <Badge variant="outline">{(plan.visible_columns || DEFAULT_VISIBLE_COLUMNS).length} cols</Badge>
+                        <Badge variant="outline">{plan.export_layout === EXPORT_LAYOUT_DOCUMENT ? "Document" : "Table"} Export</Badge>
                         {plan.source_template_id ? <Badge variant="secondary">From {getTemplateName(plan.source_template_id)}</Badge> : null}
                       </div>
                       <div className="flex items-center justify-between pt-3 border-t border-border/50">
@@ -850,6 +976,7 @@ export function DietPlansPage() {
                       <div className="flex flex-wrap items-center gap-3 text-sm">
                         <Badge variant="outline">{plan.plan_days || plan.day_wise_plan?.length || 0} days</Badge>
                         <Badge variant="outline">{(plan.visible_columns || DEFAULT_VISIBLE_COLUMNS).length} cols</Badge>
+                        <Badge variant="outline">{plan.export_layout === EXPORT_LAYOUT_DOCUMENT ? "Document" : "Table"} Export</Badge>
                         {plan.daily_calories ? (
                           <span className="flex items-center gap-1 text-muted-foreground">
                             <Activity className="w-4 h-4 text-primary" /> {plan.daily_calories} cal/day
@@ -929,6 +1056,22 @@ export function DietPlansPage() {
                   onChange={(e) => setFormData((prev) => ({ ...prev, daily_calories: e.target.value }))}
                   placeholder={!isTemplateDialog && selectedClientMaintenance ? `${selectedClientMaintenance}` : "Optional"}
                 />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Export Layout</Label>
+                <Select
+                  value={formData.export_layout}
+                  onValueChange={(value) => setFormData((prev) => ({ ...prev, export_layout: value }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={EXPORT_LAYOUT_TABLE}>Table Layout</SelectItem>
+                    <SelectItem value={EXPORT_LAYOUT_DOCUMENT}>Document Layout</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
 

@@ -30,7 +30,12 @@ export function LoginPage() {
       }
       navigate("/");
     } catch (err) {
-      toast.error(err.response?.data?.detail || "Something went wrong");
+      const message = err.response?.data?.detail || "Something went wrong";
+      if (err.response?.status === 403) {
+        navigate("/unauthorized", { state: { message } });
+      } else {
+        toast.error(message);
+      }
     }
     setLoading(false);
   };
@@ -68,7 +73,7 @@ export function LoginPage() {
               {isRegister ? "Create account" : "Welcome back"}
             </CardTitle>
             <CardDescription>
-              {isRegister ? "Start your journey with DietTracker Pro" : "Sign in to your account to continue"}
+              {isRegister ? "Create an account with an invited email address" : "Sign in to your account to continue"}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -132,6 +137,11 @@ export function LoginPage() {
                 {isRegister ? "Already have an account? Sign in" : "Don't have an account? Create one"}
               </button>
             </div>
+            {isRegister && (
+              <p className="mt-3 text-center text-xs text-muted-foreground">
+                Registration is invite-only for staff. Use the exact email added by the super admin.
+              </p>
+            )}
           </CardContent>
         </Card>
       </div>

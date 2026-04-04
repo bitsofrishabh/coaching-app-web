@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { DatePickerInput } from "@/components/ui/date-picker-input";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -202,10 +203,10 @@ export function FollowUpsPage() {
                   className="pl-9"
                 />
               </div>
-              <Input
-                type="date"
+              <DatePickerInput
                 value={filterDate}
-                onChange={(event) => setFilterDate(event.target.value)}
+                onChange={setFilterDate}
+                placeholder="Filter by date"
               />
               <Button variant="outline" onClick={() => { setSearchQuery(""); setFilterDate(""); }}>
                 Clear Filters
@@ -294,7 +295,13 @@ export function FollowUpsPage() {
             </div>
             <div className="space-y-2">
               <Label>Date *</Label>
-              <Input type="date" data-testid="followup-date-input" value={formData.scheduled_date} onChange={(e) => setFormData({ ...formData, scheduled_date: e.target.value })} required />
+              <DatePickerInput
+                data-testid="followup-date-input"
+                value={formData.scheduled_date}
+                onChange={(value) => setFormData({ ...formData, scheduled_date: value })}
+                placeholder="Select follow-up date"
+                clearable={false}
+              />
             </div>
             <div className="space-y-2">
               <Label>Type</Label>

@@ -1,5 +1,5 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
-import { AuthProvider, ProtectedRoute } from "@/context/auth-context";
+import { AuthProvider, ProtectedRoute, RoleProtectedRoute } from "@/context/auth-context";
 import { ThemeProvider } from "@/components/app/ThemeProvider";
 import { Layout } from "@/components/layout/AppLayout";
 import { Toaster } from "@/components/ui/sonner";
@@ -15,11 +15,13 @@ import { FinancePage } from "@/pages/FinancePage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { PendingTasksPage } from "@/pages/PendingTasksPage";
 import { AuditLogsPage } from "@/pages/AuditLogsPage";
+import { UnauthorizedPage } from "@/pages/UnauthorizedPage";
 
 function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/unauthorized" element={<UnauthorizedPage />} />
       <Route
         path="/*"
         element={
@@ -33,7 +35,14 @@ function AppRoutes() {
                 <Route path="/chat" element={<ChatPage />} />
                 <Route path="/meal-reviews" element={<MealReviewsPage />} />
                 <Route path="/follow-ups" element={<FollowUpsPage />} />
-                <Route path="/finance" element={<FinancePage />} />
+                <Route
+                  path="/finance"
+                  element={(
+                    <RoleProtectedRoute allowedRoles={["super_admin", "admin"]}>
+                      <FinancePage />
+                    </RoleProtectedRoute>
+                  )}
+                />
                 <Route path="/pending-tasks" element={<PendingTasksPage />} />
                 <Route path="/audit-logs" element={<AuditLogsPage />} />
                 <Route path="/settings" element={<SettingsPage />} />

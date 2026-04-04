@@ -1,17 +1,39 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
-import { Plus, Search, Edit, Trash2, Upload, Sparkles, ArrowUp, ArrowDown, ArrowUpDown, CalendarDays } from "lucide-react";
+import { Plus, Search, Edit, Trash2, Upload, Sparkles, ArrowUp, ArrowDown, ArrowUpDown, CalendarDays, Eye, Loader2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { api } from "@/lib/api";
+import { hasAnyRole, useAuth } from "@/context/auth-context";
 
 const CLIENT_FORM_DEFAULTS = {
   name: "",
@@ -58,6 +80,7 @@ const CLIENT_SORT_OPTIONS = [
 const CLIENT_STATUS_OPTIONS = [
   { value: "active", label: "Active" },
   { value: "on-hold", label: "Paused" },
+  { value: "not-responding", label: "Not Responding" },
   { value: "inactive", label: "Stopped" },
   { value: "completed", label: "Program Done" },
   { value: "out-of-town", label: "Out of Town" }
@@ -66,23 +89,33 @@ const CLIENT_STATUS_OPTIONS = [
 const CLIENT_STATUS_META = {
   active: {
     label: "Active",
-    dotClassName: "bg-violet-500 shadow-[0_0_0_4px_rgba(139,92,246,0.16)]"
+    dotClassName: "bg-violet-500 shadow-[0_0_0_4px_rgba(139,92,246,0.16)]",
+    badgeClassName: "border-violet-500/20 bg-violet-500/10 text-violet-600 dark:text-violet-300"
   },
   "on-hold": {
     label: "Paused",
-    dotClassName: "bg-amber-400 shadow-[0_0_0_4px_rgba(251,191,36,0.16)]"
+    dotClassName: "bg-amber-400 shadow-[0_0_0_4px_rgba(251,191,36,0.16)]",
+    badgeClassName: "border-amber-400/20 bg-amber-400/10 text-amber-600 dark:text-amber-300"
+  },
+  "not-responding": {
+    label: "Not Responding",
+    dotClassName: "bg-fuchsia-500 shadow-[0_0_0_4px_rgba(217,70,239,0.16)]",
+    badgeClassName: "border-fuchsia-500/20 bg-fuchsia-500/10 text-fuchsia-600 dark:text-fuchsia-300"
   },
   inactive: {
     label: "Stopped",
-    dotClassName: "bg-red-500 shadow-[0_0_0_4px_rgba(239,68,68,0.14)]"
+    dotClassName: "bg-red-500 shadow-[0_0_0_4px_rgba(239,68,68,0.14)]",
+    badgeClassName: "border-red-500/20 bg-red-500/10 text-red-600 dark:text-red-300"
   },
   completed: {
     label: "Program Done",
-    dotClassName: "bg-violet-500 shadow-[0_0_0_4px_rgba(139,92,246,0.16)]"
+    dotClassName: "bg-violet-500 shadow-[0_0_0_4px_rgba(139,92,246,0.16)]",
+    badgeClassName: "border-sky-500/20 bg-sky-500/10 text-sky-600 dark:text-sky-300"
   },
   "out-of-town": {
     label: "Out of Town",
-    dotClassName: "bg-orange-500 shadow-[0_0_0_4px_rgba(249,115,22,0.16)]"
+    dotClassName: "bg-orange-500 shadow-[0_0_0_4px_rgba(249,115,22,0.16)]",
+    badgeClassName: "border-orange-500/20 bg-orange-500/10 text-orange-600 dark:text-orange-300"
   }
 };
 
@@ -132,23 +165,30 @@ const getDateUrgencyMeta = (value) => {
   targetDate.setHours(0, 0, 0, 0);
   const diffInDays = Math.round((targetDate.getTime() - today.getTime()) / 86400000);
 
-  if (diffInDays <= 3) {
+  if (diffInDays < 0) {
     return {
-      className: "border-red-500/60 bg-red-500/8 text-red-500 focus-visible:ring-red-500/30",
-      title: diffInDays < 0 ? `${Math.abs(diffInDays)} day${Math.abs(diffInDays) === 1 ? "" : "s"} overdue` : `Due in ${diffInDays} day${diffInDays === 1 ? "" : "s"}`
+      className: "text-red-500",
+      title: `${Math.abs(diffInDays)} day${Math.abs(diffInDays) === 1 ? "" : "s"} overdue`
     };
   }
 
-  if (diffInDays <= 5) {
+  if (diffInDays >= 0 && diffInDays <= 2) {
     return {
-      className: "border-orange-400/60 bg-orange-400/8 text-orange-500 focus-visible:ring-orange-400/30",
+      className: "text-red-500",
+      title: diffInDays === 0 ? "Due today" : `Due in ${diffInDays} day${diffInDays === 1 ? "" : "s"}`
+    };
+  }
+
+  if (diffInDays > 2) {
+    return {
+      className: "text-green-500",
       title: `Due in ${diffInDays} day${diffInDays === 1 ? "" : "s"}`
     };
   }
 
   return {
-    className: "border-emerald-500/50 bg-emerald-500/8 text-emerald-600 focus-visible:ring-emerald-500/30",
-    title: `Due in ${diffInDays} days`
+    className: "",
+    title: ""
   };
 };
 
@@ -372,6 +412,7 @@ const mapNotionStatus = (value) => {
   const raw = (value || "").toLowerCase();
   if (/(outoftown|out of town|travel|travelling|traveling|vacation)/.test(raw)) return "out-of-town";
   if (/(programdone|done|complete|completed|closed)/.test(raw)) return "completed";
+  if (/(notresponding|not responding|noresponse|no response|unresponsive|unreachable)/.test(raw)) return "not-responding";
   if (/(onhold|hold|paused|pause)/.test(raw)) return "on-hold";
   if (/(inactive|drop|dropped|lost)/.test(raw)) return "inactive";
   if (/(active|ongoing|running|inprogress)/.test(raw)) return "active";
@@ -379,10 +420,46 @@ const mapNotionStatus = (value) => {
 };
 
 const getClientStatusMeta = (status) => CLIENT_STATUS_META[status] || CLIENT_STATUS_META.active;
-const TRACKER_HEADER_CLASS = "sticky top-0 z-10 bg-background/95 px-3 py-3 text-center text-[12px] font-medium text-muted-foreground backdrop-blur supports-[backdrop-filter]:bg-background/85";
+const TRACKER_COLUMN_DEFINITIONS = [
+  { key: "client", label: "Client", sortable: true, defaultWidth: 220, minWidth: 180 },
+  { key: "status", label: "Status", sortable: false, defaultWidth: 150, minWidth: 130 },
+  { key: "weight-diff", label: "10-Day Diff", sortable: true, defaultWidth: 160, minWidth: 130 },
+  { key: "recent-comment", label: "Recent Comment", sortable: true, defaultWidth: 240, minWidth: 200 },
+  { key: "diet-start", label: "Diet Start", sortable: true, defaultWidth: 170, minWidth: 150 },
+  { key: "diet-expire", label: "Diet Expire", sortable: true, defaultWidth: 170, minWidth: 150 },
+  { key: "last-follow-up", label: "Last Follow-up", sortable: true, defaultWidth: 170, minWidth: 150 },
+  { key: "upcoming-follow-up", label: "Upcoming Follow-up", sortable: true, defaultWidth: 180, minWidth: 160 },
+  { key: "actions", label: "Actions", sortable: false, defaultWidth: 110, minWidth: 96 },
+];
+const DEFAULT_TRACKER_COLUMN_WIDTHS = Object.fromEntries(
+  TRACKER_COLUMN_DEFINITIONS.map((column) => [column.key, column.defaultWidth])
+);
+const TRACKER_COLUMN_MIN_WIDTHS = Object.fromEntries(
+  TRACKER_COLUMN_DEFINITIONS.map((column) => [column.key, column.minWidth])
+);
+const TRACKER_HEADER_CLASS = "sticky top-0 z-10 border-b border-r border-slate-300 dark:border-white/15 bg-background px-3 py-2.5 text-center text-[12px] font-medium text-muted-foreground backdrop-blur supports-[backdrop-filter]:bg-background";
 const TRACKER_HEADER_BUTTON_CLASS = "mx-auto inline-flex items-center justify-center gap-2 rounded-md px-2 py-1 text-[12px] font-semibold text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground";
-const TRACKER_CELL_INPUT_CLASS = "h-9 rounded-md border-transparent bg-transparent px-2.5 text-[13px] shadow-none transition-colors hover:bg-muted/40 focus-visible:border-border/60 focus-visible:bg-background focus-visible:ring-1 focus-visible:ring-ring/20";
-const TRACKER_COMMENT_BUTTON_CLASS = "flex h-9 w-full items-center rounded-md border border-transparent bg-transparent px-2.5 text-left text-[13px] transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/20";
+const TRACKER_CELL_INPUT_CLASS = "h-8 rounded-none border-0 bg-transparent px-0 text-[14px] font-medium shadow-none hover:bg-transparent";
+const TRACKER_COMMENT_BUTTON_CLASS = "flex h-8 w-full items-center rounded-md border border-transparent bg-transparent px-2 text-left text-[13px] transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/20";
+const TRACKER_BODY_CELL_CLASS = "border-b border-r border-slate-300 dark:border-white/15 bg-background px-3 py-1.5 align-top transition-colors group-hover:bg-muted/[0.08]";
+
+const formatDisplayDate = (value) => {
+  if (!value) return "—";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+};
+
+const formatWeight = (value) => {
+  if (value === null || value === undefined || value === "") return "—";
+  const numeric = Number(value);
+  if (Number.isNaN(numeric)) return `${value}`;
+  return `${numeric.toFixed(1)} kg`;
+};
 
 const getSortState = (sortValue) => {
   if ((sortValue || "").endsWith("-asc")) {
@@ -412,11 +489,13 @@ const compareNullableValues = (leftValue, rightValue, direction, type = "text") 
 };
 
 export function ClientsPage() {
+  const { user } = useAuth();
   const [clients, setClients] = useState([]);
   const [weightSummaries, setWeightSummaries] = useState({});
+  const [columnWidths, setColumnWidths] = useState(() => ({ ...DEFAULT_TRACKER_COLUMN_WIDTHS }));
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [clientScope, setClientScope] = useState("active");
+  const [statusFilters, setStatusFilters] = useState(["active"]);
   const [sortBy, setSortBy] = useState("client-asc");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingClient, setEditingClient] = useState(null);
@@ -424,8 +503,13 @@ export function ClientsPage() {
   const [formData, setFormData] = useState(CLIENT_FORM_DEFAULTS);
   const [rowDrafts, setRowDrafts] = useState({});
   const [editingCommentClientId, setEditingCommentClientId] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [quickViewOpen, setQuickViewOpen] = useState(false);
+  const [quickViewLoading, setQuickViewLoading] = useState(false);
+  const [quickViewClient, setQuickViewClient] = useState(null);
   const csvInputRef = useRef(null);
   const commentInputRefs = useRef({});
+  const resizeStateRef = useRef(null);
 
   const fetchClients = async () => {
     setLoading(true);
@@ -464,6 +548,41 @@ export function ClientsPage() {
     if (input) input.focus();
   }, [editingCommentClientId]);
 
+  const syncClientIntoState = useCallback((savedClient) => {
+    setClients((prev) => {
+      const existingIndex = prev.findIndex((client) => client.id === savedClient.id);
+      if (existingIndex === -1) {
+        return [savedClient, ...prev];
+      }
+      return prev.map((client) => (client.id === savedClient.id ? savedClient : client));
+    });
+    setRowDrafts((prev) => ({
+      ...prev,
+      [savedClient.id]: {
+        recent_comment: prev[savedClient.id]?.recent_comment ?? "",
+        diet_start_date: savedClient.diet_start_date || "",
+        diet_end_date: savedClient.diet_end_date || "",
+        last_follow_up_date: savedClient.last_follow_up_date || "",
+        upcoming_follow_up_date: savedClient.upcoming_follow_up_date || "",
+      },
+    }));
+  }, []);
+
+  const removeClientFromState = useCallback((clientId) => {
+    setClients((prev) => prev.filter((client) => client.id !== clientId));
+    setRowDrafts((prev) => {
+      const next = { ...prev };
+      delete next[clientId];
+      return next;
+    });
+    setWeightSummaries((prev) => {
+      const next = { ...prev };
+      delete next[clientId];
+      return next;
+    });
+    setEditingCommentClientId((prev) => (prev === clientId ? null : prev));
+  }, []);
+
   const resetForm = () => setFormData(CLIENT_FORM_DEFAULTS);
 
   const openCreateDialog = () => {
@@ -487,29 +606,34 @@ export function ClientsPage() {
         return;
       }
 
+      const response = editingClient
+        ? await api.put(`/clients/${editingClient.id}`, payload)
+        : await api.post("/clients", payload);
+      const savedClient = response.data;
+
       if (editingClient) {
-        await api.put(`/clients/${editingClient.id}`, payload);
         toast.success("Client updated successfully");
       } else {
-        await api.post("/clients", payload);
         toast.success("Client added successfully");
       }
+
+      syncClientIntoState(savedClient);
 
       setDialogOpen(false);
       setEditingClient(null);
       resetForm();
-      fetchClients();
     } catch (err) {
       toast.error(err.response?.data?.detail || "Failed to save client");
     }
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm("Are you sure you want to delete this client?")) return;
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
     try {
-      await api.delete(`/clients/${id}`);
+      await api.delete(`/clients/${deleteTarget.id}`);
+      removeClientFromState(deleteTarget.id);
+      setDeleteTarget(null);
       toast.success("Client deleted");
-      fetchClients();
     } catch (err) {
       toast.error("Failed to delete client");
     }
@@ -522,6 +646,25 @@ export function ClientsPage() {
       setClients((prev) => prev.map((client) => (client.id === clientId ? { ...client, [field]: value } : client)));
     } catch (err) {
       toast.error("Failed to update client");
+    }
+  };
+
+  const handleInlineDateChange = async (clientId, field, value) => {
+    setRowDrafts((prev) => ({ ...prev, [clientId]: { ...prev[clientId], [field]: value } }));
+    await saveInlineField(clientId, field, value);
+  };
+
+  const openQuickView = async (client) => {
+    setQuickViewOpen(true);
+    setQuickViewLoading(true);
+    setQuickViewClient(client);
+    try {
+      const response = await api.get(`/clients/${client.id}`);
+      setQuickViewClient(response.data);
+    } catch (err) {
+      toast.error("Failed to load client details");
+    } finally {
+      setQuickViewLoading(false);
     }
   };
 
@@ -607,9 +750,28 @@ export function ClientsPage() {
     setEditingCommentClientId((prev) => (prev === clientId ? null : prev));
   };
 
-  const activeCount = clients.filter((client) => client.status === "active" || client.status === "out-of-town").length;
   const totalCount = clients.length;
+  const statusCounts = clients.reduce((accumulator, client) => {
+    const key = client.status || "active";
+    accumulator[key] = (accumulator[key] || 0) + 1;
+    return accumulator;
+  }, {});
+  const statusFilterOptions = CLIENT_STATUS_OPTIONS.map((option) => ({
+    value: option.value,
+    label: `${option.label} (${statusCounts[option.value] || 0})`,
+  }));
+  const selectedStatusLabel = (() => {
+    if (!statusFilters.length || statusFilters.length === CLIENT_STATUS_OPTIONS.length) {
+      return `All Clients (${totalCount})`;
+    }
+    if (statusFilters.length === 1) {
+      const match = CLIENT_STATUS_OPTIONS.find((option) => option.value === statusFilters[0]);
+      return match ? `${match.label} (${statusCounts[match.value] || 0})` : "Filter status";
+    }
+    return `${statusFilters.length} statuses selected`;
+  })();
   const activeSort = getSortState(sortBy);
+  const canDeleteClient = hasAnyRole(user, ["super_admin", "admin"]);
 
   const toggleColumnSort = (columnKey) => {
     setSortBy((currentValue) => {
@@ -630,9 +792,63 @@ export function ClientsPage() {
       : <ArrowDown className="h-4 w-4 text-primary" />;
   };
 
+  const handleColumnResize = useCallback((event) => {
+    const resizeState = resizeStateRef.current;
+    if (!resizeState) return;
+
+    const { columnKey, startX, startWidth } = resizeState;
+    const minWidth = TRACKER_COLUMN_MIN_WIDTHS[columnKey] || 120;
+    const nextWidth = Math.max(minWidth, startWidth + (event.clientX - startX));
+    setColumnWidths((current) => ({ ...current, [columnKey]: nextWidth }));
+  }, []);
+
+  const stopColumnResize = useCallback(() => {
+    resizeStateRef.current = null;
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+    window.removeEventListener("mousemove", handleColumnResize);
+    window.removeEventListener("mouseup", stopColumnResize);
+  }, [handleColumnResize]);
+
+  const startColumnResize = (event, columnKey) => {
+    event.preventDefault();
+    event.stopPropagation();
+    resizeStateRef.current = {
+      columnKey,
+      startX: event.clientX,
+      startWidth: columnWidths[columnKey] || DEFAULT_TRACKER_COLUMN_WIDTHS[columnKey] || 160,
+    };
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("mousemove", handleColumnResize);
+    window.addEventListener("mouseup", stopColumnResize);
+  };
+
+  useEffect(() => () => {
+    resizeStateRef.current = null;
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+    window.removeEventListener("mousemove", handleColumnResize);
+    window.removeEventListener("mouseup", stopColumnResize);
+  }, [handleColumnResize, stopColumnResize]);
+
+  const trackerTableMinWidth = TRACKER_COLUMN_DEFINITIONS.reduce(
+    (total, column) => total + (columnWidths[column.key] || column.defaultWidth),
+    0
+  );
+
+  const toggleStatusFilter = (statusValue, checked) => {
+    setStatusFilters((current) => {
+      if (checked) {
+        return current.includes(statusValue) ? current : [...current, statusValue];
+      }
+      return current.filter((value) => value !== statusValue);
+    });
+  };
+
   const visibleClients = clients
     .filter((client) => {
-      if (clientScope === "active" && client.status !== "active" && client.status !== "out-of-town") return false;
+      if (statusFilters.length && !statusFilters.includes(client.status || "active")) return false;
       if (!search.trim()) return true;
       const q = search.toLowerCase();
       return [client.name, client.email, client.phone].some((field) => (field || "").toLowerCase().includes(q));
@@ -644,6 +860,12 @@ export function ClientsPage() {
       switch (activeSort.key) {
         case "client":
           return compareNullableValues(a.name, b.name, activeSort.direction);
+        case "status":
+          return compareNullableValues(
+            getClientStatusMeta(a.status).label,
+            getClientStatusMeta(b.status).label,
+            activeSort.direction
+          );
         case "weight-diff":
           return compareNullableValues(weightDeltaA, weightDeltaB, activeSort.direction, "number");
         case "recent-comment":
@@ -693,22 +915,37 @@ export function ClientsPage() {
       </div>
 
       <div className="flex flex-col xl:flex-row gap-3">
-        <div className="flex rounded-xl border border-border/50 bg-background p-1 shadow-sm">
-          <button
-            type="button"
-            onClick={() => setClientScope("active")}
-            className={`px-4 py-2 rounded-lg text-sm transition-colors ${clientScope === "active" ? "bg-muted text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
-          >
-            Active Clients ({activeCount})
-          </button>
-          <button
-            type="button"
-            onClick={() => setClientScope("all")}
-            className={`px-4 py-2 rounded-lg text-sm transition-colors ${clientScope === "all" ? "bg-muted text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
-          >
-            All Clients ({totalCount})
-          </button>
-        </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="outline"
+              className="h-11 w-full justify-between xl:w-72"
+              data-testid="client-status-filter"
+            >
+              <span className="truncate">{selectedStatusLabel}</span>
+              <ArrowDown className="h-4 w-4 text-muted-foreground" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-72">
+            <DropdownMenuLabel>Filter by status</DropdownMenuLabel>
+            <DropdownMenuCheckboxItem
+              checked={!statusFilters.length || statusFilters.length === CLIENT_STATUS_OPTIONS.length}
+              onCheckedChange={() => setStatusFilters([])}
+            >
+              All Clients ({totalCount})
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuSeparator />
+            {statusFilterOptions.map((option) => (
+              <DropdownMenuCheckboxItem
+                key={option.value}
+                checked={statusFilters.includes(option.value)}
+                onCheckedChange={(checked) => toggleStatusFilter(option.value, checked === true)}
+              >
+                {option.label}
+              </DropdownMenuCheckboxItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
 
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -734,71 +971,86 @@ export function ClientsPage() {
         </Select>
       </div>
 
+      {statusFilters.length > 0 && statusFilters.length < CLIENT_STATUS_OPTIONS.length ? (
+        <div className="flex flex-wrap items-center gap-2">
+          {statusFilters.map((statusValue) => {
+            const statusMeta = getClientStatusMeta(statusValue);
+            return (
+              <button
+                key={statusValue}
+                type="button"
+                className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm font-medium transition-colors hover:bg-muted/60 ${statusMeta.badgeClassName}`}
+                onClick={() => toggleStatusFilter(statusValue, false)}
+              >
+                <span>{statusMeta.label}</span>
+                <X className="h-3.5 w-3.5" />
+              </button>
+            );
+          })}
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-8 rounded-full px-3 text-muted-foreground"
+            onClick={() => setStatusFilters([])}
+          >
+            Clear filters
+          </Button>
+        </div>
+      ) : null}
+
       <TooltipProvider delayDuration={120}>
         <Card className="overflow-hidden rounded-2xl border border-border/50 bg-background shadow-[0_1px_0_rgba(15,23,42,0.02),0_8px_30px_rgba(15,23,42,0.04)]">
           <div className="border-b border-border/50 bg-background px-4 py-3">
-            <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-              <CalendarDays className="h-4 w-4" />
-              Client database view
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                <CalendarDays className="h-4 w-4" />
+                Client database view
+              </div>
+              <p className="text-xs text-muted-foreground">Drag a column edge to resize for this session.</p>
             </div>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[1100px] table-fixed">
+          <div className="overflow-x-auto border-l border-t border-slate-300 dark:border-white/15">
+            <table className="w-full table-fixed border-collapse" style={{ minWidth: `${trackerTableMinWidth}px` }}>
+              <colgroup>
+                {TRACKER_COLUMN_DEFINITIONS.map((column) => (
+                  <col key={column.key} style={{ width: `${columnWidths[column.key] || column.defaultWidth}px` }} />
+                ))}
+              </colgroup>
               <thead>
-                <tr className="border-b border-border/50">
-                  <th className={`${TRACKER_HEADER_CLASS} w-[220px]`}>
-                    <button type="button" className={TRACKER_HEADER_BUTTON_CLASS} onClick={() => toggleColumnSort("client")}>
-                      <span>Client</span>
-                      {getColumnSortIcon("client")}
-                    </button>
-                  </th>
-                  <th className={`${TRACKER_HEADER_CLASS} w-[160px]`}>
-                    <button type="button" className={TRACKER_HEADER_BUTTON_CLASS} onClick={() => toggleColumnSort("weight-diff")}>
-                      <span>10-Day Diff</span>
-                      {getColumnSortIcon("weight-diff")}
-                    </button>
-                  </th>
-                  <th className={`${TRACKER_HEADER_CLASS} w-[240px]`}>
-                    <button type="button" className={TRACKER_HEADER_BUTTON_CLASS} onClick={() => toggleColumnSort("recent-comment")}>
-                      <span>Recent Comment</span>
-                      {getColumnSortIcon("recent-comment")}
-                    </button>
-                  </th>
-                  <th className={`${TRACKER_HEADER_CLASS} w-[170px]`}>
-                    <button type="button" className={TRACKER_HEADER_BUTTON_CLASS} onClick={() => toggleColumnSort("diet-start")}>
-                      <span>Diet Start</span>
-                      {getColumnSortIcon("diet-start")}
-                    </button>
-                  </th>
-                  <th className={`${TRACKER_HEADER_CLASS} w-[170px]`}>
-                    <button type="button" className={TRACKER_HEADER_BUTTON_CLASS} onClick={() => toggleColumnSort("diet-expire")}>
-                      <span>Diet Expire</span>
-                      {getColumnSortIcon("diet-expire")}
-                    </button>
-                  </th>
-                  <th className={`${TRACKER_HEADER_CLASS} w-[170px]`}>
-                    <button type="button" className={TRACKER_HEADER_BUTTON_CLASS} onClick={() => toggleColumnSort("last-follow-up")}>
-                      <span>Last Follow-up</span>
-                      {getColumnSortIcon("last-follow-up")}
-                    </button>
-                  </th>
-                  <th className={`${TRACKER_HEADER_CLASS} w-[180px]`}>
-                    <button type="button" className={TRACKER_HEADER_BUTTON_CLASS} onClick={() => toggleColumnSort("upcoming-follow-up")}>
-                      <span>Upcoming Follow-up</span>
-                      {getColumnSortIcon("upcoming-follow-up")}
-                    </button>
-                  </th>
-                  <th className={`${TRACKER_HEADER_CLASS} w-[110px]`}>Actions</th>
+                <tr className="border-b border-slate-300 dark:border-white/15">
+                  {TRACKER_COLUMN_DEFINITIONS.map((column) => (
+                    <th key={column.key} className={`${TRACKER_HEADER_CLASS} relative`}>
+                      {column.sortable ? (
+                        <button
+                          type="button"
+                          className={TRACKER_HEADER_BUTTON_CLASS}
+                          onClick={() => toggleColumnSort(column.key)}
+                        >
+                          <span>{column.label}</span>
+                          {getColumnSortIcon(column.key)}
+                        </button>
+                      ) : (
+                        <span className={TRACKER_HEADER_BUTTON_CLASS}>{column.label}</span>
+                      )}
+                      <button
+                        type="button"
+                        className="absolute right-0 top-0 h-full w-3 cursor-col-resize select-none touch-none border-r border-transparent transition-colors hover:border-primary/40"
+                        aria-label={`Resize ${column.label} column`}
+                        onMouseDown={(event) => startColumnResize(event, column.key)}
+                      />
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan={8} className="text-center py-14 text-muted-foreground">Loading clients...</td>
+                    <td colSpan={TRACKER_COLUMN_DEFINITIONS.length} className="text-center py-14 text-muted-foreground">Loading clients...</td>
                   </tr>
                 ) : visibleClients.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="text-center py-14 text-muted-foreground">No clients found for this filter.</td>
+                    <td colSpan={TRACKER_COLUMN_DEFINITIONS.length} className="text-center py-14 text-muted-foreground">No clients found for this filter.</td>
                   </tr>
                 ) : (
                   visibleClients.map((client) => {
@@ -813,25 +1065,39 @@ export function ClientsPage() {
                       ? `${weightDelta > 0 ? "+" : ""}${weightDelta.toFixed(1)} kg`
                       : "—";
                     return (
-                      <tr key={client.id} className="table-dense align-top odd:bg-background even:bg-muted/[0.18]" data-testid={`client-row-${client.id}`}>
-                        <td>
-                          <div className="flex items-center gap-2">
+                      <tr key={client.id} className="group table-dense align-top" data-testid={`client-row-${client.id}`}>
+                        <td className={TRACKER_BODY_CELL_CLASS}>
+                          <div className="flex min-w-0 items-center gap-2">
                             <Tooltip>
                               <TooltipTrigger asChild>
-                                <button
+                                <Button
                                   type="button"
-                                  className={`h-3.5 w-3.5 rounded-full transition-transform hover:scale-110 ${statusMeta.dotClassName}`}
-                                  aria-label={statusMeta.label}
-                                />
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7 shrink-0 rounded-md text-muted-foreground hover:text-foreground"
+                                  onClick={() => void openQuickView(client)}
+                                  aria-label={`Open ${client.name} quick view`}
+                                >
+                                  <Eye className="h-4 w-4" />
+                                </Button>
                               </TooltipTrigger>
-                              <TooltipContent>{statusMeta.label}</TooltipContent>
+                              <TooltipContent>Quick view</TooltipContent>
                             </Tooltip>
-                            <Link to={`/clients/${client.id}`} className="font-medium text-foreground transition-colors hover:text-primary">
+                            <Link
+                              to={`/clients/${client.id}`}
+                              className="block min-w-0 flex-1 truncate whitespace-nowrap font-medium text-foreground transition-colors hover:text-primary"
+                              title={client.name}
+                            >
                               {client.name}
                             </Link>
                           </div>
                         </td>
-                        <td>
+                        <td className={TRACKER_BODY_CELL_CLASS}>
+                          <Badge variant="outline" className={`rounded-full px-2.5 py-1 text-[12px] font-medium ${statusMeta.badgeClassName}`}>
+                            {statusMeta.label}
+                          </Badge>
+                        </td>
+                        <td className={TRACKER_BODY_CELL_CLASS}>
                           {weightSummary?.entries?.length ? (
                             <HoverCard openDelay={120} closeDelay={100}>
                               <HoverCardTrigger asChild>
@@ -875,7 +1141,7 @@ export function ClientsPage() {
                             <span className="text-sm text-muted-foreground">—</span>
                           )}
                         </td>
-                        <td>
+                        <td className={TRACKER_BODY_CELL_CLASS}>
                           {editingCommentClientId === client.id ? (
                             <Input
                               ref={(node) => {
@@ -914,52 +1180,54 @@ export function ClientsPage() {
                             </button>
                           )}
                         </td>
-                        <td>
-                          <Input
-                            type="date"
+                        <td className={TRACKER_BODY_CELL_CLASS}>
+                          <DatePickerInput
                             value={draft.diet_start_date ?? ""}
-                            onChange={(e) => setRowDrafts((prev) => ({ ...prev, [client.id]: { ...prev[client.id], diet_start_date: e.target.value } }))}
-                            onBlur={(e) => saveInlineField(client.id, "diet_start_date", e.target.value)}
-                            className={TRACKER_CELL_INPUT_CLASS}
+                            onChange={(value) => void handleInlineDateChange(client.id, "diet_start_date", value)}
+                            placeholder="Select date"
+                            variant="inline"
+                            buttonClassName={TRACKER_CELL_INPUT_CLASS}
                           />
                         </td>
-                        <td>
-                          <Input
-                            type="date"
+                        <td className={TRACKER_BODY_CELL_CLASS}>
+                          <DatePickerInput
                             title={dietExpiryUrgency.title}
                             value={draft.diet_end_date ?? ""}
-                            onChange={(e) => setRowDrafts((prev) => ({ ...prev, [client.id]: { ...prev[client.id], diet_end_date: e.target.value } }))}
-                            onBlur={(e) => saveInlineField(client.id, "diet_end_date", e.target.value)}
-                            className={`${TRACKER_CELL_INPUT_CLASS} ${dietExpiryUrgency.className}`}
+                            onChange={(value) => void handleInlineDateChange(client.id, "diet_end_date", value)}
+                            placeholder="Select date"
+                            variant="inline"
+                            buttonClassName={`${TRACKER_CELL_INPUT_CLASS} ${dietExpiryUrgency.className}`}
                           />
                         </td>
-                        <td>
-                          <Input
-                            type="date"
+                        <td className={TRACKER_BODY_CELL_CLASS}>
+                          <DatePickerInput
                             value={draft.last_follow_up_date ?? ""}
-                            onChange={(e) => setRowDrafts((prev) => ({ ...prev, [client.id]: { ...prev[client.id], last_follow_up_date: e.target.value } }))}
-                            onBlur={(e) => saveInlineField(client.id, "last_follow_up_date", e.target.value)}
-                            className={TRACKER_CELL_INPUT_CLASS}
+                            onChange={(value) => void handleInlineDateChange(client.id, "last_follow_up_date", value)}
+                            placeholder="Select date"
+                            variant="inline"
+                            buttonClassName={TRACKER_CELL_INPUT_CLASS}
                           />
                         </td>
-                        <td>
-                          <Input
-                            type="date"
+                        <td className={TRACKER_BODY_CELL_CLASS}>
+                          <DatePickerInput
                             title={upcomingFollowUpUrgency.title}
                             value={draft.upcoming_follow_up_date ?? ""}
-                            onChange={(e) => setRowDrafts((prev) => ({ ...prev, [client.id]: { ...prev[client.id], upcoming_follow_up_date: e.target.value } }))}
-                            onBlur={(e) => saveInlineField(client.id, "upcoming_follow_up_date", e.target.value)}
-                            className={`${TRACKER_CELL_INPUT_CLASS} ${upcomingFollowUpUrgency.className}`}
+                            onChange={(value) => void handleInlineDateChange(client.id, "upcoming_follow_up_date", value)}
+                            placeholder="Select date"
+                            variant="inline"
+                            buttonClassName={`${TRACKER_CELL_INPUT_CLASS} ${upcomingFollowUpUrgency.className}`}
                           />
                         </td>
-                        <td>
+                        <td className={TRACKER_BODY_CELL_CLASS}>
                           <div className="flex items-center gap-0.5">
                             <Button variant="ghost" size="icon" className="h-8 w-8 rounded-md text-muted-foreground hover:text-foreground" onClick={() => openEditDialog(client)}>
                               <Edit className="w-4 h-4" />
                             </Button>
-                            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-md text-muted-foreground hover:text-destructive" onClick={() => handleDelete(client.id)}>
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
+                            {canDeleteClient ? (
+                              <Button variant="ghost" size="icon" className="h-8 w-8 rounded-md text-muted-foreground hover:text-destructive" onClick={() => setDeleteTarget(client)}>
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            ) : null}
                           </div>
                         </td>
                       </tr>
@@ -1064,7 +1332,7 @@ export function ClientsPage() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="space-y-2">
                 <Label>Diet Start Date</Label>
-                <Input type="date" value={formData.diet_start_date} onChange={(e) => setFormData({ ...formData, diet_start_date: e.target.value })} />
+                <DatePickerInput value={formData.diet_start_date} onChange={(value) => setFormData({ ...formData, diet_start_date: value })} />
               </div>
               <div className="space-y-2">
                 <Label>Diet Duration</Label>
@@ -1078,14 +1346,14 @@ export function ClientsPage() {
               </div>
               <div className="space-y-2">
                 <Label>Diet End Date</Label>
-                <Input type="date" value={formData.diet_end_date} onChange={(e) => setFormData({ ...formData, diet_end_date: e.target.value })} />
+                <DatePickerInput value={formData.diet_end_date} onChange={(value) => setFormData({ ...formData, diet_end_date: value })} />
               </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="space-y-2">
                 <Label>Program Start Date</Label>
-                <Input type="date" value={formData.program_start_date} onChange={(e) => setFormData({ ...formData, program_start_date: e.target.value })} />
+                <DatePickerInput value={formData.program_start_date} onChange={(value) => setFormData({ ...formData, program_start_date: value })} />
               </div>
               <div className="space-y-2">
                 <Label>Program Duration</Label>
@@ -1103,7 +1371,7 @@ export function ClientsPage() {
               </div>
               <div className="space-y-2">
                 <Label>Program End Date</Label>
-                <Input type="date" value={formData.program_end_date} onChange={(e) => setFormData({ ...formData, program_end_date: e.target.value })} />
+                <DatePickerInput value={formData.program_end_date} onChange={(value) => setFormData({ ...formData, program_end_date: value })} />
               </div>
             </div>
 
@@ -1165,6 +1433,132 @@ export function ClientsPage() {
           </form>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete client?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteTarget
+                ? `This will permanently remove ${deleteTarget.name} from the tracker, along with related follow-ups and comments.`
+                : "This action cannot be undone."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={(event) => {
+                event.preventDefault();
+                void confirmDelete();
+              }}
+            >
+              Delete Client
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Sheet open={quickViewOpen} onOpenChange={setQuickViewOpen}>
+        <SheetContent side="right" className="w-[92vw] sm:max-w-xl p-0">
+          <SheetHeader className="border-b border-border/50 px-6 py-5 pr-12">
+            <SheetTitle className="truncate pr-4">{quickViewClient?.name || "Client quick view"}</SheetTitle>
+            <SheetDescription>
+              Key client details from the profile page.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="h-full overflow-y-auto px-6 py-5">
+            {quickViewLoading ? (
+              <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading client details...
+              </div>
+            ) : quickViewClient ? (
+              <div className="space-y-6">
+                <div className="rounded-xl border border-border/50 bg-muted/[0.08] p-4">
+                  <div className="flex items-center gap-2">
+                    <span className={`h-3 w-3 rounded-full ${getClientStatusMeta(quickViewClient.status).dotClassName}`} />
+                    <span className="text-sm font-semibold text-foreground">{getClientStatusMeta(quickViewClient.status).label}</span>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-muted-foreground">Age</p>
+                      <p className="mt-1 font-medium">{quickViewClient.age || "—"}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-muted-foreground">Gender</p>
+                      <p className="mt-1 font-medium">{quickViewClient.gender || "—"}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-muted-foreground">Height</p>
+                      <p className="mt-1 font-medium">{quickViewClient.height_cm ? `${quickViewClient.height_cm} cm` : "—"}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-muted-foreground">Primary Coach</p>
+                      <p className="mt-1 font-medium truncate">{quickViewClient.primary_coach || "—"}</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="rounded-xl border border-border/50 p-4">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Start Weight</p>
+                    <p className="mt-2 text-base font-semibold">{formatWeight(quickViewClient.initial_weight_kg)}</p>
+                  </div>
+                  <div className="rounded-xl border border-border/50 p-4">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Current Weight</p>
+                    <p className="mt-2 text-base font-semibold">{formatWeight(quickViewClient.current_weight_kg)}</p>
+                  </div>
+                  <div className="rounded-xl border border-border/50 p-4">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Target Weight</p>
+                    <p className="mt-2 text-base font-semibold">{formatWeight(quickViewClient.goal_weight_kg)}</p>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-border/50">
+                  <div className="grid grid-cols-2">
+                    {[
+                      ["Email", quickViewClient.email || "—"],
+                      ["Phone", quickViewClient.phone || "—"],
+                      ["Location", quickViewClient.location || "—"],
+                      ["Profession", quickViewClient.profession || "—"],
+                      ["Diet Start", formatDisplayDate(quickViewClient.diet_start_date)],
+                      ["Diet Expire", formatDisplayDate(quickViewClient.diet_end_date)],
+                      ["Last Follow-up", formatDisplayDate(quickViewClient.last_follow_up_date)],
+                      ["Next Follow-up", formatDisplayDate(quickViewClient.upcoming_follow_up_date)],
+                    ].map(([label, value], index) => (
+                      <div
+                        key={label}
+                        className={`px-4 py-3 ${index % 2 === 0 ? "border-r" : ""} ${index < 6 ? "border-b" : ""} border-border/50`}
+                      >
+                        <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
+                        <p className="mt-1 text-sm font-medium break-words">{value}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="rounded-xl border border-border/50 p-4">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">About Client</p>
+                    <p className="mt-2 text-sm leading-6 text-foreground">{quickViewClient.about_client || "—"}</p>
+                  </div>
+                  <div className="rounded-xl border border-border/50 p-4">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Health Issues</p>
+                    <p className="mt-2 text-sm leading-6 text-foreground">{quickViewClient.health_issues || "—"}</p>
+                  </div>
+                  <div className="rounded-xl border border-border/50 p-4">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Notes</p>
+                    <p className="mt-2 text-sm leading-6 text-foreground">{quickViewClient.notes || "—"}</p>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">No client selected.</p>
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

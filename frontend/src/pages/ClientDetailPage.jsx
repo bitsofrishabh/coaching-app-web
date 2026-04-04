@@ -23,6 +23,7 @@ import {
   ClipboardPenLine
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -45,6 +46,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Progress } from "@/components/ui/progress";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api } from "@/lib/api";
 import { calculateBMI, calculateMaintenanceCalories, getHealthyWeightDelta, getHealthyWeightRange } from "@/lib/health-metrics";
 import { useAuth } from "@/context/auth-context";
@@ -71,6 +73,7 @@ const FOLLOW_UP_STATUS_STYLES = {
   completed: "bg-violet-500/10 text-violet-500 border-violet-500/20",
   missed: "bg-red-500/10 text-red-500 border-red-500/20",
 };
+const HISTORY_EVENT_TYPES = new Set(["client-date-updated", "follow-up-created", "follow-up-updated", "follow-up-deleted"]);
 
 const formatDisplayDate = (value, options = {}) => {
   if (!value) return "—";
@@ -171,6 +174,7 @@ export function ClientDetailPage() {
   const [mealUploads, setMealUploads] = useState([]);
   const [followUps, setFollowUps] = useState([]);
   const [teamComments, setTeamComments] = useState([]);
+  const [historyLogs, setHistoryLogs] = useState([]);
   const [clientFiles, setClientFiles] = useState([]);
   const [filesLoading, setFilesLoading] = useState(false);
   const [uploadingCategory, setUploadingCategory] = useState("");
@@ -241,6 +245,7 @@ export function ClientDetailPage() {
         plansRes,
         uploadsRes,
         followUpsRes,
+        auditLogsRes,
       ] = await Promise.all([
         api.get(`/clients/${clientId}`),
         api.get(`/clients/${clientId}/comments`).catch(() => ({ data: [] })),
@@ -248,6 +253,7 @@ export function ClientDetailPage() {
         api.get("/diet-plans", { params: { client_id: clientId } }),
         api.get("/coach/meal-uploads", { params: { client_id: clientId } }).catch(() => ({ data: { uploads: [] } })),
         api.get("/follow-ups", { params: { client_id: clientId } }).catch(() => ({ data: [] })),
+        api.get("/audit-logs", { params: { client_id: clientId, limit: 30 } }).catch(() => ({ data: [] })),
       ]);
 
       setClient(clientRes.data);
@@ -255,6 +261,7 @@ export function ClientDetailPage() {
       setDietPlans(plansRes.data || []);
       setMealUploads(uploadsRes.data.uploads || []);
       setFollowUps(followUpsRes.data || []);
+      setHistoryLogs((auditLogsRes.data || []).filter((log) => HISTORY_EVENT_TYPES.has(log.event_type)));
 
       const seededComments = commentsRes.data?.length
         ? commentsRes.data
@@ -497,6 +504,14 @@ export function ClientDetailPage() {
   const bloodReportFiles = clientFiles.filter((file) => file.category === "blood-report");
   const pastDietFiles = clientFiles.filter((file) => file.category === "past-diet");
   const clientPictureFiles = clientFiles.filter((file) => file.category === "client-picture");
+
+  const getHistoryTone = (eventLabel) => {
+    const normalized = String(eventLabel || "").toLowerCase();
+    if (normalized === "follow-up") return "bg-orange-400/10 text-orange-500 border-orange-400/20";
+    if (normalized === "diet") return "bg-rose-500/10 text-rose-500 border-rose-500/20";
+    if (normalized === "program") return "bg-sky-500/10 text-sky-500 border-sky-500/20";
+    return "bg-primary/10 text-primary border-primary/20";
+  };
 
   const addTeamComment = async () => {
     const comment = commentInput.trim();
@@ -1040,6 +1055,56 @@ export function ClientDetailPage() {
       </div>
 
       <Card className="border-border/40 bg-card/50">
+        <CardHeader>
+          <CardTitle className="font-['Manrope']">History</CardTitle>
+          <CardDescription>Recent diet date and follow-up changes for this client.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {historyLogs.length === 0 ? (
+            <p className="py-6 text-sm text-muted-foreground">No history entries yet.</p>
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-border/40">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/20">
+                    <TableHead className="min-w-[120px]">Event</TableHead>
+                    <TableHead className="min-w-[220px]">Previous Value</TableHead>
+                    <TableHead className="min-w-[220px]">New Value</TableHead>
+                    <TableHead className="min-w-[150px]">Updated By</TableHead>
+                    <TableHead className="min-w-[180px]">Time</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {historyLogs.map((log) => (
+                    <TableRow key={log.id} className="align-top">
+                      <TableCell>
+                        <div className="space-y-2">
+                          <Badge variant="outline" className={getHistoryTone(log.event_label)}>
+                            {log.event_label || "History"}
+                          </Badge>
+                          <p className="text-xs text-muted-foreground">{log.summary}</p>
+                        </div>
+                      </TableCell>
+                      <TableCell className="whitespace-pre-wrap text-sm text-muted-foreground">
+                        {log.old_value || "—"}
+                      </TableCell>
+                      <TableCell className="whitespace-pre-wrap text-sm">
+                        {log.new_value || "—"}
+                      </TableCell>
+                      <TableCell className="text-sm">{log.actor_name || "—"}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {formatDisplayDateTime(log.created_at)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="border-border/40 bg-card/50">
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
             <CardTitle className="font-['Manrope']">Monthly Progress Tracking</CardTitle>
@@ -1429,11 +1494,11 @@ export function ClientDetailPage() {
             </div>
             <div className="space-y-2">
               <Label>Date</Label>
-              <Input
-                type="date"
+              <DatePickerInput
                 data-testid="weight-date-input"
                 value={newWeight.recorded_date}
-                onChange={(e) => setNewWeight({ ...newWeight, recorded_date: e.target.value })}
+                onChange={(value) => setNewWeight({ ...newWeight, recorded_date: value })}
+                placeholder="Select weight date"
               />
             </div>
             <div className="space-y-2">
@@ -1528,10 +1593,11 @@ export function ClientDetailPage() {
                       {weightImportPreview.map((entry, index) => (
                         <tr key={`${entry.recorded_date}-${index}`} className="border-b border-border/20 align-top">
                           <td className="px-3 py-3">
-                            <Input
-                              type="date"
+                            <DatePickerInput
                               value={entry.recorded_date}
-                              onChange={(event) => updateWeightImportEntry(index, "recorded_date", event.target.value)}
+                              onChange={(value) => updateWeightImportEntry(index, "recorded_date", value)}
+                              placeholder="Select date"
+                              buttonClassName="h-10"
                             />
                           </td>
                           <td className="px-3 py-3">
@@ -1595,11 +1661,11 @@ export function ClientDetailPage() {
           <form onSubmit={createFollowUp} className="space-y-4">
             <div className="space-y-2">
               <Label>Date *</Label>
-              <Input
-                type="date"
+              <DatePickerInput
                 value={followUpForm.scheduled_date}
-                onChange={(event) => setFollowUpForm((prev) => ({ ...prev, scheduled_date: event.target.value }))}
-                required
+                onChange={(value) => setFollowUpForm((prev) => ({ ...prev, scheduled_date: value }))}
+                placeholder="Select follow-up date"
+                clearable={false}
               />
             </div>
             <div className="space-y-2">

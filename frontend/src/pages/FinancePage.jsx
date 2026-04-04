@@ -4,6 +4,7 @@ import { Plus, TrendingUp, TrendingDown, BarChart3, DollarSign, Upload } from "l
 import { ResponsiveContainer, AreaChart, Area, CartesianGrid, XAxis, YAxis, Tooltip, BarChart, Bar } from "recharts";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
@@ -43,6 +44,7 @@ const formatDisplayDate = (value) => {
 };
 
 const getMonthKey = (value) => String(value || "").slice(0, 7);
+const getCurrentMonthKey = () => getMonthKey(getTodayIso());
 
 const formatMonthLabel = (monthKey) => {
   if (!monthKey || !/^\d{4}-\d{2}$/.test(monthKey)) return "Unknown Month";
@@ -54,9 +56,9 @@ const formatMonthLabel = (monthKey) => {
 const buildMonthOptions = (transactions) => {
   const keys = Array.from(
     new Set(
-      transactions
+      [getCurrentMonthKey(), ...transactions
         .map((transaction) => getMonthKey(transaction.transaction_date))
-        .filter(Boolean)
+        .filter(Boolean)]
     )
   ).sort((a, b) => b.localeCompare(a));
 
@@ -158,6 +160,7 @@ export function FinancePage() {
   const [selectedMonth, setSelectedMonth] = useState("");
   const [formData, setFormData] = useState(INITIAL_FORM_DATA);
   const csvInputRef = useRef(null);
+  const currentMonthKey = getCurrentMonthKey();
 
   const loadFinanceData = async () => {
     setLoading(true);
@@ -187,18 +190,18 @@ export function FinancePage() {
   const monthOptions = useMemo(() => buildMonthOptions(transactions), [transactions]);
 
   useEffect(() => {
-    if (!monthOptions.length) {
-      if (!selectedMonth) setSelectedMonth("all");
+    if (!selectedMonth) {
+      setSelectedMonth(currentMonthKey);
       return;
     }
-    if (!selectedMonth || (selectedMonth !== "all" && !monthOptions.some((option) => option.value === selectedMonth))) {
-      setSelectedMonth(monthOptions[0].value);
+    if (selectedMonth !== "all" && !monthOptions.some((option) => option.value === selectedMonth)) {
+      setSelectedMonth(currentMonthKey);
     }
-  }, [monthOptions, selectedMonth]);
+  }, [monthOptions, selectedMonth, currentMonthKey]);
 
   const activeMonthKey = selectedMonth && selectedMonth !== "all"
     ? selectedMonth
-    : (monthOptions[0]?.value || getMonthKey(getTodayIso()));
+    : (monthOptions[0]?.value || currentMonthKey);
 
   const filteredTransactions = useMemo(() => {
     const list = [...transactions].sort((a, b) => String(b.transaction_date || "").localeCompare(String(a.transaction_date || "")));
@@ -584,12 +587,12 @@ export function FinancePage() {
               </div>
               <div className="space-y-2">
                 <Label>Date *</Label>
-                <Input
-                  type="date"
+                <DatePickerInput
                   data-testid="transaction-date-input"
                   value={formData.transaction_date}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, transaction_date: e.target.value }))}
-                  required
+                  onChange={(value) => setFormData((prev) => ({ ...prev, transaction_date: value }))}
+                  placeholder="Select transaction date"
+                  clearable={false}
                 />
               </div>
             </div>
