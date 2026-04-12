@@ -1,12 +1,9 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, File, UploadFile, Query, Header, Response, Form
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 import asyncio
-from pathlib import Path
 from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional, Dict, Any
 import uuid
@@ -15,66 +12,60 @@ import io
 import re
 import csv
 import json
-import mimetypes
 import jwt
 import bcrypt
 import requests
-import certifi
-
-ROOT_DIR = Path(__file__).parent
-load_dotenv(ROOT_DIR / '.env')
-
-# MongoDB connection
-mongo_url = os.environ['MONGO_URL']
-mongo_client_kwargs = {
-    "serverSelectionTimeoutMS": 30000,
-    "connectTimeoutMS": 20000,
-    "socketTimeoutMS": 20000,
-}
-if mongo_url.startswith("mongodb+srv://"):
-    # Use an explicit CA bundle for Atlas TLS to avoid platform trust-store issues.
-    mongo_client_kwargs["tlsCAFile"] = certifi.where()
-client = AsyncIOMotorClient(mongo_url, **mongo_client_kwargs)
-db = client[os.environ['DB_NAME']]
-
-# JWT Config
-JWT_SECRET = os.environ.get('JWT_SECRET', 'diettracker-pro-secret-key-2024')
-JWT_ALGORITHM = "HS256"
-JWT_EXPIRATION_HOURS = 24
-
-# Storage Config
-STORAGE_URL = "https://integrations.emergentagent.com/objstore/api/v1/storage"
-EMERGENT_KEY = os.environ.get("EMERGENT_LLM_KEY")
-APP_NAME = "diettracker-pro"
-storage_key = None
-SHARED_CLIENT_OWNER_ID = "shared"
-ROLE_SUPER_ADMIN = "super_admin"
-ROLE_ADMIN = "admin"
-ROLE_DIETITIAN = "dietitian"
-ROLE_CLIENT = "client"
-LEGACY_ROLE_COACH = "coach"
-SUPER_ADMIN_ROLES = {ROLE_SUPER_ADMIN, LEGACY_ROLE_COACH}
-ADMIN_ROLES = {ROLE_SUPER_ADMIN, LEGACY_ROLE_COACH, ROLE_ADMIN}
-STAFF_ROLES = {ROLE_SUPER_ADMIN, LEGACY_ROLE_COACH, ROLE_ADMIN, ROLE_DIETITIAN}
-LOCAL_STORAGE_ROOT = ROOT_DIR / "local_uploads"
-TRACKER_ACTIVITY_ORDER = [
-    "morning_drink",
-    "breakfast",
-    "lunch",
-    "dinner",
-    "night_drink",
-    "workout",
-]
-TRACKER_ACTIVITY_ALIASES = {
-    "morning_drink": "morning_drink",
-    "morning drink": "morning_drink",
-    "breakfast": "breakfast",
-    "lunch": "lunch",
-    "dinner": "dinner",
-    "night_drink": "night_drink",
-    "night drink": "night_drink",
-    "workout": "workout",
-}
+from app.core.config import (
+    ADMIN_ROLES,
+    APP_NAME,
+    JWT_ALGORITHM,
+    JWT_EXPIRATION_HOURS,
+    JWT_SECRET,
+    LEGACY_ROLE_COACH,
+    ROLE_ADMIN,
+    ROLE_CLIENT,
+    ROLE_DIETITIAN,
+    ROLE_SUPER_ADMIN,
+    SHARED_CLIENT_OWNER_ID,
+    STAFF_ROLES,
+    SUPER_ADMIN_ROLES,
+    TRACKER_ACTIVITY_ALIASES,
+    TRACKER_ACTIVITY_ORDER,
+    client,
+    db,
+    mongo_url,
+)
+from app.core.storage import get_object, init_storage, put_object
+from app.handlers.ai_health import generate_health_analysis_handler, get_health_analysis_handler
+from app.handlers.files import get_file_handler, list_files_handler, upload_file_handler
+from app.handlers.tracking import (
+    add_client_comment_handler,
+    add_weight_entry_handler,
+    get_client_comments_handler,
+    get_client_monthly_tracker_handler,
+    get_client_weight_summaries_handler,
+    get_weight_entries_handler,
+    parse_weight_text_handler,
+    parse_weight_upload_handler,
+    save_bulk_weight_entries_handler,
+    upsert_client_tracker_activity_handler,
+    upsert_weight_entry_by_date_handler,
+)
+from app.schemas.tracking import (
+    ClientCommentCreate,
+    ClientCommentResponse,
+    ClientWeightSummaryResponse,
+    TrackerActivityUpdateRequest,
+    TrackerMonthResponse,
+    WeightEntryCreate,
+    WeightImportEntry,
+    WeightEntryResponse,
+    WeightEntryUpsertRequest,
+    WeightImportParseResponse,
+    WeightImportSaveRequest,
+    WeightImportSaveResponse,
+    WeightImportTextRequest,
+)
 
 # Create the main app
 app = FastAPI(title="DietTracker Pro API")
@@ -84,60 +75,6 @@ security = HTTPBearer()
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
-
-# ============ STORAGE FUNCTIONS ============
-def init_storage():
-    global storage_key
-    if storage_key:
-        return storage_key
-    if not EMERGENT_KEY:
-        logger.warning("EMERGENT_LLM_KEY not set, using local file storage fallback")
-        return None
-    try:
-        resp = requests.post(f"{STORAGE_URL}/init", json={"emergent_key": EMERGENT_KEY}, timeout=30)
-        resp.raise_for_status()
-        storage_key = resp.json()["storage_key"]
-        return storage_key
-    except Exception as e:
-        logger.error(f"Storage init failed: {e}")
-        return None
-
-
-def _local_object_path(path: str) -> Path:
-    return LOCAL_STORAGE_ROOT / path
-
-
-def _ensure_local_parent(path: str) -> Path:
-    full_path = _local_object_path(path)
-    full_path.parent.mkdir(parents=True, exist_ok=True)
-    return full_path
-
-def put_object(path: str, data: bytes, content_type: str) -> dict:
-    key = init_storage()
-    if not key:
-        local_path = _ensure_local_parent(path)
-        local_path.write_bytes(data)
-        return {"path": path, "size": len(data), "content_type": content_type, "storage": "local"}
-    resp = requests.put(
-        f"{STORAGE_URL}/objects/{path}",
-        headers={"X-Storage-Key": key, "Content-Type": content_type},
-        data=data, timeout=120
-    )
-    resp.raise_for_status()
-    return resp.json()
-
-def get_object(path: str) -> tuple:
-    local_path = _local_object_path(path)
-    if local_path.exists():
-        data = local_path.read_bytes()
-        guessed_type = mimetypes.guess_type(local_path.name)[0] or "application/octet-stream"
-        return data, guessed_type
-    key = init_storage()
-    if not key:
-        raise HTTPException(status_code=503, detail="Storage not available")
-    resp = requests.get(f"{STORAGE_URL}/objects/{path}", headers={"X-Storage-Key": key}, timeout=60)
-    resp.raise_for_status()
-    return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
 
 # ============ MODELS ============
 
@@ -302,97 +239,6 @@ class ClientResponse(BaseModel):
     updated_at: str
 
 # Weight Entry Models
-class WeightEntryCreate(BaseModel):
-    weight_kg: float
-    recorded_date: Optional[str] = None
-    notes: Optional[str] = None
-
-class WeightEntryResponse(BaseModel):
-    id: str
-    client_id: str
-    weight_kg: float
-    recorded_date: str
-    notes: Optional[str] = None
-    mapped_fields: Dict[str, str] = Field(default_factory=dict)
-    created_at: str
-
-
-class ClientWeightSummaryEntry(BaseModel):
-    recorded_date: str
-    weight_kg: float
-
-
-class ClientWeightSummaryResponse(BaseModel):
-    client_id: str
-    delta_kg: Optional[float] = None
-    latest_weight_kg: Optional[float] = None
-    oldest_weight_kg: Optional[float] = None
-    entries: List[ClientWeightSummaryEntry] = []
-
-
-class WeightImportEntry(BaseModel):
-    recorded_date: str
-    weight_kg: float
-    notes: Optional[str] = None
-    mapped_fields: Dict[str, str] = Field(default_factory=dict)
-
-
-class WeightImportParseResponse(BaseModel):
-    entries: List[WeightImportEntry] = Field(default_factory=list)
-    parse_warnings: List[str] = Field(default_factory=list)
-    parser_mode: str = "heuristic"
-
-
-class WeightImportSaveRequest(BaseModel):
-    entries: List[WeightImportEntry] = Field(default_factory=list)
-
-
-class WeightImportSaveResponse(BaseModel):
-    saved_entries: int
-    updated_entries: int
-    latest_weight_kg: Optional[float] = None
-
-
-class WeightImportTextRequest(BaseModel):
-    raw_text: str
-
-
-class WeightEntryUpsertRequest(BaseModel):
-    recorded_date: str
-    weight_kg: float
-    notes: Optional[str] = None
-
-
-class TrackerActivityUpdateRequest(BaseModel):
-    date: str
-    activity_name: str
-    completed: bool
-
-
-class TrackerDayResponse(BaseModel):
-    date: str
-    activities: Dict[str, bool] = Field(default_factory=dict)
-
-
-class TrackerMonthResponse(BaseModel):
-    entries: List[TrackerDayResponse] = Field(default_factory=list)
-
-
-class ClientCommentCreate(BaseModel):
-    content: str
-
-
-class ClientCommentResponse(BaseModel):
-    id: str
-    client_id: str
-    coach_id: str
-    author_id: str
-    author_name: str
-    author_role: Optional[str] = None
-    content: str
-    created_at: str
-
-
 class FileRecordResponse(BaseModel):
     id: str
     client_id: Optional[str] = None
@@ -401,6 +247,27 @@ class FileRecordResponse(BaseModel):
     content_type: Optional[str] = None
     size: Optional[int] = None
     created_at: str
+
+
+class AIInsightItemResponse(BaseModel):
+    label: str
+    severity: str
+    reason: str
+
+
+class ClientAIHealthAnalysisResponse(BaseModel):
+    client_id: str
+    overall_summary: str
+    clinical_risks: List[AIInsightItemResponse] = Field(default_factory=list)
+    nutrition_gaps: List[AIInsightItemResponse] = Field(default_factory=list)
+    diet_pattern_observations: List[str] = Field(default_factory=list)
+    recommended_adjustments: List[str] = Field(default_factory=list)
+    follow_up_questions: List[str] = Field(default_factory=list)
+    confidence_notes: List[str] = Field(default_factory=list)
+    source_files: List[FileRecordResponse] = Field(default_factory=list)
+    model: str
+    generated_at: str
+    generated_by_name: Optional[str] = None
 
 
 class PendingTaskResponse(BaseModel):
@@ -419,9 +286,11 @@ class PendingTaskResponse(BaseModel):
 
 class PendingTasksFeedResponse(BaseModel):
     window_days: int
+    program_window_days: int = 7
     total_count: int
     diet_expiry_count: int
     follow_up_count: int
+    program_expiry_count: int = 0
     manual_task_count: int = 0
     tasks: List[PendingTaskResponse]
 
@@ -544,11 +413,13 @@ class DietPlanResponse(BaseModel):
 class FollowUpCreate(BaseModel):
     client_id: str
     scheduled_date: str
+    scheduled_time: Optional[str] = None
     type: str = "check-in"
     notes: Optional[str] = None
 
 class FollowUpUpdate(BaseModel):
     scheduled_date: Optional[str] = None
+    scheduled_time: Optional[str] = None
     type: Optional[str] = None
     status: Optional[str] = None
     notes: Optional[str] = None
@@ -559,6 +430,7 @@ class FollowUpResponse(BaseModel):
     client_id: str
     coach_id: str
     scheduled_date: str
+    scheduled_time: Optional[str] = None
     type: str
     status: str
     notes: Optional[str] = None
@@ -701,6 +573,15 @@ def _parse_datetime_or_date(value: Optional[str]) -> Optional[datetime]:
         return datetime.strptime(normalized[:10], "%Y-%m-%d").replace(tzinfo=timezone.utc)
     except ValueError:
         return None
+
+
+def _normalize_follow_up_time(value: Optional[str]) -> Optional[str]:
+    normalized = (value or "").strip()
+    if not normalized:
+        return None
+    if not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", normalized):
+        raise HTTPException(status_code=400, detail="scheduled_time must be in HH:MM format")
+    return normalized
 
 
 def _blank_day(day_number: int) -> Dict[str, Any]:
@@ -1242,7 +1123,7 @@ def _attempt_ai_weight_parse(text: str, filename: str) -> Optional[Dict[str, Any
                 "Content-Type": "application/json",
             },
             json={
-                "model": os.environ.get("OPENAI_WEIGHT_PARSE_MODEL", "gpt-5-mini"),
+                "model": os.environ.get("OPENAI_WEIGHT_PARSE_MODEL", os.environ.get("OPENAI_MODEL", "gpt-4o")),
                 "temperature": 0,
                 "response_format": {"type": "json_object"},
                 "messages": [
@@ -1263,28 +1144,58 @@ def _attempt_ai_weight_parse(text: str, filename: str) -> Optional[Dict[str, Any
     return None
 
 
-def _extract_text_from_weight_upload(file_bytes: bytes, filename: str, content_type: Optional[str]) -> str:
+def _extract_text_from_pdf_bytes(file_bytes: bytes) -> str:
+    try:
+        from pypdf import PdfReader
+    except Exception:
+        try:
+            from PyPDF2 import PdfReader  # type: ignore
+        except Exception:
+            raise HTTPException(status_code=503, detail="PDF parser dependency not available. Install pypdf==6.7.5")
+
+    try:
+        reader = PdfReader(io.BytesIO(file_bytes))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid PDF file")
+
+    page_text = "\n".join((_clean_text(page.extract_text() or "")) for page in reader.pages)
+    return page_text.strip()
+
+
+def _extract_text_from_file_bytes(file_bytes: bytes, filename: str, content_type: Optional[str]) -> str:
     lower_name = (filename or "").lower()
     if lower_name.endswith(".pdf") or (content_type or "").startswith("application/pdf"):
-        try:
-            from pypdf import PdfReader
-        except Exception:
-            try:
-                from PyPDF2 import PdfReader  # type: ignore
-            except Exception:
-                raise HTTPException(status_code=503, detail="PDF parser dependency not available. Install pypdf==6.7.5")
-
-        try:
-            reader = PdfReader(io.BytesIO(file_bytes))
-        except Exception:
-            raise HTTPException(status_code=400, detail="Invalid PDF file")
-        page_text = "\n".join((_clean_text(page.extract_text() or "")) for page in reader.pages)
-        return page_text.strip()
+        return _extract_text_from_pdf_bytes(file_bytes)
 
     try:
         return file_bytes.decode("utf-8-sig")
     except UnicodeDecodeError:
         return file_bytes.decode("latin-1", errors="ignore")
+
+
+def _extract_text_from_weight_upload(file_bytes: bytes, filename: str, content_type: Optional[str]) -> str:
+    return _extract_text_from_file_bytes(file_bytes, filename, content_type)
+
+
+def _serialize_file_record(file_record: dict) -> FileRecordResponse:
+    return FileRecordResponse(
+        id=file_record["id"],
+        client_id=file_record.get("client_id"),
+        category=file_record.get("category", "general"),
+        original_filename=file_record.get("original_filename", "file"),
+        content_type=file_record.get("content_type"),
+        size=file_record.get("size"),
+        created_at=file_record.get("created_at", ""),
+    )
+
+
+def _extract_text_from_stored_file_record(file_record: dict) -> str:
+    data, content_type = get_object(file_record["storage_path"])
+    return _extract_text_from_file_bytes(
+        data,
+        file_record.get("original_filename") or "",
+        file_record.get("content_type") or content_type,
+    )
 
 
 def _parse_weight_import_payload(raw_text: str, source_name: str) -> WeightImportParseResponse:
@@ -1390,12 +1301,15 @@ async def _build_pending_tasks_feed(user: dict, window_days: int = 3) -> Dict[st
     now = datetime.now(timezone.utc)
     today = now.date()
     cutoff = today + timedelta(days=window_days)
+    program_window_days = 7
+    program_cutoff = today + timedelta(days=program_window_days)
     today_iso = today.isoformat()
     cutoff_iso = cutoff.isoformat()
+    program_cutoff_iso = program_cutoff.isoformat()
 
     visible_clients = await db.clients.find(
         _visible_clients_query(user),
-        {"_id": 0, "id": 1, "name": 1, "diet_end_date": 1, "status": 1},
+        {"_id": 0, "id": 1, "name": 1, "diet_end_date": 1, "program_end_date": 1, "status": 1},
     ).to_list(2000)
     client_map = {client["id"]: client for client in visible_clients if client.get("id")}
     visible_client_ids = list(client_map.keys())
@@ -1420,6 +1334,33 @@ async def _build_pending_tasks_feed(user: dict, window_days: int = 3) -> Dict[st
                 "client_name": client_row.get("name", "Client"),
                 "comment": "Diet plan expiring soon",
                 "due_date": diet_end_date,
+                "days_left": max(0, (parsed_due_date.date() - today).days),
+                "status": client_row.get("status", "active"),
+                "follow_up_id": None,
+                "created_by_name": None,
+            }
+        )
+
+    program_tasks: List[Dict[str, Any]] = []
+    for client_row in visible_clients:
+        program_end_date = client_row.get("program_end_date")
+        client_status = (client_row.get("status") or "active").lower()
+        if client_status not in {"active"}:
+            continue
+        if not program_end_date or not (today_iso <= program_end_date <= program_cutoff_iso):
+            continue
+        parsed_due_date = _parse_datetime_or_date(program_end_date)
+        if not parsed_due_date:
+            continue
+        program_tasks.append(
+            {
+                "id": f"program-expiry:{client_row['id']}:{program_end_date}",
+                "task_type": "program-expiry",
+                "title": "Program end due soon",
+                "client_id": client_row["id"],
+                "client_name": client_row.get("name", "Client"),
+                "comment": f"Program ends on {program_end_date}",
+                "due_date": program_end_date,
                 "days_left": max(0, (parsed_due_date.date() - today).days),
                 "status": client_row.get("status", "active"),
                 "follow_up_id": None,
@@ -1503,15 +1444,17 @@ async def _build_pending_tasks_feed(user: dict, window_days: int = 3) -> Dict[st
             )
 
     all_tasks = sorted(
-        diet_tasks + follow_up_tasks + manual_tasks,
+        diet_tasks + program_tasks + follow_up_tasks + manual_tasks,
         key=lambda item: (item.get("due_date") or "", item.get("task_type") or "", item.get("client_name") or ""),
     )
 
     return {
         "window_days": window_days,
+        "program_window_days": program_window_days,
         "total_count": len(all_tasks),
         "diet_expiry_count": len(diet_tasks),
         "follow_up_count": len(follow_up_tasks),
+        "program_expiry_count": len(program_tasks),
         "manual_task_count": len(manual_tasks),
         "tasks": all_tasks,
     }
@@ -2064,43 +2007,12 @@ async def get_client_stats(user: dict = Depends(get_current_user)):
 
 @api_router.get("/clients/weight-summaries", response_model=List[ClientWeightSummaryResponse])
 async def get_client_weight_summaries(entries: int = 10, user: dict = Depends(get_current_user)):
-    entries = max(2, min(entries, 30))
-    client_rows = await db.clients.find(_visible_clients_query(user), {"_id": 0, "id": 1}).to_list(1000)
-    client_ids = [client["id"] for client in client_rows if client.get("id")]
-    if not client_ids:
-        return []
-
-    grouped_entries: Dict[str, List[dict]] = {client_id: [] for client_id in client_ids}
-    cursor = db.weight_entries.find(
-        {"client_id": {"$in": client_ids}},
-        {"_id": 0, "client_id": 1, "recorded_date": 1, "weight_kg": 1},
-    ).sort([("client_id", 1), ("recorded_date", -1)])
-
-    async for entry in cursor:
-        client_id = entry.get("client_id")
-        if not client_id or client_id not in grouped_entries:
-            continue
-        if len(grouped_entries[client_id]) >= entries:
-            continue
-        grouped_entries[client_id].append({
-            "recorded_date": entry.get("recorded_date"),
-            "weight_kg": entry.get("weight_kg"),
-        })
-
-    summaries = []
-    for client_id in client_ids:
-        client_entries = grouped_entries.get(client_id, [])
-        latest_weight = client_entries[0]["weight_kg"] if client_entries else None
-        oldest_weight = client_entries[-1]["weight_kg"] if len(client_entries) >= 2 else None
-        delta_kg = (latest_weight - oldest_weight) if latest_weight is not None and oldest_weight is not None else None
-        summaries.append(ClientWeightSummaryResponse(
-            client_id=client_id,
-            delta_kg=delta_kg,
-            latest_weight_kg=latest_weight,
-            oldest_weight_kg=oldest_weight,
-            entries=[ClientWeightSummaryEntry(**entry) for entry in client_entries],
-        ))
-    return summaries
+    return await get_client_weight_summaries_handler(
+        db=db,
+        entries=entries,
+        user=user,
+        visible_clients_query=_visible_clients_query,
+    )
 
 @api_router.post("/clients", response_model=ClientResponse)
 async def create_client(data: ClientCreate, user: dict = Depends(get_current_user)):
@@ -2208,44 +2120,24 @@ async def update_client(client_id: str, data: ClientUpdate, user: dict = Depends
 
 @api_router.get("/clients/{client_id}/comments", response_model=List[ClientCommentResponse])
 async def get_client_comments(client_id: str, limit: int = 100, user: dict = Depends(get_current_user)):
-    client = await _get_visible_client(client_id, user, {"_id": 0, "id": 1})
-    if not client:
-        raise HTTPException(status_code=404, detail="Client not found")
-
-    comments = await db.client_comments.find(
-        {"client_id": client_id},
-        {"_id": 0},
-    ).sort("created_at", -1).limit(limit).to_list(limit)
-    return [ClientCommentResponse(**comment) for comment in comments]
+    return await get_client_comments_handler(
+        db=db,
+        client_id=client_id,
+        limit=limit,
+        user=user,
+        get_visible_client=_get_visible_client,
+    )
 
 
 @api_router.post("/clients/{client_id}/comments", response_model=ClientCommentResponse)
 async def add_client_comment(client_id: str, data: ClientCommentCreate, user: dict = Depends(get_current_user)):
-    client = await _get_visible_client(client_id, user, {"_id": 0, "id": 1})
-    if not client:
-        raise HTTPException(status_code=404, detail="Client not found")
-
-    content = (data.content or "").strip()
-    if not content:
-        raise HTTPException(status_code=400, detail="Comment content is required")
-
-    now = datetime.now(timezone.utc).isoformat()
-    comment_doc = {
-        "id": str(uuid.uuid4()),
-        "client_id": client_id,
-        "coach_id": user["id"],
-        "author_id": user["id"],
-        "author_name": user.get("name") or "Coach",
-        "author_role": user.get("role"),
-        "content": content,
-        "created_at": now,
-    }
-    await db.client_comments.insert_one(comment_doc)
-    await db.clients.update_one(
-        {"id": client_id},
-        {"$set": {"recent_comment": content, "updated_at": now}},
+    return await add_client_comment_handler(
+        db=db,
+        client_id=client_id,
+        data=data,
+        user=user,
+        get_visible_client=_get_visible_client,
     )
-    return ClientCommentResponse(**comment_doc)
 
 @api_router.delete("/clients/{client_id}")
 async def delete_client(client_id: str, user: dict = Depends(get_current_user)):
@@ -2268,87 +2160,35 @@ async def delete_client(client_id: str, user: dict = Depends(get_current_user)):
 # ============ WEIGHT ENTRY ROUTES ============
 @api_router.get("/clients/{client_id}/weights", response_model=List[WeightEntryResponse])
 async def get_weight_entries(client_id: str, limit: int = 100, user: dict = Depends(get_current_user)):
-    client = await _get_visible_client(client_id, user)
-    if not client:
-        raise HTTPException(status_code=404, detail="Client not found")
-    
-    entries = await db.weight_entries.find({"client_id": client_id}, {"_id": 0}).sort("recorded_date", -1).limit(limit).to_list(limit)
-    return [WeightEntryResponse(**e) for e in entries]
+    return await get_weight_entries_handler(
+        db=db,
+        client_id=client_id,
+        limit=limit,
+        user=user,
+        get_visible_client=_get_visible_client,
+    )
 
 @api_router.post("/clients/{client_id}/weights", response_model=WeightEntryResponse)
 async def add_weight_entry(client_id: str, data: WeightEntryCreate, user: dict = Depends(get_current_user)):
-    client = await _get_visible_client(client_id, user)
-    if not client:
-        raise HTTPException(status_code=404, detail="Client not found")
-    
-    entry_id = str(uuid.uuid4())
-    now = datetime.now(timezone.utc).isoformat()
-    entry_doc = {
-        "id": entry_id,
-        "client_id": client_id,
-        "weight_kg": data.weight_kg,
-        "recorded_date": data.recorded_date or now[:10],
-        "notes": data.notes,
-        "created_at": now
-    }
-    await db.weight_entries.insert_one(entry_doc)
-    
-    # Update client's current weight
-    await db.clients.update_one({"id": client_id}, {"$set": {"current_weight_kg": data.weight_kg, "updated_at": now}})
-    
-    entry_doc.pop("_id", None)
-    return WeightEntryResponse(**entry_doc)
+    return await add_weight_entry_handler(
+        db=db,
+        client_id=client_id,
+        data=data,
+        user=user,
+        get_visible_client=_get_visible_client,
+    )
 
 
 @api_router.put("/clients/{client_id}/weights/by-date", response_model=WeightEntryResponse)
 async def upsert_weight_entry_by_date(client_id: str, data: WeightEntryUpsertRequest, user: dict = Depends(get_current_user)):
-    client = await _get_visible_client(client_id, user)
-    if not client:
-        raise HTTPException(status_code=404, detail="Client not found")
-
-    recorded_date = _parse_weight_date(data.recorded_date)
-    if not recorded_date:
-        raise HTTPException(status_code=400, detail="Invalid recorded_date")
-
-    now = datetime.now(timezone.utc).isoformat()
-    existing = await db.weight_entries.find_one(
-        {"client_id": client_id, "recorded_date": recorded_date},
-        {"_id": 0},
+    return await upsert_weight_entry_by_date_handler(
+        db=db,
+        client_id=client_id,
+        data=data,
+        user=user,
+        get_visible_client=_get_visible_client,
+        parse_weight_date=_parse_weight_date,
     )
-
-    if existing:
-        update_payload = {
-            "weight_kg": data.weight_kg,
-            "notes": data.notes if data.notes is not None else existing.get("notes"),
-        }
-        await db.weight_entries.update_one(
-            {"id": existing["id"], "client_id": client_id},
-            {"$set": update_payload},
-        )
-        entry_doc = {**existing, **update_payload}
-    else:
-        entry_doc = {
-            "id": str(uuid.uuid4()),
-            "client_id": client_id,
-            "weight_kg": data.weight_kg,
-            "recorded_date": recorded_date,
-            "notes": data.notes,
-            "created_at": now,
-        }
-        await db.weight_entries.insert_one(entry_doc)
-
-    latest_entry = await db.weight_entries.find(
-        {"client_id": client_id},
-        {"_id": 0, "weight_kg": 1},
-    ).sort("recorded_date", -1).to_list(1)
-    latest_weight = latest_entry[0].get("weight_kg") if latest_entry else data.weight_kg
-    await db.clients.update_one(
-        {"id": client_id},
-        {"$set": {"current_weight_kg": latest_weight, "updated_at": now}},
-    )
-
-    entry_doc.pop("_id", None)
-    return WeightEntryResponse(**entry_doc)
 
 
 @api_router.post("/clients/{client_id}/weights/parse-upload", response_model=WeightImportParseResponse)
@@ -2357,17 +2197,14 @@ async def parse_weight_upload(
     file: UploadFile = File(...),
     user: dict = Depends(get_current_user),
 ):
-    client = await _get_visible_client(client_id, user, {"_id": 0, "id": 1})
-    if not client:
-        raise HTTPException(status_code=404, detail="Client not found")
-
-    file_bytes = await file.read()
-    if not file_bytes:
-        raise HTTPException(status_code=400, detail="Uploaded file is empty")
-
-    filename = file.filename or "weight-upload"
-    extracted_text = _extract_text_from_weight_upload(file_bytes, filename, file.content_type)
-    return _parse_weight_import_payload(extracted_text, filename)
+    return await parse_weight_upload_handler(
+        client_id=client_id,
+        file=file,
+        user=user,
+        get_visible_client=_get_visible_client,
+        extract_text_from_weight_upload=_extract_text_from_weight_upload,
+        parse_weight_import_payload=_parse_weight_import_payload,
+    )
 
 
 @api_router.post("/clients/{client_id}/weights/parse-text", response_model=WeightImportParseResponse)
@@ -2376,15 +2213,13 @@ async def parse_weight_text(
     payload: WeightImportTextRequest,
     user: dict = Depends(get_current_user),
 ):
-    client = await _get_visible_client(client_id, user, {"_id": 0, "id": 1})
-    if not client:
-        raise HTTPException(status_code=404, detail="Client not found")
-
-    raw_text = (payload.raw_text or "").strip()
-    if not raw_text:
-        raise HTTPException(status_code=400, detail="Paste weight data before parsing")
-
-    return _parse_weight_import_payload(raw_text, "pasted-weight-data.txt")
+    return await parse_weight_text_handler(
+        client_id=client_id,
+        payload=payload,
+        user=user,
+        get_visible_client=_get_visible_client,
+        parse_weight_import_payload=_parse_weight_import_payload,
+    )
 
 
 @api_router.post("/clients/{client_id}/weights/bulk", response_model=WeightImportSaveResponse)
@@ -2393,59 +2228,13 @@ async def save_bulk_weight_entries(
     payload: WeightImportSaveRequest,
     user: dict = Depends(get_current_user),
 ):
-    client = await _get_visible_client(client_id, user, {"_id": 0, "id": 1})
-    if not client:
-        raise HTTPException(status_code=404, detail="Client not found")
-
-    entries = _sanitize_weight_import_entries([entry.model_dump() for entry in payload.entries])
-    if not entries:
-        raise HTTPException(status_code=400, detail="At least one valid weight entry is required")
-
-    saved_entries = 0
-    updated_entries = 0
-    now = datetime.now(timezone.utc).isoformat()
-
-    for entry in entries:
-        existing = await db.weight_entries.find_one(
-            {"client_id": client_id, "recorded_date": entry.recorded_date},
-            {"_id": 0, "id": 1},
-        )
-        if existing:
-            update_payload = {
-                "weight_kg": entry.weight_kg,
-                "notes": entry.notes,
-            }
-            if entry.mapped_fields:
-                update_payload["mapped_fields"] = entry.mapped_fields
-            await db.weight_entries.update_one(
-                {"id": existing["id"], "client_id": client_id},
-                {"$set": update_payload},
-            )
-            updated_entries += 1
-            continue
-
-        entry_doc = {
-            "id": str(uuid.uuid4()),
-            "client_id": client_id,
-            "weight_kg": entry.weight_kg,
-            "recorded_date": entry.recorded_date,
-            "notes": entry.notes,
-            "mapped_fields": entry.mapped_fields or {},
-            "created_at": now,
-        }
-        await db.weight_entries.insert_one(entry_doc)
-        saved_entries += 1
-
-    latest_entry = max(entries, key=lambda item: item.recorded_date)
-    await db.clients.update_one(
-        {"id": client_id},
-        {"$set": {"current_weight_kg": latest_entry.weight_kg, "updated_at": now}},
-    )
-
-    return WeightImportSaveResponse(
-        saved_entries=saved_entries,
-        updated_entries=updated_entries,
-        latest_weight_kg=latest_entry.weight_kg,
+    return await save_bulk_weight_entries_handler(
+        db=db,
+        client_id=client_id,
+        payload=payload,
+        user=user,
+        get_visible_client=_get_visible_client,
+        sanitize_weight_import_entries=_sanitize_weight_import_entries,
     )
 
 
@@ -2455,28 +2244,13 @@ async def get_client_monthly_tracker(
     month: Optional[str] = None,
     user: dict = Depends(get_current_user),
 ):
-    client = await _get_visible_client(client_id, user, {"_id": 0, "id": 1})
-    if not client:
-        raise HTTPException(status_code=404, detail="Client not found")
-
-    month_value = month or datetime.now(timezone.utc).strftime("%Y-%m")
-    if not re.fullmatch(r"\d{4}-\d{2}", month_value):
-        raise HTTPException(status_code=400, detail="month must be in YYYY-MM format")
-
-    checkins = await db.daily_checkins.find(
-        {"client_id": client_id, "date": {"$regex": f"^{month_value}"}},
-        {"_id": 0, "date": 1, "meals": 1},
-    ).sort("date", 1).to_list(100)
-
-    return TrackerMonthResponse(
-        entries=[
-            TrackerDayResponse(
-                date=checkin.get("date"),
-                activities=_extract_tracker_activities(checkin.get("meals")),
-            )
-            for checkin in checkins
-            if checkin.get("date")
-        ]
+    return await get_client_monthly_tracker_handler(
+        db=db,
+        client_id=client_id,
+        month=month,
+        user=user,
+        get_visible_client=_get_visible_client,
+        extract_tracker_activities=_extract_tracker_activities,
     )
 
 
@@ -2486,77 +2260,15 @@ async def upsert_client_tracker_activity(
     data: TrackerActivityUpdateRequest,
     user: dict = Depends(get_current_user),
 ):
-    client = await _get_visible_client(client_id, user, {"_id": 0, "id": 1, "coach_id": 1})
-    if not client:
-        raise HTTPException(status_code=404, detail="Client not found")
-
-    tracker_date = _parse_weight_date(data.date)
-    if not tracker_date:
-        raise HTTPException(status_code=400, detail="Invalid date")
-
-    activity_name = _normalize_tracker_activity_name(data.activity_name)
-    if not activity_name:
-        raise HTTPException(status_code=400, detail="Unsupported activity_name")
-
-    now = datetime.now(timezone.utc).isoformat()
-    existing = await db.daily_checkins.find_one(
-        {"client_id": client_id, "date": tracker_date},
-        {"_id": 0},
+    return await upsert_client_tracker_activity_handler(
+        db=db,
+        client_id=client_id,
+        data=data,
+        user=user,
+        get_visible_client=_get_visible_client,
+        parse_weight_date=_parse_weight_date,
+        normalize_tracker_activity_name=_normalize_tracker_activity_name,
     )
-
-    meal_map: Dict[str, dict] = {}
-    extra_meals: List[dict] = []
-    for meal in (existing or {}).get("meals", []):
-        normalized_name = _normalize_tracker_activity_name(meal.get("meal_name"))
-        if normalized_name:
-            meal_map[normalized_name] = {**meal, "meal_name": normalized_name}
-        else:
-            extra_meals.append(meal)
-
-    meal_map[activity_name] = {"meal_name": activity_name, "completed": data.completed}
-    tracker_meals = [meal_map[key] for key in TRACKER_ACTIVITY_ORDER if key in meal_map]
-    adherence_score = (
-        sum(1 for key in TRACKER_ACTIVITY_ORDER if meal_map.get(key, {}).get("completed")) / len(TRACKER_ACTIVITY_ORDER)
-    ) * 100
-
-    checkin_doc = {
-        "client_id": client_id,
-        "coach_id": client.get("coach_id") or SHARED_CLIENT_OWNER_ID,
-        "date": tracker_date,
-        "meals": tracker_meals + extra_meals,
-        "water_glasses": (existing or {}).get("water_glasses", 0),
-        "mood": (existing or {}).get("mood"),
-        "notes": (existing or {}).get("notes"),
-        "adherence_score": adherence_score,
-        "updated_at": now,
-    }
-
-    if existing:
-        await db.daily_checkins.update_one(
-            {"id": existing["id"]},
-            {"$set": checkin_doc},
-        )
-        checkin_doc["id"] = existing["id"]
-        checkin_doc["created_at"] = existing.get("created_at", now)
-    else:
-        checkin_doc["id"] = str(uuid.uuid4())
-        checkin_doc["created_at"] = now
-        await db.daily_checkins.insert_one(checkin_doc)
-
-    all_checkins = await db.daily_checkins.find({"client_id": client_id}, {"_id": 0, "adherence_score": 1}).to_list(200)
-    if all_checkins:
-        avg_adherence = sum(checkin.get("adherence_score", 0) for checkin in all_checkins) / len(all_checkins)
-        await db.clients.update_one(
-            {"id": client_id},
-            {"$set": {"adherence_rate": avg_adherence, "updated_at": now}},
-        )
-
-    return {
-        "date": tracker_date,
-        "activity_name": activity_name,
-        "completed": data.completed,
-        "adherence_score": adherence_score,
-    }
 
 # ============ DIET PLAN ROUTES ============
 @api_router.get("/diet-plans", response_model=List[DietPlanResponse])
@@ -2777,13 +2489,15 @@ async def create_follow_up(data: FollowUpCreate, user: dict = Depends(get_curren
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
     client_name = client.get("name") or "Client"
+    scheduled_time = _normalize_follow_up_time(data.scheduled_time)
 
     follow_up_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat()
     follow_up_doc = {
         "id": follow_up_id,
         "coach_id": user["id"],
-        **data.model_dump(),
+        **data.model_dump(exclude={"scheduled_time"}),
+        "scheduled_time": scheduled_time,
         "status": "scheduled",
         "created_by_name": user.get("name") or "Coach",
         "created_at": now
@@ -2800,6 +2514,7 @@ async def create_follow_up(data: FollowUpCreate, user: dict = Depends(get_curren
         summary=f"Created {data.type.replace('-', ' ')} follow-up for {client_name}",
         metadata={
             "scheduled_date": data.scheduled_date,
+            "scheduled_time": scheduled_time,
             "type": data.type,
             "notes": data.notes,
             "status": "scheduled",
@@ -2815,6 +2530,8 @@ async def update_follow_up(follow_up_id: str, data: FollowUpUpdate, user: dict =
         raise HTTPException(status_code=404, detail="Follow-up not found")
 
     update_data = {k: v for k, v in data.model_dump().items() if v is not None}
+    if "scheduled_time" in update_data:
+        update_data["scheduled_time"] = _normalize_follow_up_time(update_data["scheduled_time"])
     result = await db.follow_ups.find_one_and_update(
         {"id": follow_up_id},
         {"$set": update_data},
@@ -2835,12 +2552,14 @@ async def update_follow_up(follow_up_id: str, data: FollowUpUpdate, user: dict =
         metadata={
             "from": {
                 "scheduled_date": existing.get("scheduled_date"),
+                "scheduled_time": existing.get("scheduled_time"),
                 "status": existing.get("status"),
                 "notes": existing.get("notes"),
                 "type": existing.get("type"),
             },
             "to": {
                 "scheduled_date": result.get("scheduled_date"),
+                "scheduled_time": result.get("scheduled_time"),
                 "status": result.get("status"),
                 "notes": result.get("notes"),
                 "type": result.get("type"),
@@ -2870,6 +2589,7 @@ async def delete_follow_up(follow_up_id: str, user: dict = Depends(get_current_u
         summary=f"Deleted follow-up for {(client or {}).get('name', 'Client')}",
         metadata={
             "scheduled_date": existing.get("scheduled_date"),
+            "scheduled_time": existing.get("scheduled_time"),
             "status": existing.get("status"),
             "type": existing.get("type"),
         },
@@ -3288,12 +3008,6 @@ async def import_transactions_csv(
         file_results=file_results,
     )
 
-# ============ FILE UPLOAD ROUTES ============
-MIME_TYPES = {
-    "jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
-    "gif": "image/gif", "webp": "image/webp", "pdf": "application/pdf",
-}
-
 @api_router.post("/upload")
 async def upload_file(
     file: UploadFile = File(...),
@@ -3301,40 +3015,14 @@ async def upload_file(
     category: str = "general",
     user: dict = Depends(get_current_user)
 ):
-    owner_id = user["id"]
-    if client_id:
-        client_record = await _get_visible_client(client_id, user, {"_id": 0, "id": 1})
-        if not client_record:
-            raise HTTPException(status_code=404, detail="Client not found")
-        owner_id = SHARED_CLIENT_OWNER_ID
-    
-    ext = file.filename.split(".")[-1].lower() if "." in file.filename else "bin"
-    if ext not in MIME_TYPES:
-        raise HTTPException(status_code=400, detail="Unsupported file type")
-    
-    path = f"{APP_NAME}/uploads/{owner_id}/{uuid.uuid4()}.{ext}"
-    data = await file.read()
-    content_type = file.content_type or MIME_TYPES.get(ext, "application/octet-stream")
-    
-    result = put_object(path, data, content_type)
-    
-    file_id = str(uuid.uuid4())
-    now = datetime.now(timezone.utc).isoformat()
-    file_doc = {
-        "id": file_id,
-        "coach_id": owner_id,
-        "client_id": client_id,
-        "category": category,
-        "storage_path": result["path"],
-        "original_filename": file.filename,
-        "content_type": content_type,
-        "size": result.get("size", len(data)),
-        "is_deleted": False,
-        "created_at": now
-    }
-    await db.files.insert_one(file_doc)
-    
-    return {"id": file_id, "path": result["path"], "filename": file.filename}
+    return await upload_file_handler(
+        db=db,
+        file=file,
+        client_id=client_id,
+        category=category,
+        user=user,
+        get_visible_client=_get_visible_client,
+    )
 
 
 @api_router.get("/files", response_model=List[FileRecordResponse])
@@ -3344,37 +3032,51 @@ async def list_files(
     limit: int = 100,
     user: dict = Depends(get_current_user),
 ):
-    if client_id:
-        client_record = await _get_visible_client(client_id, user, {"_id": 0, "id": 1})
-        if not client_record:
-            raise HTTPException(status_code=404, detail="Client not found")
-
-    query: Dict[str, Any] = {
-        "coach_id": {"$in": _visible_client_owner_ids(user)},
-        "is_deleted": False,
-    }
-    if client_id:
-        query["client_id"] = client_id
-    if category:
-        query["category"] = category
-
-    records = await db.files.find(
-        query,
-        {"_id": 0, "id": 1, "client_id": 1, "category": 1, "original_filename": 1, "content_type": 1, "size": 1, "created_at": 1},
-    ).sort("created_at", -1).limit(limit).to_list(limit)
+    records = await list_files_handler(
+        db=db,
+        client_id=client_id,
+        category=category,
+        limit=limit,
+        user=user,
+        get_visible_client=_get_visible_client,
+        visible_client_owner_ids=_visible_client_owner_ids,
+    )
     return [FileRecordResponse(**record) for record in records]
 
 @api_router.get("/files/{file_id}")
 async def get_file(file_id: str, user: dict = Depends(get_current_user)):
-    record = await db.files.find_one(
-        {"id": file_id, "coach_id": {"$in": _visible_client_owner_ids(user)}, "is_deleted": False},
-        {"_id": 0},
+    return await get_file_handler(
+        db=db,
+        file_id=file_id,
+        user=user,
+        visible_client_owner_ids=_visible_client_owner_ids,
     )
-    if not record:
-        raise HTTPException(status_code=404, detail="File not found")
-    
-    data, content_type = get_object(record["storage_path"])
-    return Response(content=data, media_type=record.get("content_type", content_type))
+
+
+@api_router.get("/clients/{client_id}/ai/health-analysis", response_model=ClientAIHealthAnalysisResponse)
+async def get_client_ai_health_analysis(client_id: str, user: dict = Depends(get_current_user)):
+    analysis_doc = await get_health_analysis_handler(
+        db=db,
+        client_id=client_id,
+        user=user,
+        get_visible_client=_get_visible_client,
+    )
+    return ClientAIHealthAnalysisResponse(**analysis_doc)
+
+
+@api_router.post("/clients/{client_id}/ai/health-analysis/generate", response_model=ClientAIHealthAnalysisResponse)
+async def generate_client_ai_health_analysis(client_id: str, user: dict = Depends(get_current_user)):
+    analysis_doc = await generate_health_analysis_handler(
+        db=db,
+        client_id=client_id,
+        user=user,
+        get_visible_client=_get_visible_client,
+        visible_client_owner_ids=_visible_client_owner_ids,
+        extract_text_from_stored_file_record=_extract_text_from_stored_file_record,
+        serialize_file_record=_serialize_file_record,
+        write_audit_log=_write_audit_log,
+    )
+    return ClientAIHealthAnalysisResponse(**analysis_doc)
 
 # ============ DASHBOARD STATS ============
 @api_router.get("/dashboard/stats")
@@ -4486,6 +4188,7 @@ async def startup():
     await db.manual_tasks.create_index([("client_id", 1), ("due_date", 1)])
     await db.audit_logs.create_index([("coach_id", 1), ("created_at", -1)])
     await db.audit_logs.create_index([("entity_type", 1), ("created_at", -1)])
+    await db.client_ai_analyses.create_index([("client_id", 1), ("analysis_type", 1)], unique=True)
     # Mobile app indexes
     await db.daily_checkins.create_index([("client_id", 1), ("date", -1)])
     await db.meal_uploads.create_index([("client_id", 1), ("uploaded_at", -1)])

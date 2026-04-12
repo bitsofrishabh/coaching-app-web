@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
 import { toast } from "sonner";
-import { Plus, Search, Edit, Trash2, Upload, Sparkles, ArrowUp, ArrowDown, ArrowUpDown, CalendarDays, Eye, Loader2, X } from "lucide-react";
+import { Plus, Search, Upload, Sparkles, ArrowDown, Loader2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -12,9 +10,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Input } from "@/components/ui/input";
-import { Card } from "@/components/ui/card";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -31,7 +27,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { ClientTrackerGrid } from "@/components/clients/ClientTrackerGrid";
 import { api } from "@/lib/api";
 import { hasAnyRole, useAuth } from "@/context/auth-context";
 
@@ -90,32 +86,32 @@ const CLIENT_STATUS_META = {
   active: {
     label: "Active",
     dotClassName: "bg-violet-500 shadow-[0_0_0_4px_rgba(139,92,246,0.16)]",
-    badgeClassName: "border-violet-500/20 bg-violet-500/10 text-violet-600 dark:text-violet-300"
+    badgeClassName: "text-violet-600 dark:text-violet-300"
   },
   "on-hold": {
     label: "Paused",
     dotClassName: "bg-amber-400 shadow-[0_0_0_4px_rgba(251,191,36,0.16)]",
-    badgeClassName: "border-amber-400/20 bg-amber-400/10 text-amber-600 dark:text-amber-300"
+    badgeClassName: "text-amber-600 dark:text-amber-300"
   },
   "not-responding": {
     label: "Not Responding",
     dotClassName: "bg-fuchsia-500 shadow-[0_0_0_4px_rgba(217,70,239,0.16)]",
-    badgeClassName: "border-fuchsia-500/20 bg-fuchsia-500/10 text-fuchsia-600 dark:text-fuchsia-300"
+    badgeClassName: "text-fuchsia-600 dark:text-fuchsia-300"
   },
   inactive: {
     label: "Stopped",
     dotClassName: "bg-red-500 shadow-[0_0_0_4px_rgba(239,68,68,0.14)]",
-    badgeClassName: "border-red-500/20 bg-red-500/10 text-red-600 dark:text-red-300"
+    badgeClassName: "text-red-600 dark:text-red-300"
   },
   completed: {
     label: "Program Done",
     dotClassName: "bg-violet-500 shadow-[0_0_0_4px_rgba(139,92,246,0.16)]",
-    badgeClassName: "border-sky-500/20 bg-sky-500/10 text-sky-600 dark:text-sky-300"
+    badgeClassName: "text-sky-600 dark:text-sky-300"
   },
   "out-of-town": {
     label: "Out of Town",
     dotClassName: "bg-orange-500 shadow-[0_0_0_4px_rgba(249,115,22,0.16)]",
-    badgeClassName: "border-orange-500/20 bg-orange-500/10 text-orange-600 dark:text-orange-300"
+    badgeClassName: "text-orange-600 dark:text-orange-300"
   }
 };
 
@@ -420,29 +416,6 @@ const mapNotionStatus = (value) => {
 };
 
 const getClientStatusMeta = (status) => CLIENT_STATUS_META[status] || CLIENT_STATUS_META.active;
-const TRACKER_COLUMN_DEFINITIONS = [
-  { key: "client", label: "Client", sortable: true, defaultWidth: 220, minWidth: 180 },
-  { key: "status", label: "Status", sortable: false, defaultWidth: 150, minWidth: 130 },
-  { key: "weight-diff", label: "10-Day Diff", sortable: true, defaultWidth: 160, minWidth: 130 },
-  { key: "recent-comment", label: "Recent Comment", sortable: true, defaultWidth: 240, minWidth: 200 },
-  { key: "diet-start", label: "Diet Start", sortable: true, defaultWidth: 170, minWidth: 150 },
-  { key: "diet-expire", label: "Diet Expire", sortable: true, defaultWidth: 170, minWidth: 150 },
-  { key: "last-follow-up", label: "Last Follow-up", sortable: true, defaultWidth: 170, minWidth: 150 },
-  { key: "upcoming-follow-up", label: "Upcoming Follow-up", sortable: true, defaultWidth: 180, minWidth: 160 },
-  { key: "actions", label: "Actions", sortable: false, defaultWidth: 110, minWidth: 96 },
-];
-const DEFAULT_TRACKER_COLUMN_WIDTHS = Object.fromEntries(
-  TRACKER_COLUMN_DEFINITIONS.map((column) => [column.key, column.defaultWidth])
-);
-const TRACKER_COLUMN_MIN_WIDTHS = Object.fromEntries(
-  TRACKER_COLUMN_DEFINITIONS.map((column) => [column.key, column.minWidth])
-);
-const TRACKER_HEADER_CLASS = "sticky top-0 z-10 border-b border-r border-slate-300 dark:border-white/15 bg-background px-3 py-2.5 text-center text-[12px] font-medium text-muted-foreground backdrop-blur supports-[backdrop-filter]:bg-background";
-const TRACKER_HEADER_BUTTON_CLASS = "mx-auto inline-flex items-center justify-center gap-2 rounded-md px-2 py-1 text-[12px] font-semibold text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground";
-const TRACKER_CELL_INPUT_CLASS = "h-8 rounded-none border-0 bg-transparent px-0 text-[14px] font-medium shadow-none hover:bg-transparent";
-const TRACKER_COMMENT_BUTTON_CLASS = "flex h-8 w-full items-center rounded-md border border-transparent bg-transparent px-2 text-left text-[13px] transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/20";
-const TRACKER_BODY_CELL_CLASS = "border-b border-r border-slate-300 dark:border-white/15 bg-background px-3 py-1.5 align-top transition-colors group-hover:bg-muted/[0.08]";
-
 const formatDisplayDate = (value) => {
   if (!value) return "—";
   const parsed = new Date(value);
@@ -492,7 +465,6 @@ export function ClientsPage() {
   const { user } = useAuth();
   const [clients, setClients] = useState([]);
   const [weightSummaries, setWeightSummaries] = useState({});
-  const [columnWidths, setColumnWidths] = useState(() => ({ ...DEFAULT_TRACKER_COLUMN_WIDTHS }));
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilters, setStatusFilters] = useState(["active"]);
@@ -509,7 +481,6 @@ export function ClientsPage() {
   const [quickViewClient, setQuickViewClient] = useState(null);
   const csvInputRef = useRef(null);
   const commentInputRefs = useRef({});
-  const resizeStateRef = useRef(null);
 
   const fetchClients = async () => {
     setLoading(true);
@@ -773,70 +744,6 @@ export function ClientsPage() {
   const activeSort = getSortState(sortBy);
   const canDeleteClient = hasAnyRole(user, ["super_admin", "admin"]);
 
-  const toggleColumnSort = (columnKey) => {
-    setSortBy((currentValue) => {
-      const currentSort = getSortState(currentValue);
-      if (currentSort.key === columnKey) {
-        return `${columnKey}-${currentSort.direction === "asc" ? "desc" : "asc"}`;
-      }
-      return `${columnKey}-asc`;
-    });
-  };
-
-  const getColumnSortIcon = (columnKey) => {
-    if (activeSort.key !== columnKey) {
-      return <ArrowUpDown className="h-4 w-4 text-muted-foreground/70" />;
-    }
-    return activeSort.direction === "asc"
-      ? <ArrowUp className="h-4 w-4 text-primary" />
-      : <ArrowDown className="h-4 w-4 text-primary" />;
-  };
-
-  const handleColumnResize = useCallback((event) => {
-    const resizeState = resizeStateRef.current;
-    if (!resizeState) return;
-
-    const { columnKey, startX, startWidth } = resizeState;
-    const minWidth = TRACKER_COLUMN_MIN_WIDTHS[columnKey] || 120;
-    const nextWidth = Math.max(minWidth, startWidth + (event.clientX - startX));
-    setColumnWidths((current) => ({ ...current, [columnKey]: nextWidth }));
-  }, []);
-
-  const stopColumnResize = useCallback(() => {
-    resizeStateRef.current = null;
-    document.body.style.cursor = "";
-    document.body.style.userSelect = "";
-    window.removeEventListener("mousemove", handleColumnResize);
-    window.removeEventListener("mouseup", stopColumnResize);
-  }, [handleColumnResize]);
-
-  const startColumnResize = (event, columnKey) => {
-    event.preventDefault();
-    event.stopPropagation();
-    resizeStateRef.current = {
-      columnKey,
-      startX: event.clientX,
-      startWidth: columnWidths[columnKey] || DEFAULT_TRACKER_COLUMN_WIDTHS[columnKey] || 160,
-    };
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-    window.addEventListener("mousemove", handleColumnResize);
-    window.addEventListener("mouseup", stopColumnResize);
-  };
-
-  useEffect(() => () => {
-    resizeStateRef.current = null;
-    document.body.style.cursor = "";
-    document.body.style.userSelect = "";
-    window.removeEventListener("mousemove", handleColumnResize);
-    window.removeEventListener("mouseup", stopColumnResize);
-  }, [handleColumnResize, stopColumnResize]);
-
-  const trackerTableMinWidth = TRACKER_COLUMN_DEFINITIONS.reduce(
-    (total, column) => total + (columnWidths[column.key] || column.defaultWidth),
-    0
-  );
-
   const toggleStatusFilter = (statusValue, checked) => {
     setStatusFilters((current) => {
       if (checked) {
@@ -884,6 +791,11 @@ export function ClientsPage() {
           return compareNullableValues(a.name, b.name, "asc");
       }
     });
+  const gridRows = visibleClients.map((client) => ({
+    ...client,
+    weight_summary: weightSummaries[client.id] || null,
+    weight_delta: weightSummaries[client.id]?.delta_kg ?? null,
+  }));
 
   return (
     <div className="space-y-6 animate-fade-in" data-testid="clients-page">
@@ -999,246 +911,24 @@ export function ClientsPage() {
         </div>
       ) : null}
 
-      <TooltipProvider delayDuration={120}>
-        <Card className="overflow-hidden rounded-2xl border border-border/50 bg-background shadow-[0_1px_0_rgba(15,23,42,0.02),0_8px_30px_rgba(15,23,42,0.04)]">
-          <div className="border-b border-border/50 bg-background px-4 py-3">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-                <CalendarDays className="h-4 w-4" />
-                Client database view
-              </div>
-              <p className="text-xs text-muted-foreground">Drag a column edge to resize for this session.</p>
-            </div>
-          </div>
-          <div className="overflow-x-auto border-l border-t border-slate-300 dark:border-white/15">
-            <table className="w-full table-fixed border-collapse" style={{ minWidth: `${trackerTableMinWidth}px` }}>
-              <colgroup>
-                {TRACKER_COLUMN_DEFINITIONS.map((column) => (
-                  <col key={column.key} style={{ width: `${columnWidths[column.key] || column.defaultWidth}px` }} />
-                ))}
-              </colgroup>
-              <thead>
-                <tr className="border-b border-slate-300 dark:border-white/15">
-                  {TRACKER_COLUMN_DEFINITIONS.map((column) => (
-                    <th key={column.key} className={`${TRACKER_HEADER_CLASS} relative`}>
-                      {column.sortable ? (
-                        <button
-                          type="button"
-                          className={TRACKER_HEADER_BUTTON_CLASS}
-                          onClick={() => toggleColumnSort(column.key)}
-                        >
-                          <span>{column.label}</span>
-                          {getColumnSortIcon(column.key)}
-                        </button>
-                      ) : (
-                        <span className={TRACKER_HEADER_BUTTON_CLASS}>{column.label}</span>
-                      )}
-                      <button
-                        type="button"
-                        className="absolute right-0 top-0 h-full w-3 cursor-col-resize select-none touch-none border-r border-transparent transition-colors hover:border-primary/40"
-                        aria-label={`Resize ${column.label} column`}
-                        onMouseDown={(event) => startColumnResize(event, column.key)}
-                      />
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {loading ? (
-                  <tr>
-                    <td colSpan={TRACKER_COLUMN_DEFINITIONS.length} className="text-center py-14 text-muted-foreground">Loading clients...</td>
-                  </tr>
-                ) : visibleClients.length === 0 ? (
-                  <tr>
-                    <td colSpan={TRACKER_COLUMN_DEFINITIONS.length} className="text-center py-14 text-muted-foreground">No clients found for this filter.</td>
-                  </tr>
-                ) : (
-                  visibleClients.map((client) => {
-                    const draft = rowDrafts[client.id] || {};
-                    const statusMeta = getClientStatusMeta(client.status);
-                    const weightSummary = weightSummaries[client.id];
-                    const dietExpiryUrgency = getDateUrgencyMeta(draft.diet_end_date ?? client.diet_end_date);
-                    const upcomingFollowUpUrgency = getDateUrgencyMeta(draft.upcoming_follow_up_date ?? client.upcoming_follow_up_date);
-                    const weightDelta = weightSummary?.delta_kg;
-                    const hasWeightTrend = typeof weightDelta === "number";
-                    const formattedWeightDelta = hasWeightTrend
-                      ? `${weightDelta > 0 ? "+" : ""}${weightDelta.toFixed(1)} kg`
-                      : "—";
-                    return (
-                      <tr key={client.id} className="group table-dense align-top" data-testid={`client-row-${client.id}`}>
-                        <td className={TRACKER_BODY_CELL_CLASS}>
-                          <div className="flex min-w-0 items-center gap-2">
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-7 w-7 shrink-0 rounded-md text-muted-foreground hover:text-foreground"
-                                  onClick={() => void openQuickView(client)}
-                                  aria-label={`Open ${client.name} quick view`}
-                                >
-                                  <Eye className="h-4 w-4" />
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent>Quick view</TooltipContent>
-                            </Tooltip>
-                            <Link
-                              to={`/clients/${client.id}`}
-                              className="block min-w-0 flex-1 truncate whitespace-nowrap font-medium text-foreground transition-colors hover:text-primary"
-                              title={client.name}
-                            >
-                              {client.name}
-                            </Link>
-                          </div>
-                        </td>
-                        <td className={TRACKER_BODY_CELL_CLASS}>
-                          <Badge variant="outline" className={`rounded-full px-2.5 py-1 text-[12px] font-medium ${statusMeta.badgeClassName}`}>
-                            {statusMeta.label}
-                          </Badge>
-                        </td>
-                        <td className={TRACKER_BODY_CELL_CLASS}>
-                          {weightSummary?.entries?.length ? (
-                            <HoverCard openDelay={120} closeDelay={100}>
-                              <HoverCardTrigger asChild>
-                                <button
-                                  type="button"
-                                  className={`text-sm font-semibold ${
-                                    weightDelta < 0 ? "text-violet-500" : weightDelta > 0 ? "text-red-400" : "text-muted-foreground"
-                                  }`}
-                                >
-                                  {formattedWeightDelta}
-                                </button>
-                              </HoverCardTrigger>
-                              <HoverCardContent align="start" className="w-72">
-                                <div className="space-y-3">
-                                  <div>
-                                    <p className="text-sm font-semibold">Last 10 Weight Logs</p>
-                                    <p className="text-xs text-muted-foreground">Newest entry shown first.</p>
-                                  </div>
-                                  <div className="rounded-lg border border-border/50 overflow-hidden">
-                                    <table className="w-full text-sm">
-                                      <thead className="bg-muted/40">
-                                        <tr>
-                                          <th className="px-3 py-2 text-left font-medium">Date</th>
-                                          <th className="px-3 py-2 text-right font-medium">Weight</th>
-                                        </tr>
-                                      </thead>
-                                      <tbody>
-                                        {weightSummary.entries.map((entry) => (
-                                          <tr key={`${client.id}-${entry.recorded_date}`} className="border-t border-border/40">
-                                            <td className="px-3 py-2">{entry.recorded_date}</td>
-                                            <td className="px-3 py-2 text-right">{entry.weight_kg} kg</td>
-                                          </tr>
-                                        ))}
-                                      </tbody>
-                                    </table>
-                                  </div>
-                                </div>
-                              </HoverCardContent>
-                            </HoverCard>
-                          ) : (
-                            <span className="text-sm text-muted-foreground">—</span>
-                          )}
-                        </td>
-                        <td className={TRACKER_BODY_CELL_CLASS}>
-                          {editingCommentClientId === client.id ? (
-                            <Input
-                              ref={(node) => {
-                                if (node) {
-                                  commentInputRefs.current[client.id] = node;
-                                } else {
-                                  delete commentInputRefs.current[client.id];
-                                }
-                              }}
-                              value={draft.recent_comment ?? ""}
-                              onChange={(e) => setRowDrafts((prev) => ({ ...prev, [client.id]: { ...prev[client.id], recent_comment: e.target.value } }))}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") {
-                                  e.preventDefault();
-                                  submitInlineComment(client.id);
-                                }
-                                if (e.key === "Escape") {
-                                  e.preventDefault();
-                                  cancelInlineCommentEdit(client.id);
-                                }
-                              }}
-                              onBlur={() => cancelInlineCommentEdit(client.id)}
-                              placeholder="Add comment and press Enter"
-                              className={TRACKER_CELL_INPUT_CLASS}
-                            />
-                          ) : (
-                            <button
-                              type="button"
-                              onDoubleClick={() => startInlineCommentEdit(client.id)}
-                              className={TRACKER_COMMENT_BUTTON_CLASS}
-                              title={client.recent_comment || "Double-click to add comment"}
-                            >
-                              <span className={`truncate ${client.recent_comment ? "text-foreground" : "text-muted-foreground"}`}>
-                                {client.recent_comment || "Double-click to add comment"}
-                              </span>
-                            </button>
-                          )}
-                        </td>
-                        <td className={TRACKER_BODY_CELL_CLASS}>
-                          <DatePickerInput
-                            value={draft.diet_start_date ?? ""}
-                            onChange={(value) => void handleInlineDateChange(client.id, "diet_start_date", value)}
-                            placeholder="Select date"
-                            variant="inline"
-                            buttonClassName={TRACKER_CELL_INPUT_CLASS}
-                          />
-                        </td>
-                        <td className={TRACKER_BODY_CELL_CLASS}>
-                          <DatePickerInput
-                            title={dietExpiryUrgency.title}
-                            value={draft.diet_end_date ?? ""}
-                            onChange={(value) => void handleInlineDateChange(client.id, "diet_end_date", value)}
-                            placeholder="Select date"
-                            variant="inline"
-                            buttonClassName={`${TRACKER_CELL_INPUT_CLASS} ${dietExpiryUrgency.className}`}
-                          />
-                        </td>
-                        <td className={TRACKER_BODY_CELL_CLASS}>
-                          <DatePickerInput
-                            value={draft.last_follow_up_date ?? ""}
-                            onChange={(value) => void handleInlineDateChange(client.id, "last_follow_up_date", value)}
-                            placeholder="Select date"
-                            variant="inline"
-                            buttonClassName={TRACKER_CELL_INPUT_CLASS}
-                          />
-                        </td>
-                        <td className={TRACKER_BODY_CELL_CLASS}>
-                          <DatePickerInput
-                            title={upcomingFollowUpUrgency.title}
-                            value={draft.upcoming_follow_up_date ?? ""}
-                            onChange={(value) => void handleInlineDateChange(client.id, "upcoming_follow_up_date", value)}
-                            placeholder="Select date"
-                            variant="inline"
-                            buttonClassName={`${TRACKER_CELL_INPUT_CLASS} ${upcomingFollowUpUrgency.className}`}
-                          />
-                        </td>
-                        <td className={TRACKER_BODY_CELL_CLASS}>
-                          <div className="flex items-center gap-0.5">
-                            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-md text-muted-foreground hover:text-foreground" onClick={() => openEditDialog(client)}>
-                              <Edit className="w-4 h-4" />
-                            </Button>
-                            {canDeleteClient ? (
-                              <Button variant="ghost" size="icon" className="h-8 w-8 rounded-md text-muted-foreground hover:text-destructive" onClick={() => setDeleteTarget(client)}>
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
-                            ) : null}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      </TooltipProvider>
+      <ClientTrackerGrid
+        rowData={gridRows}
+        loading={loading}
+        rowDrafts={rowDrafts}
+        editingCommentClientId={editingCommentClientId}
+        commentInputRefs={commentInputRefs}
+        canDeleteClient={canDeleteClient}
+        getClientStatusMeta={getClientStatusMeta}
+        getDateUrgencyMeta={getDateUrgencyMeta}
+        onOpenQuickView={openQuickView}
+        onStartInlineCommentEdit={startInlineCommentEdit}
+        onCancelInlineCommentEdit={cancelInlineCommentEdit}
+        onCommentDraftChange={(clientId, value) => setRowDrafts((prev) => ({ ...prev, [clientId]: { ...prev[clientId], recent_comment: value } }))}
+        onSubmitInlineComment={submitInlineComment}
+        onInlineDateChange={handleInlineDateChange}
+        onEditClient={openEditDialog}
+        onDeleteClient={setDeleteTarget}
+      />
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-6xl max-h-[92vh] overflow-y-auto">

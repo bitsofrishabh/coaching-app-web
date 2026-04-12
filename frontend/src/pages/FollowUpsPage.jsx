@@ -20,6 +20,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api } from "@/lib/api";
 import { LoadingScreen } from "@/components/app/LoadingScreen";
 
@@ -50,12 +51,84 @@ const formatDisplayDateTime = (value) => {
   });
 };
 
+const formatFollowUpSchedule = (followUp) => {
+  if (!followUp?.scheduled_date) return "—";
+  const dateLabel = formatDisplayDate(followUp.scheduled_date);
+  return followUp.scheduled_time ? `${dateLabel} • ${followUp.scheduled_time}` : dateLabel;
+};
+
+const getLocalDateFromIso = (value) => {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const [year, month, day] = value.split("-").map(Number);
+  if ([year, month, day].some(Number.isNaN)) return null;
+  return new Date(year, month - 1, day);
+};
+
+const startOfWeek = (value) => {
+  const date = new Date(value);
+  date.setHours(0, 0, 0, 0);
+  const day = date.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  date.setDate(date.getDate() + diff);
+  return date;
+};
+
+const endOfWeek = (value) => {
+  const date = startOfWeek(value);
+  date.setDate(date.getDate() + 6);
+  date.setHours(23, 59, 59, 999);
+  return date;
+};
+
+const FOLLOW_UP_GROUP_ORDER = ["upcoming", "this-week", "last-week", "last-15-days", "older"];
+const FOLLOW_UP_GROUP_LABELS = {
+  upcoming: "Upcoming",
+  "this-week": "This Week",
+  "last-week": "Last Week",
+  "last-15-days": "Last 15 Days",
+  older: "Older",
+};
+
+const getFollowUpGroupKey = (scheduledDate) => {
+  const targetDate = getLocalDateFromIso(scheduledDate);
+  if (!targetDate) return "older";
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  if (targetDate > today) {
+    return "upcoming";
+  }
+
+  const currentWeekStart = startOfWeek(today);
+  const currentWeekEnd = endOfWeek(today);
+  const previousWeekEnd = new Date(currentWeekStart);
+  previousWeekEnd.setMilliseconds(-1);
+  const previousWeekStart = startOfWeek(previousWeekEnd);
+  const last15Start = new Date(today);
+  last15Start.setDate(last15Start.getDate() - 15);
+
+  if (targetDate >= currentWeekStart && targetDate <= currentWeekEnd) {
+    return "this-week";
+  }
+
+  if (targetDate >= previousWeekStart && targetDate <= previousWeekEnd) {
+    return "last-week";
+  }
+
+  if (targetDate >= last15Start && targetDate < previousWeekStart) {
+    return "last-15-days";
+  }
+
+  return "older";
+};
+
 export function FollowUpsPage() {
   const [followUps, setFollowUps] = useState([]);
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [formData, setFormData] = useState({ client_id: "", scheduled_date: "", type: "check-in", notes: "" });
+  const [formData, setFormData] = useState({ client_id: "", scheduled_date: "", scheduled_time: "", type: "check-in", notes: "" });
   const [searchQuery, setSearchQuery] = useState("");
   const [filterDate, setFilterDate] = useState("");
   const [selectedFollowUp, setSelectedFollowUp] = useState(null);
@@ -90,7 +163,7 @@ export function FollowUpsPage() {
       await api.post("/follow-ups", formData);
       toast.success("Follow-up scheduled");
       setDialogOpen(false);
-      setFormData({ client_id: "", scheduled_date: "", type: "check-in", notes: "" });
+      setFormData({ client_id: "", scheduled_date: "", scheduled_time: "", type: "check-in", notes: "" });
       await loadFollowUps();
     } catch (err) {
       toast.error("Failed to create follow-up");
@@ -171,12 +244,26 @@ export function FollowUpsPage() {
     missed: "bg-red-500/10 text-red-500 border-red-500/20"
   };
 
-  const filteredFollowUps = followUps.filter((followUp) => {
-    const clientName = getClientName(followUp.client_id).toLowerCase();
-    const matchesClient = !searchQuery.trim() || clientName.includes(searchQuery.trim().toLowerCase());
-    const matchesDate = !filterDate || (followUp.scheduled_date || "").slice(0, 10) === filterDate;
-    return matchesClient && matchesDate;
-  });
+  const filteredFollowUps = followUps
+    .filter((followUp) => {
+      const clientName = getClientName(followUp.client_id).toLowerCase();
+      const matchesClient = !searchQuery.trim() || clientName.includes(searchQuery.trim().toLowerCase());
+      const matchesDate = !filterDate || (followUp.scheduled_date || "").slice(0, 10) === filterDate;
+      return matchesClient && matchesDate;
+    })
+    .sort((left, right) => {
+      const leftValue = left.scheduled_date || "";
+      const rightValue = right.scheduled_date || "";
+      return rightValue.localeCompare(leftValue);
+    });
+
+  const groupedFollowUps = FOLLOW_UP_GROUP_ORDER
+    .map((groupKey) => ({
+      key: groupKey,
+      label: FOLLOW_UP_GROUP_LABELS[groupKey],
+      items: filteredFollowUps.filter((followUp) => getFollowUpGroupKey(followUp.scheduled_date) === groupKey),
+    }))
+    .filter((group) => group.items.length > 0);
 
   return (
     <div className="space-y-6 animate-fade-in" data-testid="follow-ups-page">
@@ -227,45 +314,92 @@ export function FollowUpsPage() {
                 <p className="text-muted-foreground">{followUps.length ? "No follow-ups match the current filters" : "No follow-ups scheduled"}</p>
               </div>
             ) : (
-              <div className="divide-y divide-border/50">
-                {filteredFollowUps.map((followUp) => (
-                  <button
-                    key={followUp.id}
-                    type="button"
-                    className="w-full flex items-center gap-4 p-4 hover:bg-muted/20 transition-colors text-left"
-                    data-testid={`followup-${followUp.id}`}
-                    onClick={() => openFollowUpDetail(followUp)}
-                  >
-                    <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                      <Calendar className="w-6 h-6 text-primary" />
+              <div className="space-y-6 p-4">
+                {groupedFollowUps.map((group) => (
+                  <div key={group.key} className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-semibold text-foreground">{group.label}</h3>
+                      <span className="text-xs text-muted-foreground">{group.items.length} follow-up{group.items.length === 1 ? "" : "s"}</span>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <p className="font-medium">{getClientName(followUp.client_id)}</p>
-                        <Badge variant="outline" className="text-xs">{followUp.type}</Badge>
-                      </div>
-                      <p className="text-sm text-muted-foreground mt-1">{formatDisplayDate(followUp.scheduled_date)}</p>
-                      {followUp.notes && <p className="text-sm text-muted-foreground mt-1">{followUp.notes}</p>}
+                    <div className="overflow-hidden rounded-lg border border-border/50">
+                      <Table className="text-sm">
+                        <TableHeader>
+                          <TableRow className="hover:bg-transparent">
+                            <TableHead className="w-[220px] font-semibold text-foreground">Client</TableHead>
+                            <TableHead className="w-[160px] font-semibold text-foreground">Type</TableHead>
+                            <TableHead className="w-[190px] font-semibold text-foreground">Scheduled For</TableHead>
+                            <TableHead className="w-[130px] font-semibold text-foreground">Status</TableHead>
+                            <TableHead className="font-semibold text-foreground">Notes</TableHead>
+                            <TableHead className="w-[160px] font-semibold text-foreground">Created By</TableHead>
+                            <TableHead className="w-[180px] text-right font-semibold text-foreground">Actions</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {group.items.map((followUp) => (
+                            <TableRow
+                              key={followUp.id}
+                              data-testid={`followup-${followUp.id}`}
+                              className="cursor-pointer"
+                              onClick={() => openFollowUpDetail(followUp)}
+                            >
+                              <TableCell>
+                                <div className="flex min-w-0 items-center gap-3">
+                                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+                                    <Calendar className="h-4 w-4 text-primary" />
+                                  </div>
+                                  <span className="truncate font-medium">{getClientName(followUp.client_id)}</span>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <Badge variant="outline" className="text-xs capitalize">
+                                  {followUp.type.replace(/-/g, " ")}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-muted-foreground">{formatFollowUpSchedule(followUp)}</TableCell>
+                              <TableCell>
+                                <Badge variant="outline" className={statusColors[followUp.status]}>
+                                  {followUp.status}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                <p className="max-w-[420px] truncate text-muted-foreground">
+                                  {followUp.notes || "—"}
+                                </p>
+                              </TableCell>
+                              <TableCell className="text-muted-foreground">{followUp.created_by_name || "Coach"}</TableCell>
+                              <TableCell>
+                                <div className="flex items-center justify-end gap-2">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      openFollowUpDetail(followUp);
+                                    }}
+                                  >
+                                    View
+                                  </Button>
+                                  {followUp.status === "scheduled" && (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      data-testid={`complete-followup-${followUp.id}`}
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        markComplete(followUp.id);
+                                      }}
+                                    >
+                                      <CheckCircle className="w-4 h-4 mr-1" /> Complete
+                                    </Button>
+                                  )}
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Badge variant="outline" className={statusColors[followUp.status]}>
-                        {followUp.status}
-                      </Badge>
-                      {followUp.status === "scheduled" && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          data-testid={`complete-followup-${followUp.id}`}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            markComplete(followUp.id);
-                          }}
-                        >
-                          <CheckCircle className="w-4 h-4 mr-1" /> Complete
-                        </Button>
-                      )}
-                    </div>
-                  </button>
+                  </div>
                 ))}
               </div>
             )}
@@ -293,15 +427,25 @@ export function FollowUpsPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
-              <Label>Date *</Label>
-              <DatePickerInput
-                data-testid="followup-date-input"
-                value={formData.scheduled_date}
-                onChange={(value) => setFormData({ ...formData, scheduled_date: value })}
-                placeholder="Select follow-up date"
-                clearable={false}
-              />
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Date *</Label>
+                <DatePickerInput
+                  data-testid="followup-date-input"
+                  value={formData.scheduled_date}
+                  onChange={(value) => setFormData({ ...formData, scheduled_date: value })}
+                  placeholder="Select follow-up date"
+                  clearable={false}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Time</Label>
+                <Input
+                  type="time"
+                  value={formData.scheduled_time}
+                  onChange={(e) => setFormData({ ...formData, scheduled_time: e.target.value })}
+                />
+              </div>
             </div>
             <div className="space-y-2">
               <Label>Type</Label>
@@ -349,7 +493,7 @@ export function FollowUpsPage() {
                 <div>
                   <p className="text-lg font-semibold">{getClientName(selectedFollowUp.client_id)}</p>
                   <p className="text-sm text-muted-foreground capitalize">
-                    {selectedFollowUp.type.replace(/-/g, " ")} • {formatDisplayDate(selectedFollowUp.scheduled_date)}
+                    {selectedFollowUp.type.replace(/-/g, " ")} • {formatFollowUpSchedule(selectedFollowUp)}
                   </p>
                 </div>
                 <Badge variant="outline" className={statusColors[selectedFollowUp.status]}>
@@ -369,6 +513,10 @@ export function FollowUpsPage() {
                 <div>
                   <p className="text-muted-foreground">Follow-up date</p>
                   <p className="font-medium">{formatDisplayDate(selectedFollowUp.scheduled_date)}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Scheduled time</p>
+                  <p className="font-medium">{selectedFollowUp.scheduled_time || "—"}</p>
                 </div>
                 <div>
                   <p className="text-muted-foreground">Completed on</p>

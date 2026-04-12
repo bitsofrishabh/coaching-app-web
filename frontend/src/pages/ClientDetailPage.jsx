@@ -20,7 +20,8 @@ import {
   FileText,
   Trash2,
   CalendarCheck,
-  ClipboardPenLine
+  ClipboardPenLine,
+  Sparkles
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DatePickerInput } from "@/components/ui/date-picker-input";
@@ -74,6 +75,11 @@ const FOLLOW_UP_STATUS_STYLES = {
   missed: "bg-red-500/10 text-red-500 border-red-500/20",
 };
 const HISTORY_EVENT_TYPES = new Set(["client-date-updated", "follow-up-created", "follow-up-updated", "follow-up-deleted"]);
+const AI_SEVERITY_TONE = {
+  low: "bg-sky-500/10 text-sky-600 border-sky-500/20",
+  medium: "bg-amber-500/10 text-amber-600 border-amber-500/20",
+  high: "bg-red-500/10 text-red-600 border-red-500/20",
+};
 
 const formatDisplayDate = (value, options = {}) => {
   if (!value) return "—";
@@ -95,9 +101,26 @@ const formatDisplayDateTime = (value) => {
   });
 };
 
+const formatFollowUpSchedule = (followUp, dateOptions = {}) => {
+  if (!followUp?.scheduled_date) return "—";
+  const dateLabel = formatDisplayDate(followUp.scheduled_date, dateOptions);
+  return followUp.scheduled_time ? `${dateLabel} • ${followUp.scheduled_time}` : dateLabel;
+};
+
+const getDaysUntilDate = (value) => {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const today = new Date();
+  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const targetStart = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  return Math.round((targetStart.getTime() - todayStart.getTime()) / (1000 * 60 * 60 * 24));
+};
+
 const createEmptyFollowUpForm = (clientId) => ({
   client_id: clientId,
   scheduled_date: "",
+  scheduled_time: "",
   type: "check-in",
   notes: "",
 });
@@ -175,6 +198,8 @@ export function ClientDetailPage() {
   const [followUps, setFollowUps] = useState([]);
   const [teamComments, setTeamComments] = useState([]);
   const [historyLogs, setHistoryLogs] = useState([]);
+  const [aiHealthAnalysis, setAiHealthAnalysis] = useState(null);
+  const [aiAnalysisLoading, setAiAnalysisLoading] = useState(false);
   const [clientFiles, setClientFiles] = useState([]);
   const [filesLoading, setFilesLoading] = useState(false);
   const [uploadingCategory, setUploadingCategory] = useState("");
@@ -246,6 +271,7 @@ export function ClientDetailPage() {
         uploadsRes,
         followUpsRes,
         auditLogsRes,
+        aiHealthAnalysisRes,
       ] = await Promise.all([
         api.get(`/clients/${clientId}`),
         api.get(`/clients/${clientId}/comments`).catch(() => ({ data: [] })),
@@ -254,6 +280,7 @@ export function ClientDetailPage() {
         api.get("/coach/meal-uploads", { params: { client_id: clientId } }).catch(() => ({ data: { uploads: [] } })),
         api.get("/follow-ups", { params: { client_id: clientId } }).catch(() => ({ data: [] })),
         api.get("/audit-logs", { params: { client_id: clientId, limit: 30 } }).catch(() => ({ data: [] })),
+        api.get(`/clients/${clientId}/ai/health-analysis`).catch(() => ({ data: null })),
       ]);
 
       setClient(clientRes.data);
@@ -262,6 +289,7 @@ export function ClientDetailPage() {
       setMealUploads(uploadsRes.data.uploads || []);
       setFollowUps(followUpsRes.data || []);
       setHistoryLogs((auditLogsRes.data || []).filter((log) => HISTORY_EVENT_TYPES.has(log.event_type)));
+      setAiHealthAnalysis(aiHealthAnalysisRes.data || null);
 
       const seededComments = commentsRes.data?.length
         ? commentsRes.data
@@ -496,6 +524,13 @@ export function ClientDetailPage() {
     : 0;
   const latestFollowUp = followUpsByDateDesc[0]?.scheduled_date || client.last_follow_up_date || "—";
   const upcomingFollowUp = nextScheduledFollowUp?.scheduled_date || client.upcoming_follow_up_date || "—";
+  const programEndDaysLeft = getDaysUntilDate(client.program_end_date);
+  const isProgramEndingSoon = typeof programEndDaysLeft === "number" && programEndDaysLeft >= 0 && programEndDaysLeft <= 7;
+  const programEndingLabel = isProgramEndingSoon
+    ? programEndDaysLeft === 0
+      ? "Ends today"
+      : `Ends in ${programEndDaysLeft} day${programEndDaysLeft === 1 ? "" : "s"}`
+    : "";
   const currentWeightForMetrics = client.current_weight_kg || client.initial_weight_kg;
   const bmi = calculateBMI(currentWeightForMetrics, client.height_cm);
   const healthyWeightRange = getHealthyWeightRange(client.height_cm);
@@ -504,6 +539,7 @@ export function ClientDetailPage() {
   const bloodReportFiles = clientFiles.filter((file) => file.category === "blood-report");
   const pastDietFiles = clientFiles.filter((file) => file.category === "past-diet");
   const clientPictureFiles = clientFiles.filter((file) => file.category === "client-picture");
+  const canGenerateAiAnalysis = bloodReportFiles.length > 0 || pastDietFiles.length > 0;
 
   const getHistoryTone = (eventLabel) => {
     const normalized = String(eventLabel || "").toLowerCase();
@@ -512,6 +548,8 @@ export function ClientDetailPage() {
     if (normalized === "program") return "bg-sky-500/10 text-sky-500 border-sky-500/20";
     return "bg-primary/10 text-primary border-primary/20";
   };
+
+  const getAiSeverityTone = (severity) => AI_SEVERITY_TONE[String(severity || "").toLowerCase()] || "bg-primary/10 text-primary border-primary/20";
 
   const addTeamComment = async () => {
     const comment = commentInput.trim();
@@ -677,6 +715,19 @@ export function ClientDetailPage() {
       setFileViewerUrl("");
       setFileViewerFile(null);
       setFileViewerLoading(false);
+    }
+  };
+
+  const generateAiHealthAnalysis = async () => {
+    setAiAnalysisLoading(true);
+    try {
+      const res = await api.post(`/clients/${clientId}/ai/health-analysis/generate`);
+      setAiHealthAnalysis(res.data);
+      toast.success("AI health analysis generated");
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to generate AI health analysis");
+    } finally {
+      setAiAnalysisLoading(false);
     }
   };
 
@@ -848,6 +899,11 @@ export function ClientDetailPage() {
                   <div>
                     <p className="text-muted-foreground">Program Period</p>
                     <p className="font-medium">{client.program_start_date || "—"} to {client.program_end_date || "—"}</p>
+                    {isProgramEndingSoon ? (
+                      <Badge variant="outline" className="mt-2 border-red-500/20 bg-red-500/10 text-red-600">
+                        {programEndingLabel}
+                      </Badge>
+                    ) : null}
                   </div>
                 </div>
                 <div className="flex items-start gap-2">
@@ -998,7 +1054,9 @@ export function ClientDetailPage() {
                       <div className="flex items-start justify-between gap-3">
                         <div>
                           <p className="font-medium text-sm capitalize">{followUp.type.replace(/-/g, " ")}</p>
-                          <p className="text-xs text-muted-foreground mt-1">{formatDisplayDate(followUp.scheduled_date, { day: "2-digit", month: "short", year: "numeric" })}</p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {formatFollowUpSchedule(followUp, { day: "2-digit", month: "short", year: "numeric" })}
+                          </p>
                         </div>
                         <Badge variant="outline" className={FOLLOW_UP_STATUS_STYLES[followUp.status] || ""}>
                           {followUp.status}
@@ -1215,14 +1273,148 @@ export function ClientDetailPage() {
 
             <TabsContent value="ai" className="space-y-4 pt-4">
               <Card className="border-border/40 bg-muted/20">
-                <CardHeader>
-                  <CardTitle className="text-lg font-['Manrope']">AI Health Snapshot</CardTitle>
-                  <CardDescription>Auto-generated summary based on profile, progress and latest reports.</CardDescription>
+                <CardHeader className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                  <div className="space-y-1">
+                    <CardTitle className="flex items-center gap-2 text-lg font-['Manrope']">
+                      <Sparkles className="h-5 w-5 text-primary" />
+                      AI Health Snapshot
+                    </CardTitle>
+                    <CardDescription>Generate a coach-facing summary from the latest blood report and past diet PDFs.</CardDescription>
+                  </div>
+                  <Button onClick={() => void generateAiHealthAnalysis()} disabled={!canGenerateAiAnalysis || aiAnalysisLoading}>
+                    {aiAnalysisLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
+                    {aiHealthAnalysis ? "Regenerate Analysis" : "Generate Analysis"}
+                  </Button>
                 </CardHeader>
-                <CardContent className="space-y-2 text-sm">
-                  <p>• Metabolic risk analysis will appear after blood report upload.</p>
-                  <p>• Meal adherence insights are generated from progress tracker entries.</p>
-                  <p>• Recommended diet adjustments are tailored to the current weight trend.</p>
+                <CardContent className="space-y-4">
+                  {!canGenerateAiAnalysis ? (
+                    <div className="rounded-xl border border-dashed border-border/60 bg-background/70 p-4 text-sm text-muted-foreground">
+                      Upload at least one blood report or past diet PDF in the `Diet & Reports` tab before running AI analysis.
+                    </div>
+                  ) : null}
+
+                  {aiHealthAnalysis ? (
+                    <div className="space-y-4">
+                      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                        <Badge variant="outline">{aiHealthAnalysis.model}</Badge>
+                        <span>Generated {formatDisplayDateTime(aiHealthAnalysis.generated_at)}</span>
+                        {aiHealthAnalysis.generated_by_name ? <span>by {aiHealthAnalysis.generated_by_name}</span> : null}
+                      </div>
+
+                      {aiHealthAnalysis.source_files?.length ? (
+                        <div className="flex flex-wrap gap-2">
+                          {aiHealthAnalysis.source_files.map((file) => (
+                            <Badge key={file.id} variant="outline" className="max-w-full truncate">
+                              {file.original_filename}
+                            </Badge>
+                          ))}
+                        </div>
+                      ) : null}
+
+                      <Card className="border-border/40 bg-background/80">
+                        <CardHeader className="pb-3">
+                          <CardTitle className="text-base">Overall Summary</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <p className="text-sm leading-6 text-foreground">{aiHealthAnalysis.overall_summary || "No summary available."}</p>
+                        </CardContent>
+                      </Card>
+
+                      <div className="grid gap-4 xl:grid-cols-2">
+                        <Card className="border-border/40 bg-background/80">
+                          <CardHeader className="pb-3">
+                            <CardTitle className="text-base">Clinical Risks</CardTitle>
+                          </CardHeader>
+                          <CardContent className="space-y-3">
+                            {aiHealthAnalysis.clinical_risks?.length ? aiHealthAnalysis.clinical_risks.map((item, index) => (
+                              <div key={`${item.label}-${index}`} className="rounded-lg border border-border/40 p-3">
+                                <div className="flex items-center justify-between gap-3">
+                                  <p className="text-sm font-semibold">{item.label}</p>
+                                  <Badge variant="outline" className={getAiSeverityTone(item.severity)}>{item.severity}</Badge>
+                                </div>
+                                <p className="mt-2 text-sm text-muted-foreground">{item.reason}</p>
+                              </div>
+                            )) : <p className="text-sm text-muted-foreground">No explicit clinical risk flags extracted.</p>}
+                          </CardContent>
+                        </Card>
+
+                        <Card className="border-border/40 bg-background/80">
+                          <CardHeader className="pb-3">
+                            <CardTitle className="text-base">Nutrition Gaps</CardTitle>
+                          </CardHeader>
+                          <CardContent className="space-y-3">
+                            {aiHealthAnalysis.nutrition_gaps?.length ? aiHealthAnalysis.nutrition_gaps.map((item, index) => (
+                              <div key={`${item.label}-${index}`} className="rounded-lg border border-border/40 p-3">
+                                <div className="flex items-center justify-between gap-3">
+                                  <p className="text-sm font-semibold">{item.label}</p>
+                                  <Badge variant="outline" className={getAiSeverityTone(item.severity)}>{item.severity}</Badge>
+                                </div>
+                                <p className="mt-2 text-sm text-muted-foreground">{item.reason}</p>
+                              </div>
+                            )) : <p className="text-sm text-muted-foreground">No clear nutrition gaps extracted.</p>}
+                          </CardContent>
+                        </Card>
+                      </div>
+
+                      <div className="grid gap-4 xl:grid-cols-3">
+                        <Card className="border-border/40 bg-background/80">
+                          <CardHeader className="pb-3">
+                            <CardTitle className="text-base">Diet Pattern Observations</CardTitle>
+                          </CardHeader>
+                          <CardContent>
+                            {aiHealthAnalysis.diet_pattern_observations?.length ? (
+                              <ul className="space-y-2 text-sm text-muted-foreground">
+                                {aiHealthAnalysis.diet_pattern_observations.map((item, index) => <li key={index}>• {item}</li>)}
+                              </ul>
+                            ) : <p className="text-sm text-muted-foreground">No diet pattern observations yet.</p>}
+                          </CardContent>
+                        </Card>
+
+                        <Card className="border-border/40 bg-background/80">
+                          <CardHeader className="pb-3">
+                            <CardTitle className="text-base">Recommended Adjustments</CardTitle>
+                          </CardHeader>
+                          <CardContent>
+                            {aiHealthAnalysis.recommended_adjustments?.length ? (
+                              <ul className="space-y-2 text-sm text-muted-foreground">
+                                {aiHealthAnalysis.recommended_adjustments.map((item, index) => <li key={index}>• {item}</li>)}
+                              </ul>
+                            ) : <p className="text-sm text-muted-foreground">No adjustments suggested yet.</p>}
+                          </CardContent>
+                        </Card>
+
+                        <Card className="border-border/40 bg-background/80">
+                          <CardHeader className="pb-3">
+                            <CardTitle className="text-base">Follow-up Questions</CardTitle>
+                          </CardHeader>
+                          <CardContent>
+                            {aiHealthAnalysis.follow_up_questions?.length ? (
+                              <ul className="space-y-2 text-sm text-muted-foreground">
+                                {aiHealthAnalysis.follow_up_questions.map((item, index) => <li key={index}>• {item}</li>)}
+                              </ul>
+                            ) : <p className="text-sm text-muted-foreground">No follow-up questions suggested yet.</p>}
+                          </CardContent>
+                        </Card>
+                      </div>
+
+                      {aiHealthAnalysis.confidence_notes?.length ? (
+                        <Card className="border-border/40 bg-background/80">
+                          <CardHeader className="pb-3">
+                            <CardTitle className="text-base">Confidence Notes</CardTitle>
+                          </CardHeader>
+                          <CardContent>
+                            <ul className="space-y-2 text-sm text-muted-foreground">
+                              {aiHealthAnalysis.confidence_notes.map((item, index) => <li key={index}>• {item}</li>)}
+                            </ul>
+                          </CardContent>
+                        </Card>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-dashed border-border/60 bg-background/70 p-4 text-sm text-muted-foreground">
+                      No AI health analysis has been generated for this client yet.
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </TabsContent>
@@ -1429,7 +1621,14 @@ export function ClientDetailPage() {
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Program End</p>
-                  <p className="font-medium">{client.program_end_date || "—"}</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-medium">{client.program_end_date || "—"}</p>
+                    {isProgramEndingSoon ? (
+                      <Badge variant="outline" className="border-red-500/20 bg-red-500/10 text-red-600">
+                        {programEndingLabel}
+                      </Badge>
+                    ) : null}
+                  </div>
                 </div>
               </div>
               {client.notes && (
@@ -1659,14 +1858,24 @@ export function ClientDetailPage() {
             <DialogDescription>Create a new follow-up record for this client.</DialogDescription>
           </DialogHeader>
           <form onSubmit={createFollowUp} className="space-y-4">
-            <div className="space-y-2">
-              <Label>Date *</Label>
-              <DatePickerInput
-                value={followUpForm.scheduled_date}
-                onChange={(value) => setFollowUpForm((prev) => ({ ...prev, scheduled_date: value }))}
-                placeholder="Select follow-up date"
-                clearable={false}
-              />
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Date *</Label>
+                <DatePickerInput
+                  value={followUpForm.scheduled_date}
+                  onChange={(value) => setFollowUpForm((prev) => ({ ...prev, scheduled_date: value }))}
+                  placeholder="Select follow-up date"
+                  clearable={false}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Time</Label>
+                <Input
+                  type="time"
+                  value={followUpForm.scheduled_time}
+                  onChange={(event) => setFollowUpForm((prev) => ({ ...prev, scheduled_time: event.target.value }))}
+                />
+              </div>
             </div>
             <div className="space-y-2">
               <Label>Type</Label>
@@ -1720,7 +1929,9 @@ export function ClientDetailPage() {
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <p className="text-lg font-semibold capitalize">{selectedFollowUp.type.replace(/-/g, " ")}</p>
-                  <p className="text-sm text-muted-foreground">{formatDisplayDate(selectedFollowUp.scheduled_date, { day: "2-digit", month: "short", year: "numeric" })}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {formatFollowUpSchedule(selectedFollowUp, { day: "2-digit", month: "short", year: "numeric" })}
+                  </p>
                 </div>
                 <Badge variant="outline" className={FOLLOW_UP_STATUS_STYLES[selectedFollowUp.status] || ""}>
                   {selectedFollowUp.status}
@@ -1735,6 +1946,10 @@ export function ClientDetailPage() {
                 <div>
                   <p className="text-muted-foreground">Created on</p>
                   <p className="font-medium">{formatDisplayDateTime(selectedFollowUp.created_at)}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Scheduled time</p>
+                  <p className="font-medium">{selectedFollowUp.scheduled_time || "—"}</p>
                 </div>
                 <div>
                   <p className="text-muted-foreground">Completed on</p>

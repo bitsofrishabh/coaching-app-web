@@ -26,6 +26,7 @@ const getTaskTone = (task) => {
 
 const getTaskTypeLabel = (taskType) => {
   if (taskType === "diet-expiry") return "Diet";
+  if (taskType === "program-expiry") return "Program";
   if (taskType === "follow-up") return "Follow-up";
   if (taskType === "manual") return "Task";
   return "Task";
@@ -38,7 +39,16 @@ const EMPTY_TASK_FORM = {
 };
 
 export function PendingTasksBell() {
-  const [feed, setFeed] = useState({ total_count: 0, tasks: [], window_days: 3, manual_task_count: 0 });
+  const [feed, setFeed] = useState({
+    total_count: 0,
+    tasks: [],
+    window_days: 3,
+    program_window_days: 7,
+    diet_expiry_count: 0,
+    follow_up_count: 0,
+    program_expiry_count: 0,
+    manual_task_count: 0,
+  });
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
@@ -129,11 +139,12 @@ export function PendingTasksBell() {
               <div>
                 <DialogTitle className="font-['Manrope'] text-2xl">Pending Tasks</DialogTitle>
                 <DialogDescription className="mt-1">
-                  Upcoming deadlines in the next {feed.window_days || 3} days, plus any manual tasks you add here.
+                  Diet and follow-up deadlines in the next {feed.window_days || 3} days, program endings in the next {feed.program_window_days || 7} days, plus any manual tasks you add here.
                 </DialogDescription>
               </div>
               <div className="flex items-center gap-2">
                 <Badge variant="outline">{feed.diet_expiry_count || 0} diet</Badge>
+                <Badge variant="outline">{feed.program_expiry_count || 0} program</Badge>
                 <Badge variant="outline">{feed.follow_up_count || 0} follow-up</Badge>
                 <Badge variant="outline">{feed.manual_task_count || 0} manual</Badge>
               </div>
