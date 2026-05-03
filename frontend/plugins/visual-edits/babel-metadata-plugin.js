@@ -933,41 +933,45 @@ const babelMetadataPlugin = ({ types: t }) => {
           if (!localName) return;
 
           // Search for usages of this component
-          importPath.parentPath.parentPath.traverse({
-            JSXOpeningElement(jsxPath) {
-              if (result) return;
+          try {
+            traverse(ast, {
+              JSXOpeningElement(jsxPath) {
+                if (result) return;
 
-              const elemName = getJSXElementName(jsxPath.node);
-              if (elemName !== localName) return;
+                const elemName = getJSXElementName(jsxPath.node);
+                if (elemName !== localName) return;
 
-              // Find the prop
-              for (const attr of jsxPath.node.attributes || []) {
-                if (!t.isJSXAttribute(attr)) continue;
-                if (!t.isJSXIdentifier(attr.name) || attr.name.name !== propName) continue;
-                if (!t.isJSXExpressionContainer(attr.value)) continue;
+                // Find the prop
+                for (const attr of jsxPath.node.attributes || []) {
+                  if (!t.isJSXAttribute(attr)) continue;
+                  if (!t.isJSXIdentifier(attr.name) || attr.name.name !== propName) continue;
+                  if (!t.isJSXExpressionContainer(attr.value)) continue;
 
-                const attrPath = jsxPath.get('attributes').find(
-                  a => a.isJSXAttribute() && a.node.name?.name === propName
-                );
+                  const attrPath = jsxPath.get('attributes').find(
+                    a => a.isJSXAttribute() && a.node.name?.name === propName
+                  );
 
-                if (attrPath) {
-                  const valuePath = attrPath.get('value.expression');
-                  if (valuePath?.node) {
-                    const mockState = { filename: absPath };
-                    result = analyzeExpression(valuePath, mockState);
+                  if (attrPath) {
+                    const valuePath = attrPath.get('value.expression');
+                    if (valuePath?.node) {
+                      const mockState = { filename: absPath };
+                      result = analyzeExpression(valuePath, mockState);
 
-                    // Cache for future
-                    const cacheKey = `${componentFile}::${componentName}::${propName}`;
-                    PROP_SOURCE_CACHE.set(cacheKey, {
-                      sourceInfo: result,
-                      arrayContext: result?.arrayContext,
-                      fromFile: absPath
-                    });
+                      // Cache for future
+                      const cacheKey = `${componentFile}::${componentName}::${propName}`;
+                      PROP_SOURCE_CACHE.set(cacheKey, {
+                        sourceInfo: result,
+                        arrayContext: result?.arrayContext,
+                        fromFile: absPath
+                      });
+                    }
                   }
                 }
               }
-            }
-          });
+            });
+          } catch (e) {
+            // Ignore traverse errors on cached ASTs with missing path context
+          }
         }
       });
 
