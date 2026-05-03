@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { MoreHorizontal, Trash2, Plus, Utensils, Activity, FileDown, FileText } from "lucide-react";
+import { MoreHorizontal, Trash2, Plus, Utensils, Activity, FileDown, FileText, Sparkles, Loader2, RefreshCcw } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -15,7 +15,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { api } from "@/lib/api";
 import { LoadingScreen } from "@/components/app/LoadingScreen";
 import clinicLogo from "@/assets/clinic-logo.svg";
-import { calculateBMI, calculateMaintenanceCalories, getHealthyWeightDelta, getHealthyWeightRange } from "@/lib/health-metrics";
+import { calculateMaintenanceCalories, getHealthyWeightRange } from "@/lib/health-metrics";
 
 const PLAN_DURATION_OPTIONS = [7, 10, 14];
 const PLAN_TYPE_CLIENT = "client_plan";
@@ -28,6 +28,14 @@ const DEFAULT_VISIBLE_COLUMNS = ["breakfast", "mid_morning", "lunch", "evening_s
 const EDITABLE_COLUMN_KEYS = ["breakfast", "mid_morning", "lunch", "evening_snack", "dinner", "bedtime"];
 const DAY_SLOT_KEYS = ["morning_drink", "breakfast", "mid_morning", "lunch", "evening_snack", "dinner", "night_drink", "bedtime"];
 const PDF_LOGO_CANDIDATES = ["/assests/Logo.png", clinicLogo];
+const DEFAULT_EXPORT_FOOTER = "All the Best on this Fitness Journey, let’s get it done Toghether- By Rishabh & Savita";
+const DIET_AI_PRESET_ACTIONS = [
+  { action_key: "improve_protein", label: "Improve protein" },
+  { action_key: "reduce_calories_safely", label: "Reduce calories safely" },
+  { action_key: "suggest_5_indian_breakfast_options", label: "Suggest 5 Indian breakfast options" },
+  { action_key: "suggest_5_indian_evening_snack_options", label: "Suggest 5 Indian evening snack options" },
+  { action_key: "suggest_high_protein_vegetarian_swaps", label: "Suggest high-protein vegetarian swaps" }
+];
 
 const SUMMARY_DEFAULT = {
   morning_drink: "",
@@ -108,6 +116,17 @@ const sanitizeFilePart = (value) => {
   return cleaned || "client";
 };
 
+const buildAIFingerprint = ({ client_id, plan_days, day_wise_plan, summary_slots }) =>
+  JSON.stringify({
+    client_id: client_id || "",
+    plan_days: Number(plan_days || 0),
+    day_wise_plan: syncDayWisePlanLength(normalizeDayWisePlan(day_wise_plan || [], Number(plan_days || 0)), Number(plan_days || 0)),
+    summary_slots: buildSummarySlots(
+      syncDayWisePlanLength(normalizeDayWisePlan(day_wise_plan || [], Number(plan_days || 0)), Number(plan_days || 0)),
+      summary_slots || {}
+    )
+  });
+
 const formatMealValueHtml = (value) =>
   escapeHtml(value || "—")
     .replace(/\s*\|\s*OR\s*\|\s*/gi, "<br/><span class=\"or-divider\">OR</span><br/>")
@@ -126,28 +145,30 @@ const PDF_EXPORT_STYLES = `
   @page { size: A4 portrait; margin: 12mm; }
   .diet-pdf-root { font-family: Arial, sans-serif; color: #111827; margin: 0; font-size: 13px; line-height: 1.58; background: #ffffff; padding: 4px; }
   .diet-pdf-root * { box-sizing: border-box; }
-  .diet-pdf-root .header { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 14px; }
+  .diet-pdf-root .header { display: flex; align-items: center; gap: 16px; margin-bottom: 14px; }
   .diet-pdf-root .brand { display: flex; align-items: center; gap: 12px; }
   .diet-pdf-root .logo { width: 52px; height: 52px; object-fit: contain; border-radius: 10px; background: #ffffff; }
   .diet-pdf-root .title { font-size: 20px; font-weight: 700; margin-bottom: 2px; }
   .diet-pdf-root .subtitle { font-size: 13px; color: #4b5563; }
-  .diet-pdf-root .meta { font-size: 12px; color: #6b7280; text-align: right; }
   .diet-pdf-root .section-title { font-size: 13px; font-weight: 700; margin-bottom: 8px; color: #111827; }
   .diet-pdf-root .client-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 8px 14px; border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px; margin-bottom: 14px; }
   .diet-pdf-root .client-field { min-width: 0; }
   .diet-pdf-root .client-label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: #6b7280; margin-bottom: 2px; }
   .diet-pdf-root .client-value { font-size: 13px; font-weight: 600; }
   .diet-pdf-root .summary { border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px; margin-bottom: 14px; }
-  .diet-pdf-root .summary-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 8px 14px; }
+  .diet-pdf-root .summary-grid { display: grid; grid-template-columns: minmax(0,1fr); gap: 8px; }
   .diet-pdf-root .summary-row { margin-bottom: 0; }
   .diet-pdf-root .summary-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: #6b7280; margin-bottom: 2px; }
   .diet-pdf-root .summary-value { font-size: 13px; font-weight: 600; white-space: pre-wrap; }
   .diet-pdf-root .table-wrap { border: 1px solid #d1d5db; border-radius: 10px; overflow: hidden; }
-  .diet-pdf-root table { width: 100%; border-collapse: collapse; font-size: 12px; }
-  .diet-pdf-root th, .diet-pdf-root td { border: 1px solid #d1d5db; padding: 9px 10px; vertical-align: top; text-align: left; }
+  .diet-pdf-root table { width: 100%; border-collapse: collapse; font-size: 11px; table-layout: fixed; }
+  .diet-pdf-root thead { display: table-header-group; }
+  .diet-pdf-root tbody { display: table-row-group; }
+  .diet-pdf-root tr { page-break-inside: avoid; break-inside: avoid; }
+  .diet-pdf-root th, .diet-pdf-root td { border: 1px solid #d1d5db; padding: 7px 8px; vertical-align: top; text-align: left; page-break-inside: avoid; break-inside: avoid; }
   .diet-pdf-root th { background: #f6f4ff; font-weight: 700; }
-  .diet-pdf-root .day-cell { width: 74px; font-weight: 700; white-space: nowrap; background: #fafafa; }
-  .diet-pdf-root .meal-text { white-space: pre-wrap; }
+  .diet-pdf-root .day-cell { width: 64px; font-weight: 700; white-space: nowrap; background: #fafafa; }
+  .diet-pdf-root .meal-text { white-space: pre-wrap; word-break: break-word; }
   .diet-pdf-root .or-divider { display: inline-block; margin: 5px 0; font-size: 10px; font-weight: 700; letter-spacing: 0.08em; color: #7c3aed; text-transform: uppercase; }
   .diet-pdf-root .document-days { display: grid; gap: 10px; }
   .diet-pdf-root .document-day { border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px; page-break-inside: avoid; break-inside: avoid; }
@@ -276,16 +297,8 @@ const getInitialFormData = (clientId = "", planType = PLAN_TYPE_CLIENT) => ({
   day_wise_plan: createEmptyDayWisePlan(7),
   summary_slots: { ...SUMMARY_DEFAULT },
   visible_columns: [...DEFAULT_VISIBLE_COLUMNS],
-  footer_note: "Prepared by DietTracker. Follow meal timings and hydrate adequately."
+  footer_note: DEFAULT_EXPORT_FOOTER
 });
-
-const formatBmiLabel = (bmi) => {
-  if (!bmi) return "—";
-  if (bmi < 18.5) return "Underweight";
-  if (bmi < 25) return "Healthy";
-  if (bmi < 30) return "Overweight";
-  return "Obese";
-};
 
 const normalizePlanType = (plan) => (plan?.plan_type === PLAN_TYPE_TEMPLATE ? PLAN_TYPE_TEMPLATE : PLAN_TYPE_CLIENT);
 
@@ -312,7 +325,7 @@ const buildFormDataFromPlan = (plan, overrides = {}) => {
     day_wise_plan: normalizedDays,
     summary_slots: buildSummarySlots(normalizedDays, plan?.summary_slots || {}),
     visible_columns: normalizedColumns.length ? normalizedColumns : [...DEFAULT_VISIBLE_COLUMNS],
-    footer_note: plan?.footer_note || "Prepared by DietTracker. Follow meal timings and hydrate adequately."
+    footer_note: plan?.footer_note || DEFAULT_EXPORT_FOOTER
   };
 };
 
@@ -323,6 +336,14 @@ export function DietPlansPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [activeTab, setActiveTab] = useState(TAB_CLIENT_PLANS);
   const [pdfParsing, setPdfParsing] = useState(false);
+  const [aiAnalyzing, setAiAnalyzing] = useState(false);
+  const [aiSuggesting, setAiSuggesting] = useState(false);
+  const [aiAnalysis, setAiAnalysis] = useState(null);
+  const [aiSuggestions, setAiSuggestions] = useState([]);
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [aiPromptHistory, setAiPromptHistory] = useState([]);
+  const [aiAnalysisFingerprint, setAiAnalysisFingerprint] = useState("");
+  const [aiAnalysisSourceFilename, setAiAnalysisSourceFilename] = useState("");
   const [orEnabledCells, setOrEnabledCells] = useState({});
   const [activeCellKey, setActiveCellKey] = useState("");
   const [formData, setFormData] = useState(getInitialFormData());
@@ -350,11 +371,23 @@ export function DietPlansPage() {
     [masterTemplates]
   );
   const isTemplateDialog = formData.plan_type === PLAN_TYPE_TEMPLATE;
+  const currentAIFingerprint = useMemo(
+    () => buildAIFingerprint(formData),
+    [formData]
+  );
+  const aiIsStale = Boolean(aiAnalysis && aiAnalysisFingerprint && aiAnalysisFingerprint !== currentAIFingerprint);
 
-  const selectedClientBmi = calculateBMI(selectedClient?.current_weight_kg ?? selectedClient?.initial_weight_kg, selectedClient?.height_cm);
   const selectedClientHealthyRange = getHealthyWeightRange(selectedClient?.height_cm);
-  const selectedClientWeightDelta = getHealthyWeightDelta(selectedClient?.current_weight_kg ?? selectedClient?.initial_weight_kg, selectedClient?.height_cm);
   const selectedClientMaintenance = calculateMaintenanceCalories(selectedClient);
+
+  const resetAIState = () => {
+    setAiAnalysis(null);
+    setAiSuggestions([]);
+    setAiPrompt("");
+    setAiPromptHistory([]);
+    setAiAnalysisFingerprint("");
+    setAiAnalysisSourceFilename("");
+  };
 
   const loadData = async () => {
     setLoading(true);
@@ -374,6 +407,30 @@ export function DietPlansPage() {
   }, []);
 
   useEffect(() => {
+    if (!dialogOpen || isTemplateDialog || !formData.client_id || aiAnalysis || aiAnalyzing || pdfParsing) return;
+
+    let cancelled = false;
+    const loadExistingAI = async () => {
+      try {
+        const res = await api.get("/diet-plans/ai/latest", {
+          params: { client_id: formData.client_id, plan_fingerprint: currentAIFingerprint }
+        });
+        if (cancelled) return;
+        setAiAnalysis(res.data);
+        setAiSuggestions(res.data.latest_suggestions || []);
+        setAiAnalysisFingerprint(res.data.plan_fingerprint || currentAIFingerprint);
+      } catch (_err) {
+        // No persisted analysis for this fingerprint yet.
+      }
+    };
+
+    void loadExistingAI();
+    return () => {
+      cancelled = true;
+    };
+  }, [dialogOpen, isTemplateDialog, formData.client_id, currentAIFingerprint, aiAnalysis, aiAnalyzing, pdfParsing]);
+
+  useEffect(() => {
     if (!queryClientId || !clients.length || prefillConsumed === queryClientId) return;
     const client = clients.find((entry) => entry.id === queryClientId);
     if (!client) return;
@@ -384,6 +441,7 @@ export function DietPlansPage() {
     setFormData(next);
     setOrEnabledCells({});
     setActiveCellKey("");
+    resetAIState();
     setActiveTab(TAB_CLIENT_PLANS);
     setDialogOpen(true);
     setPrefillConsumed(queryClientId);
@@ -401,6 +459,7 @@ export function DietPlansPage() {
     setFormData(next);
     setOrEnabledCells({});
     setActiveCellKey("");
+    resetAIState();
     setDialogOpen(true);
   };
 
@@ -423,6 +482,7 @@ export function DietPlansPage() {
     setFormData(seeded);
     setOrEnabledCells({});
     setActiveCellKey("");
+    resetAIState();
     setActiveTab(TAB_CLIENT_PLANS);
     setDialogOpen(true);
   };
@@ -437,6 +497,7 @@ export function DietPlansPage() {
       if (!prev.daily_calories && maintenanceCalories) next.daily_calories = String(maintenanceCalories);
       return next;
     });
+    resetAIState();
   };
 
   const changePlanDays = (value) => {
@@ -494,7 +555,7 @@ export function DietPlansPage() {
     return clinicLogo;
   };
 
-  const downloadHtmlAsPdf = async (html, filename) => {
+  const downloadHtmlAsPdf = async (html, filename, footerText = DEFAULT_EXPORT_FOOTER) => {
     const { default: html2pdf } = await import("html2pdf.js");
     const host = document.createElement("div");
     host.style.position = "fixed";
@@ -535,17 +596,35 @@ export function DietPlansPage() {
 
       await new Promise((resolve) => setTimeout(resolve, 120));
 
-      await html2pdf()
+      const worker = html2pdf();
+      await worker
         .set({
-          margin: [8, 8, 8, 8],
+          margin: [6, 6, 6, 6],
           filename,
           image: { type: "jpeg", quality: 0.98 },
           html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff" },
           jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
-          pagebreak: { mode: ["css", "legacy"] }
+          pagebreak: { mode: ["css", "legacy"], avoid: ["tr", "td", ".table-wrap"] }
         })
         .from(root.firstElementChild || root)
-        .save();
+        .toPdf();
+
+      const pdf = await worker.get("pdf");
+      const pageCount = pdf.internal.getNumberOfPages();
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const footerY = pageHeight - 4.5;
+
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(9);
+      pdf.setTextColor(75, 85, 99);
+
+      for (let page = 1; page <= pageCount; page += 1) {
+        pdf.setPage(page);
+        pdf.text(String(footerText || DEFAULT_EXPORT_FOOTER), pageWidth / 2, footerY, { align: "center", maxWidth: pageWidth - 16 });
+      }
+
+      await worker.save();
     } finally {
       host.remove();
     }
@@ -588,6 +667,99 @@ export function DietPlansPage() {
     pdfInputRef.current?.click();
   };
 
+  const runAIAnalysis = async ({
+    clientId = formData.client_id,
+    dayWisePlan = formData.day_wise_plan,
+    summarySlots = formData.summary_slots,
+    planDays = formData.plan_days,
+    sourceFilename = aiAnalysisSourceFilename
+  } = {}) => {
+    if (!clientId) {
+      toast.error("Select a client before running AI analysis");
+      return null;
+    }
+
+    const normalizedDays = syncDayWisePlanLength(normalizeDayWisePlan(dayWisePlan, planDays), planDays);
+    const normalizedSummary = buildSummarySlots(normalizedDays, summarySlots || {});
+    setAiAnalyzing(true);
+    try {
+      const res = await api.post("/diet-plans/ai/analyze", {
+        client_id: clientId,
+        plan_days: planDays,
+        day_wise_plan: normalizedDays,
+        summary_slots: normalizedSummary,
+        source_filename: sourceFilename || undefined
+      });
+      setAiAnalysis(res.data);
+      setAiSuggestions([]);
+      setAiPromptHistory([]);
+      setAiAnalysisFingerprint(buildAIFingerprint({
+        client_id: clientId,
+        plan_days: planDays,
+        day_wise_plan: normalizedDays,
+        summary_slots: normalizedSummary
+      }));
+      return res.data;
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Failed to analyze diet with AI");
+      return null;
+    } finally {
+      setAiAnalyzing(false);
+    }
+  };
+
+  const runAISuggestions = async ({ actionKey = "", prompt = "" } = {}) => {
+    if (!formData.client_id) {
+      toast.error("Select a client before asking AI");
+      return;
+    }
+    if (aiIsStale) {
+      toast.error("Re-run AI analysis after changing the diet plan");
+      return;
+    }
+    if (!actionKey && !prompt.trim()) {
+      toast.error("Choose a preset action or enter a custom prompt");
+      return;
+    }
+
+    const normalizedDays = syncDayWisePlanLength(normalizeDayWisePlan(formData.day_wise_plan, formData.plan_days), formData.plan_days);
+    const normalizedSummary = buildSummarySlots(normalizedDays, formData.summary_slots || {});
+
+    setAiSuggesting(true);
+    try {
+      const res = await api.post("/diet-plans/ai/suggest", {
+        client_id: formData.client_id,
+        plan_days: formData.plan_days,
+        day_wise_plan: normalizedDays,
+        summary_slots: normalizedSummary,
+        analysis_id: aiAnalysis?.analysis_id || null,
+        action_key: actionKey || null,
+        custom_prompt: prompt.trim() || null,
+        source_filename: aiAnalysisSourceFilename || undefined
+      });
+      const nextSuggestion = res.data;
+      setAiSuggestions((prev) => [nextSuggestion, ...prev].slice(0, 10));
+      setAiPromptHistory((prev) => [nextSuggestion.prompt_label || prompt || actionKey, ...prev].slice(0, 10));
+      if (prompt.trim()) setAiPrompt("");
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Failed to get AI suggestions");
+    } finally {
+      setAiSuggesting(false);
+    }
+  };
+
+  const applyAISuggestedChange = (change) => {
+    if (!change?.day || !change?.slot) return;
+    setFormData((prev) => ({
+      ...prev,
+      day_wise_plan: prev.day_wise_plan.map((entry) => {
+        if (entry.day !== change.day) return entry;
+        return { ...entry, [change.slot]: change.suggested_value || entry[change.slot] || "" };
+      })
+    }));
+    toast.success(`Applied AI suggestion to Day ${change.day} ${SLOT_LABELS[change.slot] || change.slot}`);
+  };
+
   const handlePdfUpload = async (event) => {
     const file = event.target.files?.[0];
     event.target.value = "";
@@ -595,6 +767,8 @@ export function DietPlansPage() {
 
     setPdfParsing(true);
     try {
+      resetAIState();
+      setAiAnalysisSourceFilename(file.name);
       const payload = new FormData();
       payload.append("file", file);
       payload.append("duration_days", String(formData.plan_days));
@@ -619,6 +793,18 @@ export function DietPlansPage() {
       if (Array.isArray(res.data?.parse_warnings) && res.data.parse_warnings.length > 0) {
         toast.warning(res.data.parse_warnings[0]);
       }
+      if (!isTemplateDialog && formData.client_id) {
+        const analysisResult = await runAIAnalysis({
+          clientId: formData.client_id,
+          dayWisePlan: parsedDays,
+          summarySlots: parsedSummary,
+          planDays: formData.plan_days,
+          sourceFilename: file.name
+        });
+        if (analysisResult) {
+          toast.success("AI nutrition analysis ready");
+        }
+      }
     } catch (err) {
       toast.error(err.response?.data?.detail || "Failed to parse PDF template");
     } finally {
@@ -641,49 +827,32 @@ export function DietPlansPage() {
       : DEFAULT_VISIBLE_COLUMNS
     ).filter((column) => EDITABLE_COLUMN_KEYS.includes(column));
 
-    const bmi = calculateBMI(client.current_weight_kg ?? client.initial_weight_kg, client.height_cm);
     const healthyRange = getHealthyWeightRange(client.height_cm);
-    const weightDelta = getHealthyWeightDelta(client.current_weight_kg ?? client.initial_weight_kg, client.height_cm);
     const maintenanceCalories = planData.daily_calories || calculateMaintenanceCalories(client) || "—";
-    const today = new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
     const exportLayout = planData.export_layout === EXPORT_LAYOUT_DOCUMENT ? EXPORT_LAYOUT_DOCUMENT : EXPORT_LAYOUT_TABLE;
     const logoSource = await getExportLogoSource();
 
     const summaryRows = [
-      ["Morning Drink", summarySlots.morning_drink || "—"],
-      ["Night Drink", summarySlots.night_drink || "—"],
-      ["Morning Snack", summarySlots.morning_snack || "—"],
-      ["Evening Snack", summarySlots.evening_snack || "—"],
-      ["Bedtime", summarySlots.bedtime || "—"]
+      ["Morning Drinks", summarySlots.morning_drink || "—"],
+      ["Night Drinks", summarySlots.night_drink || "—"]
     ];
 
     const clientGrid = `
       <div class="client-grid">
         <div class="client-field"><span class="client-label">Name</span><div class="client-value">${escapeHtml(client.name)}</div></div>
         <div class="client-field"><span class="client-label">Age</span><div class="client-value">${escapeHtml(client.age || "—")}</div></div>
-        <div class="client-field"><span class="client-label">Height</span><div class="client-value">${escapeHtml(client.height_cm || "—")} cm</div></div>
         <div class="client-field"><span class="client-label">Start Weight</span><div class="client-value">${escapeHtml(client.initial_weight_kg || "—")} kg</div></div>
         <div class="client-field"><span class="client-label">Current Weight</span><div class="client-value">${escapeHtml(client.current_weight_kg || client.initial_weight_kg || "—")} kg</div></div>
-        <div class="client-field"><span class="client-label">BMI</span><div class="client-value">${bmi ? bmi.toFixed(1) : "—"} (${escapeHtml(formatBmiLabel(bmi))})</div></div>
-        <div class="client-field"><span class="client-label">Maintenance</span><div class="client-value">${escapeHtml(maintenanceCalories)} kcal/day</div></div>
+        <div class="client-field"><span class="client-label">Maintenance Calories</span><div class="client-value">${escapeHtml(maintenanceCalories)} kcal/day</div></div>
         <div class="client-field"><span class="client-label">Healthy Range</span><div class="client-value">${
           healthyRange ? `${healthyRange.minKg.toFixed(1)} - ${healthyRange.maxKg.toFixed(1)} kg` : "—"
-        }</div></div>
-        <div class="client-field"><span class="client-label">Guidance</span><div class="client-value">${
-          !weightDelta
-            ? "—"
-            : weightDelta.direction === "lose"
-              ? `Lose ${weightDelta.kg.toFixed(1)} kg`
-              : weightDelta.direction === "gain"
-                ? `Gain ${weightDelta.kg.toFixed(1)} kg`
-                : "Within healthy range"
         }</div></div>
       </div>
     `;
 
     const summaryBlock = `
       <div class="summary">
-        <div class="section-title">Daily Summary</div>
+        <div class="section-title">Daily Drinks</div>
         <div class="summary-grid">
           ${summaryRows
             .map(
@@ -759,10 +928,6 @@ export function DietPlansPage() {
             <div class="subtitle">${escapeHtml(planData.name || "Personalized Diet Plan")}</div>
           </div>
         </div>
-        <div class="meta">
-          <div>Generated on ${escapeHtml(today)}</div>
-          <div>${escapeHtml(exportLayout === EXPORT_LAYOUT_DOCUMENT ? "Document Layout" : "Table Layout")}</div>
-        </div>
       </div>
 
       ${clientGrid}
@@ -770,12 +935,11 @@ export function DietPlansPage() {
       <div class="section-title">${escapeHtml(exportLayout === EXPORT_LAYOUT_DOCUMENT ? "Day-wise Diet Document" : "Day-wise Diet Table")}</div>
       ${exportLayout === EXPORT_LAYOUT_DOCUMENT ? documentLayoutHtml : tableLayoutHtml}
       ${planData.instructions ? `<div class="footer"><strong>Instructions</strong>\n${escapeHtml(planData.instructions)}</div>` : ""}
-      <div class="footer">${escapeHtml(planData.footer_note || "Prepared by DietTracker. Follow meal timings and hydrate adequately.")}</div>
     </div>`;
 
     try {
       const filename = `${sanitizeFilePart(client.name)}_diet_${days}days_${exportLayout}.pdf`;
-      await downloadHtmlAsPdf(html, filename);
+      await downloadHtmlAsPdf(html, filename, planData.footer_note || DEFAULT_EXPORT_FOOTER);
     } catch (err) {
       toast.error("Failed to download PDF");
     }
@@ -825,6 +989,7 @@ export function DietPlansPage() {
       toast.success(isTemplateDialog ? "Master template created" : "Diet plan created");
       setDialogOpen(false);
       setFormData(getInitialFormData("", PLAN_TYPE_CLIENT));
+      resetAIState();
       const res = await api.get("/diet-plans");
       setPlans(res.data);
     } catch (err) {
@@ -998,7 +1163,13 @@ export function DietPlansPage() {
         </Tabs>
       )}
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      <Dialog
+        open={dialogOpen}
+        onOpenChange={(open) => {
+          setDialogOpen(open);
+          if (!open) resetAIState();
+        }}
+      >
         <DialogContent className="w-[97vw] max-w-[97vw] h-[95vh] max-h-[95vh] p-0">
           <div className="h-full overflow-y-auto px-6 py-5">
             <DialogHeader className="pr-8">
@@ -1084,26 +1255,14 @@ export function DietPlansPage() {
                   {!selectedClient ? (
                     <p className="text-sm text-muted-foreground">Select a client to prefill header metrics.</p>
                   ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 text-sm">
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 text-sm">
                       <div><span className="text-muted-foreground">Name:</span> {selectedClient.name}</div>
                       <div><span className="text-muted-foreground">Age:</span> {selectedClient.age || "—"}</div>
-                      <div><span className="text-muted-foreground">Height:</span> {selectedClient.height_cm || "—"} cm</div>
                       <div><span className="text-muted-foreground">Start Weight:</span> {selectedClient.initial_weight_kg || "—"} kg</div>
                       <div><span className="text-muted-foreground">Current Weight:</span> {selectedClient.current_weight_kg || selectedClient.initial_weight_kg || "—"} kg</div>
-                      <div><span className="text-muted-foreground">BMI:</span> {selectedClientBmi ? selectedClientBmi.toFixed(1) : "—"} ({formatBmiLabel(selectedClientBmi)})</div>
-                      <div><span className="text-muted-foreground">Maintenance:</span> {formData.daily_calories || selectedClientMaintenance || "—"} kcal/day</div>
-                      <div>
-                        <span className="text-muted-foreground">Guidance:</span>{" "}
-                        {!selectedClientWeightDelta
-                          ? "—"
-                          : selectedClientWeightDelta.direction === "lose"
-                            ? `Lose ${selectedClientWeightDelta.kg.toFixed(1)} kg`
-                            : selectedClientWeightDelta.direction === "gain"
-                              ? `Gain ${selectedClientWeightDelta.kg.toFixed(1)} kg`
-                              : "Within healthy range"}
-                      </div>
-                      <div className="md:col-span-2 xl:col-span-4">
-                        <span className="text-muted-foreground">Healthy Weight Range:</span>{" "}
+                      <div><span className="text-muted-foreground">Maintenance Calories:</span> {formData.daily_calories || selectedClientMaintenance || "—"} kcal/day</div>
+                      <div className="md:col-span-2 xl:col-span-2">
+                        <span className="text-muted-foreground">Healthy Range:</span>{" "}
                         {selectedClientHealthyRange
                           ? `${selectedClientHealthyRange.minKg.toFixed(1)} - ${selectedClientHealthyRange.maxKg.toFixed(1)} kg`
                           : "—"}
@@ -1144,22 +1303,14 @@ export function DietPlansPage() {
 
             <div className="space-y-2">
               <Label>Top Summary (shown above day-wise table)</Label>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3">
                 <div className="space-y-1">
-                  <Label className="text-xs text-muted-foreground">Morning Drink</Label>
+                  <Label className="text-xs text-muted-foreground">Morning Drinks</Label>
                   <Textarea rows={2} value={formData.summary_slots.morning_drink || ""} onChange={(e) => updateSummarySlot("morning_drink", e.target.value)} />
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-xs text-muted-foreground">Night Drink</Label>
+                  <Label className="text-xs text-muted-foreground">Night Drinks</Label>
                   <Textarea rows={2} value={formData.summary_slots.night_drink || ""} onChange={(e) => updateSummarySlot("night_drink", e.target.value)} />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs text-muted-foreground">Morning Snack Summary</Label>
-                  <Textarea rows={2} value={formData.summary_slots.morning_snack || ""} onChange={(e) => updateSummarySlot("morning_snack", e.target.value)} />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs text-muted-foreground">Evening Snack Summary</Label>
-                  <Textarea rows={2} value={formData.summary_slots.evening_snack || ""} onChange={(e) => updateSummarySlot("evening_snack", e.target.value)} />
                 </div>
               </div>
             </div>
@@ -1191,89 +1342,309 @@ export function DietPlansPage() {
               </div>
             ) : null}
 
-            <Card className="border-border/40 bg-card/40">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-lg font-['Manrope']">Inline Day-wise Editor</CardTitle>
-                <CardDescription>All days in one table view. Columns reflect your picker selection.</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="rounded-lg border border-border/50">
-                  <table className="w-full table-fixed text-sm">
-                    <thead className="sticky top-0 z-10 bg-muted/80 backdrop-blur-sm">
-                      <tr className="border-b border-border/50">
-                        <th className="px-3 py-2 text-left font-semibold w-28">Day</th>
-                        {formData.visible_columns.map((column) => (
-                          <th key={`head-${column}`} className="px-3 py-2 text-left font-semibold">
-                            {SLOT_LABELS[column]}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {formData.day_wise_plan.map((dayPlan) => {
-                        return (
-                          <tr key={dayPlan.day} className="border-b border-border/30 align-top">
-                            <td className="px-3 py-3 font-medium whitespace-nowrap">Day {dayPlan.day}</td>
-                            {formData.visible_columns.map((column) => {
-                              const value = dayPlan[column] || "";
-                              const { primary, secondary } = splitMealOptions(value);
-                              const orEnabled = isOrEnabledForCell(dayPlan.day, column, value);
-                              const cellKey = getCellKey(dayPlan.day, column);
-                              const isActiveCell = activeCellKey === cellKey;
-                              return (
-                                <td key={`${dayPlan.day}-${column}`} className="px-2 py-2 align-top">
-                                  <Textarea
-                                    rows={2}
-                                    value={primary}
-                                    onChange={(e) => updateMealCell(dayPlan.day, column, "primary", e.target.value)}
-                                    onFocus={() => setActiveCellKey(cellKey)}
-                                    placeholder={`Enter ${SLOT_LABELS[column].toLowerCase()} option 1`}
-                                    className="min-h-[64px] max-h-[64px] resize-none"
-                                  />
-                                  {orEnabled ? (
-                                    <div className="mt-2 space-y-2">
-                                      <div className="flex items-center justify-between">
-                                        <span className="text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">OR</span>
-                                        <button
-                                          type="button"
-                                          className="text-[11px] text-muted-foreground hover:text-foreground"
-                                          onClick={() => setOrEnabledForCell(dayPlan.day, column, false)}
-                                        >
-                                          Remove OR
-                                        </button>
+            <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.6fr)_minmax(360px,0.9fr)] gap-4 items-start">
+              <Card className="border-border/40 bg-card/40">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-lg font-['Manrope']">Inline Day-wise Editor</CardTitle>
+                  <CardDescription>All days in one table view. Columns reflect your picker selection.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="rounded-lg border border-border/50">
+                    <table className="w-full table-fixed text-sm">
+                      <thead className="sticky top-0 z-10 bg-muted/80 backdrop-blur-sm">
+                        <tr className="border-b border-border/50">
+                          <th className="px-3 py-2 text-left font-semibold w-28">Day</th>
+                          {formData.visible_columns.map((column) => (
+                            <th key={`head-${column}`} className="px-3 py-2 text-left font-semibold">
+                              {SLOT_LABELS[column]}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {formData.day_wise_plan.map((dayPlan) => {
+                          return (
+                            <tr key={dayPlan.day} className="border-b border-border/30 align-top">
+                              <td className="px-3 py-3 font-medium whitespace-nowrap">Day {dayPlan.day}</td>
+                              {formData.visible_columns.map((column) => {
+                                const value = dayPlan[column] || "";
+                                const { primary, secondary } = splitMealOptions(value);
+                                const orEnabled = isOrEnabledForCell(dayPlan.day, column, value);
+                                const cellKey = getCellKey(dayPlan.day, column);
+                                const isActiveCell = activeCellKey === cellKey;
+                                return (
+                                  <td key={`${dayPlan.day}-${column}`} className="px-2 py-2 align-top">
+                                    <Textarea
+                                      rows={2}
+                                      value={primary}
+                                      onChange={(e) => updateMealCell(dayPlan.day, column, "primary", e.target.value)}
+                                      onFocus={() => setActiveCellKey(cellKey)}
+                                      placeholder={`Enter ${SLOT_LABELS[column].toLowerCase()} option 1`}
+                                      className="min-h-[64px] max-h-[64px] resize-none"
+                                    />
+                                    {orEnabled ? (
+                                      <div className="mt-2 space-y-2">
+                                        <div className="flex items-center justify-between">
+                                          <span className="text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">OR</span>
+                                          <button
+                                            type="button"
+                                            className="text-[11px] text-muted-foreground hover:text-foreground"
+                                            onClick={() => setOrEnabledForCell(dayPlan.day, column, false)}
+                                          >
+                                            Remove OR
+                                          </button>
+                                        </div>
+                                        <Textarea
+                                          rows={2}
+                                          value={secondary}
+                                          onChange={(e) => updateMealCell(dayPlan.day, column, "secondary", e.target.value)}
+                                          onFocus={() => setActiveCellKey(cellKey)}
+                                          placeholder={`Enter ${SLOT_LABELS[column].toLowerCase()} option 2`}
+                                          className="min-h-[64px] max-h-[64px] resize-none"
+                                        />
                                       </div>
-                                      <Textarea
-                                        rows={2}
-                                        value={secondary}
-                                        onChange={(e) => updateMealCell(dayPlan.day, column, "secondary", e.target.value)}
-                                        onFocus={() => setActiveCellKey(cellKey)}
-                                        placeholder={`Enter ${SLOT_LABELS[column].toLowerCase()} option 2`}
-                                        className="min-h-[64px] max-h-[64px] resize-none"
-                                      />
+                                    ) : isActiveCell ? (
+                                      <button
+                                        type="button"
+                                        className="mt-2 text-[11px] text-primary hover:underline"
+                                        onClick={() => setOrEnabledForCell(dayPlan.day, column, true)}
+                                      >
+                                        + Add OR option
+                                      </button>
+                                    ) : null}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="border-border/40 bg-card/40">
+                <CardHeader className="pb-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <CardTitle className="text-lg font-['Manrope'] flex items-center gap-2">
+                        <Sparkles className="w-4 h-4 text-primary" />
+                        AI Diet Assistant
+                      </CardTitle>
+                      <CardDescription>
+                        Analyze parsed diets, estimate calories and protein, and apply targeted Indian-diet suggestions.
+                      </CardDescription>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void runAIAnalysis()}
+                      disabled={aiAnalyzing || !formData.client_id}
+                    >
+                      {aiAnalyzing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCcw className="w-4 h-4 mr-2" />}
+                      {aiAnalysis ? "Re-run" : "Analyze"}
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {isTemplateDialog ? (
+                    <div className="rounded-lg border border-dashed border-border/60 px-4 py-6 text-sm text-muted-foreground">
+                      AI analysis is available for client-specific diet plans after you select a client.
+                    </div>
+                  ) : !formData.client_id ? (
+                    <div className="rounded-lg border border-dashed border-border/60 px-4 py-6 text-sm text-muted-foreground">
+                      Select a client first. PDF parsing still works without AI, but nutrition analysis needs client context.
+                    </div>
+                  ) : !aiAnalysis ? (
+                    <div className="rounded-lg border border-dashed border-border/60 px-4 py-6 text-sm text-muted-foreground">
+                      Upload a diet PDF or click Analyze to generate AI calorie/protein insights for this draft.
+                    </div>
+                  ) : (
+                    <>
+                      {aiIsStale ? (
+                        <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                          The plan changed after the last AI run. Re-run analysis before requesting fresh suggestions.
+                        </div>
+                      ) : null}
+
+                      <div className="space-y-2">
+                        <h3 className="text-sm font-semibold">Nutrition Analysis</h3>
+                        <div className="grid grid-cols-2 gap-3 text-sm">
+                          <div className="rounded-lg border border-border/50 p-3">
+                            <div className="text-xs text-muted-foreground">Maintenance</div>
+                            <div className="font-semibold">{aiAnalysis.client_context?.maintenance_calories ?? "—"} kcal</div>
+                          </div>
+                          <div className="rounded-lg border border-border/50 p-3">
+                            <div className="text-xs text-muted-foreground">Target Calories</div>
+                            <div className="font-semibold">{aiAnalysis.client_context?.target_daily_calories ?? "—"} kcal</div>
+                          </div>
+                          <div className="rounded-lg border border-border/50 p-3">
+                            <div className="text-xs text-muted-foreground">Avg Daily Calories</div>
+                            <div className="font-semibold">{aiAnalysis.plan_summary?.avg_daily_calories ?? "—"} kcal</div>
+                          </div>
+                          <div className="rounded-lg border border-border/50 p-3">
+                            <div className="text-xs text-muted-foreground">Avg Daily Protein</div>
+                            <div className="font-semibold">{aiAnalysis.plan_summary?.avg_daily_protein_g ?? "—"} g</div>
+                          </div>
+                          <div className="rounded-lg border border-border/50 p-3 col-span-2">
+                            <div className="text-xs text-muted-foreground">Protein Adequacy</div>
+                            <div className="font-semibold">{aiAnalysis.plan_summary?.protein_adequacy_percent ?? "—"}%</div>
+                          </div>
+                        </div>
+                        <div className="rounded-lg border border-border/50 p-3 text-sm">
+                          <div className="font-medium">Summary</div>
+                          <p className="mt-1 text-muted-foreground">{aiAnalysis.plan_summary?.overall_summary || "—"}</p>
+                        </div>
+                        {Array.isArray(aiAnalysis.plan_summary?.confidence_notes) && aiAnalysis.plan_summary.confidence_notes.length ? (
+                          <div className="rounded-lg border border-border/50 p-3 text-sm">
+                            <div className="font-medium mb-1">Confidence Notes</div>
+                            <ul className="space-y-1 text-muted-foreground">
+                              {aiAnalysis.plan_summary.confidence_notes.map((note, index) => (
+                                <li key={`confidence-${index}`}>• {note}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        ) : null}
+                      </div>
+
+                      <div className="space-y-2">
+                        <h3 className="text-sm font-semibold">Day-wise Breakdown</h3>
+                        <div className="space-y-2">
+                          {(aiAnalysis.day_analysis || []).map((day) => (
+                            <div key={`day-analysis-${day.day}`} className="rounded-lg border border-border/50 p-3 text-sm">
+                              <div className="flex items-center justify-between gap-3">
+                                <span className="font-medium">Day {day.day}</span>
+                                <span className="text-muted-foreground">{day.estimated_calories} kcal • {day.estimated_protein_g} g protein</span>
+                              </div>
+                              {Array.isArray(day.notes) && day.notes.length ? (
+                                <div className="mt-1 text-xs text-muted-foreground">{day.notes.join(" ")}</div>
+                              ) : null}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <h3 className="text-sm font-semibold">Suggested Improvements</h3>
+                        <div className="space-y-2">
+                          {(aiAnalysis.improvement_opportunities || []).map((item, index) => (
+                            <div key={`improvement-${index}`} className="rounded-lg border border-border/50 p-3 text-sm">
+                              <div className="flex items-center justify-between gap-3">
+                                <span className="font-medium capitalize">{String(item.type || "insight").replace(/_/g, " ")}</span>
+                                <Badge variant="outline">{item.severity || "info"}</Badge>
+                              </div>
+                              <p className="mt-1 text-muted-foreground">{item.message}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <h3 className="text-sm font-semibold">Ask AI</h3>
+                        <div className="flex flex-wrap gap-2">
+                          {DIET_AI_PRESET_ACTIONS.map((action) => (
+                            <Button
+                              key={action.action_key}
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={() => void runAISuggestions({ actionKey: action.action_key })}
+                              disabled={aiSuggesting || aiIsStale}
+                            >
+                              {action.label}
+                            </Button>
+                          ))}
+                        </div>
+                        <div className="space-y-2">
+                          <Textarea
+                            rows={3}
+                            value={aiPrompt}
+                            onChange={(e) => setAiPrompt(e.target.value)}
+                            placeholder="Suggest me some five healthy Indian options with higher protein for this diet."
+                          />
+                          <Button
+                            type="button"
+                            onClick={() => void runAISuggestions({ prompt: aiPrompt })}
+                            disabled={aiSuggesting || aiIsStale || !aiPrompt.trim()}
+                          >
+                            {aiSuggesting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Sparkles className="w-4 h-4 mr-2" />}
+                            Ask AI
+                          </Button>
+                        </div>
+                      </div>
+
+                      {aiPromptHistory.length ? (
+                        <div className="space-y-2">
+                          <h3 className="text-sm font-semibold">Recent AI Requests</h3>
+                          <div className="flex flex-wrap gap-2">
+                            {aiPromptHistory.map((item, index) => (
+                              <Badge key={`history-${index}`} variant="secondary">{item}</Badge>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {aiSuggestions.length ? (
+                        <div className="space-y-3">
+                          <h3 className="text-sm font-semibold">Apply Changes</h3>
+                          {aiSuggestions.map((suggestion) => (
+                            <div key={suggestion.suggestion_id} className="rounded-lg border border-border/50 p-3 space-y-3">
+                              <div>
+                                <div className="font-medium">{suggestion.prompt_label || "AI suggestion"}</div>
+                                <p className="text-sm text-muted-foreground mt-1">{suggestion.summary}</p>
+                              </div>
+                              {Array.isArray(suggestion.recommendations) && suggestion.recommendations.length ? (
+                                <div className="space-y-2">
+                                  {suggestion.recommendations.map((recommendation, index) => (
+                                    <div key={`${suggestion.suggestion_id}-rec-${index}`} className="rounded-lg bg-muted/30 p-3 text-sm">
+                                      <div className="font-medium">{recommendation.title}</div>
+                                      <div className="text-muted-foreground mt-1">{recommendation.reason}</div>
+                                      <div className="text-xs text-muted-foreground mt-1">Expected benefit: {recommendation.expected_benefit}</div>
                                     </div>
-                                  ) : isActiveCell ? (
-                                    <button
-                                      type="button"
-                                      className="mt-2 text-[11px] text-primary hover:underline"
-                                      onClick={() => setOrEnabledForCell(dayPlan.day, column, true)}
-                                    >
-                                      + Add OR option
-                                    </button>
-                                  ) : null}
-                                </td>
-                              );
-                            })}
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </CardContent>
-            </Card>
+                                  ))}
+                                </div>
+                              ) : null}
+                              {Array.isArray(suggestion.proposed_changes) && suggestion.proposed_changes.length ? (
+                                <div className="space-y-2">
+                                  {suggestion.proposed_changes.map((change, index) => (
+                                    <div key={`${suggestion.suggestion_id}-change-${index}`} className="rounded-lg border border-border/50 p-3 text-sm">
+                                      <div className="flex items-center justify-between gap-3">
+                                        <div className="font-medium">
+                                          Day {change.day} • {SLOT_LABELS[change.slot] || change.slot}
+                                        </div>
+                                        <Button type="button" size="sm" variant="outline" onClick={() => applyAISuggestedChange(change)}>
+                                          Apply
+                                        </Button>
+                                      </div>
+                                      <div className="mt-2 text-xs text-muted-foreground">Current</div>
+                                      <div>{change.current_value || "—"}</div>
+                                      <div className="mt-2 text-xs text-muted-foreground">Suggested</div>
+                                      <div>{change.suggested_value || "—"}</div>
+                                      <div className="mt-2 text-xs text-muted-foreground">{change.reason}</div>
+                                      <div className="mt-1 text-xs text-muted-foreground">
+                                        Delta: {change.estimated_calorie_delta} kcal • {change.estimated_protein_delta_g} g protein
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : null}
+                              {Array.isArray(suggestion.confidence_notes) && suggestion.confidence_notes.length ? (
+                                <div className="text-xs text-muted-foreground">{suggestion.confidence_notes.join(" ")}</div>
+                              ) : null}
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
 
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
+              <Button type="button" variant="outline" onClick={() => { setDialogOpen(false); resetAIState(); }}>Cancel</Button>
               {!isTemplateDialog ? (
                 <Button type="button" variant="outline" onClick={exportDraftPdf}>
                   <FileDown className="w-4 h-4 mr-2" /> Export Draft PDF

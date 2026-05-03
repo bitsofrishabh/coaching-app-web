@@ -38,10 +38,20 @@ const buildWeightTooltip = (entries = []) =>
     .map((entry) => `${entry.recorded_date}: ${entry.weight_kg} kg`)
     .join("\n");
 
+const TOGGLEABLE_COLUMN_FIELDS = new Set([
+  "diet_start_date",
+  "diet_end_date",
+  "program_start_date",
+  "program_end_date",
+  "last_follow_up_date",
+  "upcoming_follow_up_date",
+]);
+
 export function ClientTrackerGrid({
   rowData,
   loading,
   rowDrafts,
+  visibleColumns,
   editingCommentClientId,
   commentInputRefs,
   canDeleteClient,
@@ -267,6 +277,42 @@ export function ClientTrackerGrid({
       },
     },
     {
+      field: "program_start_date",
+      headerName: "Program Start",
+      width: 180,
+      minWidth: 170,
+      sortable: true,
+      cellRenderer: (params) => (
+        <DatePickerInput
+          value={rowDrafts[params.data.id]?.program_start_date ?? params.data.program_start_date ?? ""}
+          onChange={(value) => void onInlineDateChange(params.data.id, "program_start_date", value)}
+          placeholder="Select date"
+          variant="inline"
+          buttonClassName="h-8 rounded-none border-0 bg-transparent px-0 text-[14px] font-medium shadow-none hover:bg-transparent"
+        />
+      ),
+    },
+    {
+      field: "program_end_date",
+      headerName: "Program End",
+      width: 180,
+      minWidth: 170,
+      sortable: true,
+      cellRenderer: (params) => {
+        const urgency = getDateUrgencyMeta(rowDrafts[params.data.id]?.program_end_date ?? params.data.program_end_date);
+        return (
+          <DatePickerInput
+            title={urgency.title}
+            value={rowDrafts[params.data.id]?.program_end_date ?? params.data.program_end_date ?? ""}
+            onChange={(value) => void onInlineDateChange(params.data.id, "program_end_date", value)}
+            placeholder="Select date"
+            variant="inline"
+            buttonClassName={`h-8 rounded-none border-0 bg-transparent px-0 text-[14px] font-medium shadow-none hover:bg-transparent ${urgency.className}`}
+          />
+        );
+      },
+    },
+    {
       field: "last_follow_up_date",
       headerName: "Last Follow-up",
       width: 170,
@@ -324,6 +370,9 @@ export function ClientTrackerGrid({
     },
   ];
 
+  const visibleColumnSet = new Set(visibleColumns || []);
+  const filteredColumnDefs = columnDefs.filter((column) => !TOGGLEABLE_COLUMN_FIELDS.has(column.field) || visibleColumnSet.has(column.field));
+
   return (
     <TooltipProvider delayDuration={120}>
       <Card className="overflow-hidden rounded-2xl border border-border/50 bg-background shadow-[0_1px_0_rgba(15,23,42,0.02),0_8px_30px_rgba(15,23,42,0.04)]">
@@ -341,7 +390,7 @@ export function ClientTrackerGrid({
           <AgGridReact
             theme={clientTrackerGridTheme}
             rowData={rowData}
-            columnDefs={columnDefs}
+            columnDefs={filteredColumnDefs}
             getRowId={(params) => params.data.id}
             domLayout="autoHeight"
             rowHeight={54}

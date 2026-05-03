@@ -7,6 +7,7 @@ import { LoginPage } from "@/pages/LoginPage";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { ClientsPage } from "@/pages/ClientsPage";
 import { ClientDetailPage } from "@/pages/ClientDetailPage";
+import { LeadsPage } from "@/pages/LeadsPage";
 import { DietPlansPage } from "@/pages/DietPlansPage";
 import { ChatPage } from "@/pages/ChatPage";
 import { MealReviewsPage } from "@/pages/MealReviewsPage";
@@ -31,6 +32,7 @@ function AppRoutes() {
                 <Route path="/" element={<DashboardPage />} />
                 <Route path="/clients" element={<ClientsPage />} />
                 <Route path="/clients/:id" element={<ClientDetailPage />} />
+                <Route path="/leads" element={<LeadsPage />} />
                 <Route path="/diet-plans" element={<DietPlansPage />} />
                 <Route path="/chat" element={<ChatPage />} />
                 <Route path="/meal-reviews" element={<MealReviewsPage />} />

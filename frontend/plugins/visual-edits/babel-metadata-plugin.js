@@ -932,8 +932,14 @@ const babelMetadataPlugin = ({ types: t }) => {
           }
           if (!localName) return;
 
+          // Import declarations live directly under the Program node, so
+          // parentPath.parentPath can be null. Traverse from the Program path.
+          const programPath =
+            importPath.findParent((p) => p.isProgram()) || importPath.parentPath;
+          if (!programPath) return;
+
           // Search for usages of this component
-          importPath.parentPath.parentPath.traverse({
+          programPath.traverse({
             JSXOpeningElement(jsxPath) {
               if (result) return;
 

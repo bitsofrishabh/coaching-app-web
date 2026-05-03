@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import {
   Users, LayoutDashboard, Utensils, DollarSign, CalendarCheck, Settings,
-  LogOut, Menu, MessageCircle, Camera, Activity, ClipboardList
+  LogOut, Menu, MessageCircle, Camera, Activity, ClipboardList, UserPlus
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -18,6 +18,7 @@ function Sidebar({ collapsed, setCollapsed }) {
   const navItems = [
     { icon: LayoutDashboard, label: "Dashboard", path: "/" },
     { icon: Users, label: "Clients", path: "/clients" },
+    { icon: UserPlus, label: "Leads", path: "/leads" },
     { icon: Utensils, label: "Diet Plans", path: "/diet-plans" },
     { icon: MessageCircle, label: "Chat", path: "/chat", badge: true },
     { icon: Camera, label: "Meal Reviews", path: "/meal-reviews" },

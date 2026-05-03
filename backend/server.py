@@ -12,6 +12,7 @@ import io
 import re
 import csv
 import json
+import hashlib
 import jwt
 import bcrypt
 import requests
@@ -36,6 +37,12 @@ from app.core.config import (
     mongo_url,
 )
 from app.core.storage import get_object, init_storage, put_object
+from app.core.nutrition import (
+    calculate_maintenance_calories,
+    get_estimated_protein_target_g,
+    get_recommended_daily_deficit,
+    get_target_daily_calories,
+)
 from app.handlers.ai_health import generate_health_analysis_handler, get_health_analysis_handler
 from app.handlers.files import get_file_handler, list_files_handler, upload_file_handler
 from app.handlers.tracking import (
@@ -66,6 +73,8 @@ from app.schemas.tracking import (
     WeightImportSaveResponse,
     WeightImportTextRequest,
 )
+from services.ai.openai_client import OpenAIAPIError, get_default_model
+from services.ai.diet_plan_ai import generate_diet_plan_analysis, generate_diet_plan_suggestions
 
 # Create the main app
 app = FastAPI(title="DietTracker Pro API")
@@ -235,6 +244,66 @@ class ClientResponse(BaseModel):
     sleep_hours: Optional[str] = None
     morning_freshness: Optional[str] = None
     adherence_rate: Optional[float] = None
+    created_at: str
+    updated_at: str
+
+
+LEAD_STATUSES = {
+    "new",
+    "contacted",
+    "consultation-booked",
+    "follow-up",
+    "converted",
+    "lost",
+}
+
+
+class LeadCreate(BaseModel):
+    name: str
+    phone: Optional[str] = None
+    email: Optional[EmailStr] = None
+    age: Optional[int] = None
+    gender: Optional[str] = None
+    location: Optional[str] = None
+    source: Optional[str] = None
+    status: str = "new"
+    notes: Optional[str] = None
+    last_contacted_date: Optional[str] = None
+    next_follow_up_date: Optional[str] = None
+    assigned_to: Optional[str] = None
+
+
+class LeadUpdate(BaseModel):
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[EmailStr] = None
+    age: Optional[int] = None
+    gender: Optional[str] = None
+    location: Optional[str] = None
+    source: Optional[str] = None
+    status: Optional[str] = None
+    notes: Optional[str] = None
+    last_contacted_date: Optional[str] = None
+    next_follow_up_date: Optional[str] = None
+    assigned_to: Optional[str] = None
+
+
+class LeadResponse(BaseModel):
+    id: str
+    coach_id: str
+    name: str
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    age: Optional[int] = None
+    gender: Optional[str] = None
+    location: Optional[str] = None
+    source: Optional[str] = None
+    status: str
+    notes: Optional[str] = None
+    last_contacted_date: Optional[str] = None
+    next_follow_up_date: Optional[str] = None
+    assigned_to: Optional[str] = None
+    converted_client_id: Optional[str] = None
     created_at: str
     updated_at: str
 
@@ -408,6 +477,27 @@ class DietPlanResponse(BaseModel):
     version: int
     created_at: str
     updated_at: str
+
+
+class DietPlanAIAnalyzeRequest(BaseModel):
+    client_id: str
+    plan_days: int
+    day_wise_plan: List[Dict[str, Any]] = []
+    summary_slots: Dict[str, str] = Field(default_factory=dict)
+    source_filename: Optional[str] = None
+
+
+class DietPlanAISuggestRequest(BaseModel):
+    client_id: str
+    plan_days: int
+    day_wise_plan: List[Dict[str, Any]] = []
+    summary_slots: Dict[str, str] = Field(default_factory=dict)
+    analysis_id: Optional[str] = None
+    action_key: Optional[str] = None
+    custom_prompt: Optional[str] = None
+    day: Optional[int] = None
+    slot: Optional[str] = None
+    source_filename: Optional[str] = None
 
 # Follow-up Models
 class FollowUpCreate(BaseModel):
@@ -768,6 +858,43 @@ def _normalize_diet_plan_doc(plan_doc: Optional[Dict[str, Any]]) -> Optional[Dic
         export_layout = DIET_EXPORT_LAYOUT_TABLE
     normalized["export_layout"] = export_layout
     return normalized
+
+
+def _build_diet_plan_fingerprint(
+    *,
+    client_id: str,
+    plan_days: int,
+    day_wise_plan: List[Dict[str, Any]],
+    summary_slots: Dict[str, str],
+) -> str:
+    payload = {
+        "client_id": client_id,
+        "plan_days": int(plan_days or 0),
+        "day_wise_plan": _normalize_day_wise_plan(day_wise_plan or [], int(plan_days or 0)),
+        "summary_slots": _finalize_summary_slots(summary_slots or {}, day_wise_plan or []),
+    }
+    serialized = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def _build_diet_ai_client_context(client_record: Dict[str, Any]) -> Dict[str, Any]:
+    maintenance_calories = calculate_maintenance_calories(client_record)
+    recommended_daily_deficit = get_recommended_daily_deficit(client_record)
+    target_daily_calories = get_target_daily_calories(client_record)
+    estimated_protein_target_g = get_estimated_protein_target_g(client_record)
+    return {
+        "maintenance_calories": maintenance_calories,
+        "recommended_daily_deficit": recommended_daily_deficit,
+        "target_daily_calories": target_daily_calories,
+        "estimated_protein_target_g": estimated_protein_target_g,
+        "diet_preference": client_record.get("diet_preference") or None,
+        "health_issues_summary": client_record.get("health_issues") or client_record.get("notes") or None,
+        "calculation_policy": {
+            "maintenance_calories": "healthy_target_weight_or_current_weight_x_24_kcal",
+            "recommended_daily_deficit": "goal_weight_and_current_weight_based_safe_deficit",
+            "estimated_protein_target_g": "1.6_g_per_kg_using_goal_weight_else_current_weight",
+        },
+    }
 
 
 def _split_template_blocks(page_texts: List[str]) -> List[str]:
@@ -2005,6 +2132,91 @@ async def get_client_stats(user: dict = Depends(get_current_user)):
     return {"total": total, "active": active, "on_hold": on_hold, "completed": completed}
 
 
+# ============ LEAD ROUTES ============
+def _validate_lead_status(status: Optional[str]) -> Optional[str]:
+    if status is None:
+        return status
+    normalized = status.strip().lower()
+    if normalized not in LEAD_STATUSES:
+        raise HTTPException(status_code=400, detail="Invalid lead status")
+    return normalized
+
+
+@api_router.get("/leads", response_model=List[LeadResponse])
+async def get_leads(
+    status: Optional[str] = None,
+    search: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 200,
+    user: dict = Depends(get_current_user)
+):
+    query = _visible_shared_owner_query(user)
+    if status:
+        query["status"] = _validate_lead_status(status)
+    if search:
+        query["$or"] = [
+            {"name": {"$regex": search, "$options": "i"}},
+            {"email": {"$regex": search, "$options": "i"}},
+            {"phone": {"$regex": search, "$options": "i"}},
+            {"source": {"$regex": search, "$options": "i"}},
+        ]
+
+    leads = await db.leads.find(query, {"_id": 0}).sort("updated_at", -1).skip(skip).limit(limit).to_list(limit)
+    return [LeadResponse(**lead) for lead in leads]
+
+
+@api_router.post("/leads", response_model=LeadResponse)
+async def create_lead(data: LeadCreate, user: dict = Depends(get_current_user)):
+    lead_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    payload = data.model_dump()
+    payload["status"] = _validate_lead_status(payload.get("status") or "new")
+    lead_doc = {
+        "id": lead_id,
+        "coach_id": SHARED_CLIENT_OWNER_ID,
+        **payload,
+        "created_at": now,
+        "updated_at": now,
+    }
+    await db.leads.insert_one(lead_doc)
+    lead_doc.pop("_id", None)
+    return LeadResponse(**lead_doc)
+
+
+@api_router.get("/leads/{lead_id}", response_model=LeadResponse)
+async def get_lead(lead_id: str, user: dict = Depends(get_current_user)):
+    lead = await db.leads.find_one(_visible_shared_owner_query(user, {"id": lead_id}), {"_id": 0})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    return LeadResponse(**lead)
+
+
+@api_router.put("/leads/{lead_id}", response_model=LeadResponse)
+async def update_lead(lead_id: str, data: LeadUpdate, user: dict = Depends(get_current_user)):
+    update_data = data.model_dump(exclude_unset=True)
+    if "status" in update_data:
+        update_data["status"] = _validate_lead_status(update_data.get("status"))
+    update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+    result = await db.leads.find_one_and_update(
+        _visible_shared_owner_query(user, {"id": lead_id}),
+        {"$set": update_data},
+        return_document=True,
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    result.pop("_id", None)
+    return LeadResponse(**result)
+
+
+@api_router.delete("/leads/{lead_id}")
+async def delete_lead(lead_id: str, user: dict = Depends(get_current_user)):
+    result = await db.leads.delete_one(_visible_shared_owner_query(user, {"id": lead_id}))
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    return {"message": "Lead deleted"}
+
+
 @api_router.get("/clients/weight-summaries", response_model=List[ClientWeightSummaryResponse])
 async def get_client_weight_summaries(entries: int = 10, user: dict = Depends(get_current_user)):
     return await get_client_weight_summaries_handler(
@@ -2423,6 +2635,217 @@ async def parse_template_pdf(
         "day_wise_plan": normalized_days,
         "visible_columns": DEFAULT_VISIBLE_COLUMNS,
         "parse_warnings": parse_warnings
+    }
+
+
+@api_router.post("/diet-plans/ai/analyze")
+async def analyze_diet_plan_with_ai(
+    data: DietPlanAIAnalyzeRequest,
+    user: dict = Depends(get_current_user),
+):
+    if not is_staff_user(user):
+        raise HTTPException(status_code=403, detail="Staff access required")
+    if data.plan_days not in [7, 10, 14]:
+        raise HTTPException(status_code=400, detail="plan_days must be one of 7, 10 or 14")
+
+    client_record = await _get_visible_client(data.client_id, user, {"_id": 0})
+    if not client_record:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    normalized_days = _normalize_day_wise_plan(data.day_wise_plan or [], data.plan_days)
+    summary_slots = _finalize_summary_slots(data.summary_slots or {}, normalized_days)
+    client_context = _build_diet_ai_client_context(client_record)
+    plan_fingerprint = _build_diet_plan_fingerprint(
+        client_id=data.client_id,
+        plan_days=data.plan_days,
+        day_wise_plan=normalized_days,
+        summary_slots=summary_slots,
+    )
+
+    try:
+        analysis_payload = generate_diet_plan_analysis(
+            client=client_record,
+            plan_days=data.plan_days,
+            day_wise_plan=normalized_days,
+            summary_slots=summary_slots,
+            client_context=client_context,
+            model=os.environ.get("AI_MODEL") or os.environ.get("GEMINI_MODEL") or os.environ.get("OPENAI_MODEL"),
+        )
+    except OpenAIAPIError as exc:
+        detail = str(exc)
+        status_code = 503 if "_API_KEY" in detail else 502
+        raise HTTPException(status_code=status_code, detail=detail)
+
+    now = datetime.now(timezone.utc).isoformat()
+    analysis_id = str(uuid.uuid4())
+    artifact_doc = {
+        "id": analysis_id,
+        "client_id": data.client_id,
+        "coach_id": user["id"],
+        "source_type": "parsed_pdf" if data.source_filename else "manual_plan",
+        "source_filename": data.source_filename,
+        "plan_fingerprint": plan_fingerprint,
+        "plan_days": data.plan_days,
+        "day_wise_plan": normalized_days,
+        "summary_slots": summary_slots,
+        "client_context": client_context,
+        "analysis_payload": analysis_payload,
+        "latest_suggestions": [],
+        "model": get_default_model(),
+        "created_at": now,
+        "updated_at": now,
+    }
+    await db.diet_ai_artifacts.update_one(
+        {"coach_id": user["id"], "client_id": data.client_id, "plan_fingerprint": plan_fingerprint},
+        {"$set": artifact_doc},
+        upsert=True,
+    )
+
+    await _write_audit_log(
+        user=user,
+        event_type="diet-ai-analysis-generated",
+        entity_type="diet-ai-analysis",
+        entity_id=analysis_id,
+        client_id=data.client_id,
+        client_name=client_record.get("name"),
+        summary=f"Generated AI diet analysis for {client_record.get('name', 'client')}",
+        metadata={"model": artifact_doc["model"], "plan_fingerprint": plan_fingerprint},
+    )
+
+    return {
+        "analysis_id": analysis_id,
+        "model": artifact_doc["model"],
+        "generated_at": now,
+        "plan_fingerprint": plan_fingerprint,
+        "client_context": client_context,
+        **analysis_payload,
+    }
+
+
+@api_router.get("/diet-plans/ai/latest")
+async def get_latest_diet_plan_ai_artifact(
+    client_id: str,
+    plan_fingerprint: str,
+    user: dict = Depends(get_current_user),
+):
+    if not is_staff_user(user):
+        raise HTTPException(status_code=403, detail="Staff access required")
+
+    artifact = await db.diet_ai_artifacts.find_one(
+        {"coach_id": user["id"], "client_id": client_id, "plan_fingerprint": plan_fingerprint},
+        {"_id": 0},
+    )
+    if not artifact:
+        raise HTTPException(status_code=404, detail="AI analysis not found")
+
+    return {
+        "analysis_id": artifact["id"],
+        "model": artifact.get("model", get_default_model()),
+        "generated_at": artifact.get("updated_at") or artifact.get("created_at"),
+        "plan_fingerprint": artifact["plan_fingerprint"],
+        "client_context": artifact.get("client_context") or {},
+        **(artifact.get("analysis_payload") or {}),
+        "latest_suggestions": artifact.get("latest_suggestions") or [],
+    }
+
+
+@api_router.post("/diet-plans/ai/suggest")
+async def suggest_diet_plan_changes_with_ai(
+    data: DietPlanAISuggestRequest,
+    user: dict = Depends(get_current_user),
+):
+    if not is_staff_user(user):
+        raise HTTPException(status_code=403, detail="Staff access required")
+    if data.plan_days not in [7, 10, 14]:
+        raise HTTPException(status_code=400, detail="plan_days must be one of 7, 10 or 14")
+    if not (data.action_key or (data.custom_prompt or "").strip()):
+        raise HTTPException(status_code=400, detail="Provide an action_key or custom_prompt")
+
+    client_record = await _get_visible_client(data.client_id, user, {"_id": 0})
+    if not client_record:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    normalized_days = _normalize_day_wise_plan(data.day_wise_plan or [], data.plan_days)
+    summary_slots = _finalize_summary_slots(data.summary_slots or {}, normalized_days)
+    client_context = _build_diet_ai_client_context(client_record)
+    plan_fingerprint = _build_diet_plan_fingerprint(
+        client_id=data.client_id,
+        plan_days=data.plan_days,
+        day_wise_plan=normalized_days,
+        summary_slots=summary_slots,
+    )
+
+    try:
+        suggestion_payload = generate_diet_plan_suggestions(
+            client=client_record,
+            plan_days=data.plan_days,
+            day_wise_plan=normalized_days,
+            summary_slots=summary_slots,
+            client_context=client_context,
+            action_key=data.action_key,
+            custom_prompt=data.custom_prompt,
+            day=data.day,
+            slot=data.slot,
+            model=os.environ.get("AI_MODEL") or os.environ.get("GEMINI_MODEL") or os.environ.get("OPENAI_MODEL"),
+        )
+    except OpenAIAPIError as exc:
+        detail = str(exc)
+        status_code = 503 if "_API_KEY" in detail else 502
+        raise HTTPException(status_code=status_code, detail=detail)
+
+    suggestion_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    suggestion_doc = {
+        "id": suggestion_id,
+        "analysis_id": data.analysis_id,
+        "prompt_label": suggestion_payload.get("prompt_label"),
+        "summary": suggestion_payload.get("summary"),
+        "recommendations": suggestion_payload.get("recommendations") or [],
+        "proposed_changes": suggestion_payload.get("proposed_changes") or [],
+        "follow_up_questions": suggestion_payload.get("follow_up_questions") or [],
+        "confidence_notes": suggestion_payload.get("confidence_notes") or [],
+        "created_at": now,
+    }
+
+    await db.diet_ai_artifacts.update_one(
+        {"coach_id": user["id"], "client_id": data.client_id, "plan_fingerprint": plan_fingerprint},
+        {
+            "$set": {
+                "updated_at": now,
+                "plan_days": data.plan_days,
+                "day_wise_plan": normalized_days,
+                "summary_slots": summary_slots,
+                "client_context": client_context,
+                "source_type": "parsed_pdf" if data.source_filename else "manual_plan",
+                "source_filename": data.source_filename,
+                "model": get_default_model(),
+            },
+            "$push": {"latest_suggestions": {"$each": [suggestion_doc], "$slice": -10}},
+            "$setOnInsert": {
+                "id": data.analysis_id or str(uuid.uuid4()),
+                "created_at": now,
+                "analysis_payload": {},
+                "plan_fingerprint": plan_fingerprint,
+            },
+        },
+        upsert=True,
+    )
+
+    await _write_audit_log(
+        user=user,
+        event_type="diet-ai-suggestion-generated",
+        entity_type="diet-ai-analysis",
+        entity_id=data.analysis_id or suggestion_id,
+        client_id=data.client_id,
+        client_name=client_record.get("name"),
+        summary=f"Generated AI diet suggestions for {client_record.get('name', 'client')}",
+        metadata={"action_key": data.action_key, "custom_prompt": data.custom_prompt, "plan_fingerprint": plan_fingerprint},
+    )
+
+    return {
+        "suggestion_id": suggestion_id,
+        "plan_fingerprint": plan_fingerprint,
+        **suggestion_payload,
     }
 
 @api_router.get("/diet-plans/{plan_id}", response_model=DietPlanResponse)
@@ -4176,6 +4599,8 @@ async def startup():
     await db.clients.create_index([("coach_id", 1), ("status", 1)])
     await db.clients.create_index("email", sparse=True)
     await db.clients.create_index("user_id", sparse=True)
+    await db.leads.create_index([("coach_id", 1), ("status", 1), ("updated_at", -1)])
+    await db.leads.create_index([("coach_id", 1), ("next_follow_up_date", 1)])
     await db.client_comments.create_index([("client_id", 1), ("created_at", -1)])
     await db.client_comments.create_index([("coach_id", 1), ("created_at", -1)])
     await db.weight_entries.create_index([("client_id", 1), ("recorded_date", -1)])
@@ -4189,6 +4614,8 @@ async def startup():
     await db.audit_logs.create_index([("coach_id", 1), ("created_at", -1)])
     await db.audit_logs.create_index([("entity_type", 1), ("created_at", -1)])
     await db.client_ai_analyses.create_index([("client_id", 1), ("analysis_type", 1)], unique=True)
+    await db.diet_ai_artifacts.create_index([("coach_id", 1), ("client_id", 1), ("plan_fingerprint", 1)], unique=True)
+    await db.diet_ai_artifacts.create_index([("client_id", 1), ("updated_at", -1)])
     # Mobile app indexes
     await db.daily_checkins.create_index([("client_id", 1), ("date", -1)])
     await db.meal_uploads.create_index([("client_id", 1), ("uploaded_at", -1)])

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Search, Upload, Sparkles, ArrowDown, Loader2, X } from "lucide-react";
+import { Columns3, Plus, Search, Upload, Sparkles, ArrowDown, Loader2, Table2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -28,6 +28,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { ClientTrackerGrid } from "@/components/clients/ClientTrackerGrid";
+import { KanbanBoard } from "@/components/ui/kanban-board";
 import { api } from "@/lib/api";
 import { hasAnyRole, useAuth } from "@/context/auth-context";
 
@@ -64,7 +65,8 @@ const CLIENT_FORM_DEFAULTS = {
   upcoming_follow_up_date: ""
 };
 
-const DURATION_OPTIONS = ["2 Weeks", "4 Weeks", "6 Weeks", "8 Weeks", "12 Weeks", "16 Weeks"];
+const DIET_DURATION_OPTIONS = ["7 Days", "10 Days", "14 Days"];
+const PROGRAM_DURATION_OPTIONS = ["1 Month", "2 Months", "3 Months", "4 Months"];
 const DIET_PREFERENCE_OPTIONS = ["Vegetarian", "Non Vegetarian", "Eggetarian", "Vegan", "Jain"];
 const CLIENT_SORT_OPTIONS = [
   { value: "client-asc", label: "Client (A-Z)" },
@@ -74,17 +76,36 @@ const CLIENT_SORT_OPTIONS = [
 ];
 
 const CLIENT_STATUS_OPTIONS = [
-  { value: "active", label: "Active" },
-  { value: "on-hold", label: "Paused" },
-  { value: "not-responding", label: "Not Responding" },
-  { value: "inactive", label: "Stopped" },
-  { value: "completed", label: "Program Done" },
-  { value: "out-of-town", label: "Out of Town" }
+  { value: "yet-to-start", label: "Yet To Start", tone: "gray" },
+  { value: "active", label: "In Progress", tone: "blue" },
+  { value: "on-hold", label: "Paused", tone: "amber" },
+  { value: "not-responding", label: "Not Responding", tone: "red" },
+  { value: "inactive", label: "Stopped", tone: "gray" },
+  { value: "completed", label: "Program Done", tone: "green" },
+  { value: "out-of-town", label: "Out of Town", tone: "violet" }
 ];
 
+const CLIENT_KANBAN_COLUMNS = CLIENT_STATUS_OPTIONS;
+
+const TRACKER_COLUMN_OPTIONS = [
+  { key: "diet_start_date", label: "Diet Start" },
+  { key: "diet_end_date", label: "Diet End" },
+  { key: "program_start_date", label: "Program Start" },
+  { key: "program_end_date", label: "Program End" },
+  { key: "last_follow_up_date", label: "Last Follow-up" },
+  { key: "upcoming_follow_up_date", label: "Upcoming Follow-up" }
+];
+
+const DEFAULT_VISIBLE_TRACKER_COLUMNS = TRACKER_COLUMN_OPTIONS.map((option) => option.key);
+
 const CLIENT_STATUS_META = {
+  "yet-to-start": {
+    label: "Yet To Start",
+    dotClassName: "bg-sky-500 shadow-[0_0_0_4px_rgba(14,165,233,0.16)]",
+    badgeClassName: "text-sky-600 dark:text-sky-300"
+  },
   active: {
-    label: "Active",
+    label: "In Progress",
     dotClassName: "bg-violet-500 shadow-[0_0_0_4px_rgba(139,92,246,0.16)]",
     badgeClassName: "text-violet-600 dark:text-violet-300"
   },
@@ -145,6 +166,48 @@ const parseIsoDateToLocal = (value) => {
   const [year, month, day] = raw.split("-").map((part) => parseInt(part, 10));
   if ([year, month, day].some((part) => Number.isNaN(part))) return null;
   return new Date(year, month - 1, day);
+};
+
+const formatLocalDateToIso = (value) => {
+  if (!(value instanceof Date) || Number.isNaN(value.getTime())) return "";
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const addDaysToIsoDate = (isoDate, daysToAdd) => {
+  const parsed = parseIsoDateToLocal(isoDate);
+  if (!parsed) return "";
+  const next = new Date(parsed);
+  next.setDate(next.getDate() + daysToAdd);
+  return formatLocalDateToIso(next);
+};
+
+const addMonthsToIsoDate = (isoDate, monthsToAdd) => {
+  const parsed = parseIsoDateToLocal(isoDate);
+  if (!parsed) return "";
+  const next = new Date(parsed);
+  next.setMonth(next.getMonth() + monthsToAdd);
+  next.setDate(next.getDate() - 1);
+  return formatLocalDateToIso(next);
+};
+
+const getDietDurationDays = (duration) => {
+  const normalized = String(duration || "").trim().toLowerCase();
+  if (normalized === "7 days") return 7;
+  if (normalized === "10 days") return 10;
+  if (normalized === "14 days") return 14;
+  return null;
+};
+
+const getProgramDurationMonths = (duration) => {
+  const normalized = String(duration || "").trim().toLowerCase();
+  if (normalized === "1 month") return 1;
+  if (normalized === "2 months") return 2;
+  if (normalized === "3 months") return 3;
+  if (normalized === "4 months") return 4;
+  return null;
 };
 
 const getDateUrgencyMeta = (value) => {
@@ -210,6 +273,41 @@ const parseHeightToCm = (value) => {
   return parseNullableFloat(raw);
 };
 
+const normalizeDietPreference = (value) => {
+  const raw = (value ?? "").toString().trim();
+  const normalized = raw.toLowerCase().replace(/[^a-z]/g, "");
+  if (!normalized) return "";
+  if (/nonveg|nonvegetarian|nveg/.test(normalized)) return "Non Vegetarian";
+  if (/eggetarian|eggeritarian|eggitarian/.test(normalized)) return "Eggetarian";
+  if (/vegan/.test(normalized)) return "Vegan";
+  if (/jain/.test(normalized)) return "Jain";
+  if (/veg|vegetarian|vegeterian/.test(normalized)) return "Vegetarian";
+  return raw;
+};
+
+const normalizeGender = (value) => {
+  const raw = (value ?? "").toString().trim();
+  const normalized = raw.toLowerCase().replace(/[^a-z]/g, "");
+  if (!normalized) return "";
+  if (["male", "man", "m", "boy"].includes(normalized)) return "male";
+  if (["female", "woman", "f", "girl"].includes(normalized)) return "female";
+  if (["other", "nonbinary", "nonbin", "nb"].includes(normalized)) return "other";
+  return "";
+};
+
+const inferGenderFromCsv = (row) => {
+  const directValue = readCsvValueByAliases(row, ["Gender", "Sex", "Client Gender"]);
+  const normalizedDirectValue = normalizeGender(directValue);
+  if (normalizedDirectValue) return normalizedDirectValue;
+
+  const monthlyCycle = readCsvValueByAliases(row, ["How are your monthly cycle?"]);
+  const menopause = readCsvValueByAliases(row, ["Are you nearing or in middle of Menopause stage?"]);
+  const cycleSymptoms = readCsvValueByAliases(row, ["During cycles, What do you experience?"]);
+  if (monthlyCycle || menopause || cycleSymptoms) return "female";
+
+  return "";
+};
+
 const buildClientPayload = (source) => ({
   name: (source.name || "").trim(),
   email: textOrNull(source.email),
@@ -217,8 +315,8 @@ const buildClientPayload = (source) => ({
   location: textOrNull(source.location),
   profession: textOrNull(source.profession),
   age: parseNullableInt(source.age),
-  gender: textOrNull(source.gender),
-  diet_preference: textOrNull(source.diet_preference),
+  gender: textOrNull(normalizeGender(source.gender) || source.gender),
+  diet_preference: textOrNull(normalizeDietPreference(source.diet_preference) || source.diet_preference),
   primary_coach: textOrNull(source.primary_coach),
   height_cm: parseNullableFloat(source.height_cm),
   initial_weight_kg: parseNullableFloat(source.initial_weight_kg),
@@ -319,8 +417,8 @@ const readCsvValue = (row, header) => {
 const pickDietFromCsv = (row) => {
   const keys = Object.keys(row).filter((key) => key === "Are you?" || key.startsWith("Are you?__") || normalizeHeaderKey(key) === "dietpreference");
   const values = keys.map((key) => row[key]).filter(Boolean);
-  const vegValue = values.find((item) => /veg|vegetarian|jain|vegan|egg/i.test(item));
-  return vegValue || values[0] || "";
+  const matchedValue = values.find((item) => normalizeDietPreference(item));
+  return normalizeDietPreference(matchedValue || values[0] || "");
 };
 
 const mapCsvRowToClientPayload = (row) => {
@@ -352,7 +450,7 @@ const mapCsvRowToClientPayload = (row) => {
     location: readCsvValueByAliases(row, ["Location", "City", "Address"]),
     profession: readCsvValueByAliases(row, ["Profession", "Occupation"]),
     age: readCsvValueByAliases(row, ["Age"]),
-    gender: readCsvValueByAliases(row, ["Gender", "Sex"]),
+    gender: inferGenderFromCsv(row),
     email: readCsvValueByAliases(row, ["Email", "Email Address"]),
     height_cm: parseHeightToCm(readCsvValueByAliases(row, ["Height", "Height (cm)", "Height Cm"])),
     initial_weight_kg: readCsvValueByAliases(row, ["Start Weight", "Initial Weight", "Weight"]),
@@ -405,16 +503,19 @@ const readCsvValueByAliases = (row, aliases) => {
 };
 
 const mapNotionStatus = (value) => {
-  const raw = (value || "").toLowerCase();
-  if (/(outoftown|out of town|travel|travelling|traveling|vacation)/.test(raw)) return "out-of-town";
-  if (/(programdone|done|complete|completed|closed)/.test(raw)) return "completed";
-  if (/(notresponding|not responding|noresponse|no response|unresponsive|unreachable)/.test(raw)) return "not-responding";
-  if (/(onhold|hold|paused|pause)/.test(raw)) return "on-hold";
-  if (/(inactive|drop|dropped|lost)/.test(raw)) return "inactive";
-  if (/(active|ongoing|running|inprogress)/.test(raw)) return "active";
+  const raw = (value || "").toLowerCase().trim();
+  const normalized = raw.replace(/[^a-z0-9]/g, "");
+  if (/(yettostart|notstarted|upcoming)/.test(normalized)) return "yet-to-start";
+  if (/(outoftown|travel|travelling|traveling|vacation)/.test(normalized)) return "out-of-town";
+  if (/(programdone|done|complete|completed|closed)/.test(normalized)) return "completed";
+  if (/(notresponding|noresponse|unresponsive|unreachable)/.test(normalized)) return "not-responding";
+  if (/(onhold|hold|paused|pause)/.test(normalized)) return "on-hold";
+  if (/(inactive|drop|dropped|lost|stopped|stop)/.test(normalized)) return "inactive";
+  if (/(active|ongoing|running|inprogress)/.test(normalized)) return "active";
   return "active";
 };
 
+const normalizeClientStatus = (value) => mapNotionStatus(value || "active");
 const getClientStatusMeta = (status) => CLIENT_STATUS_META[status] || CLIENT_STATUS_META.active;
 const formatDisplayDate = (value) => {
   if (!value) return "—";
@@ -468,6 +569,8 @@ export function ClientsPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilters, setStatusFilters] = useState(["active"]);
+  const [visibleTrackerColumns, setVisibleTrackerColumns] = useState(DEFAULT_VISIBLE_TRACKER_COLUMNS);
+  const [clientViewMode, setClientViewMode] = useState("table");
   const [sortBy, setSortBy] = useState("client-asc");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingClient, setEditingClient] = useState(null);
@@ -496,6 +599,8 @@ export function ClientsPage() {
           recent_comment: "",
           diet_start_date: client.diet_start_date || "",
           diet_end_date: client.diet_end_date || "",
+          program_start_date: client.program_start_date || "",
+          program_end_date: client.program_end_date || "",
           last_follow_up_date: client.last_follow_up_date || "",
           upcoming_follow_up_date: client.upcoming_follow_up_date || ""
         };
@@ -533,6 +638,8 @@ export function ClientsPage() {
         recent_comment: prev[savedClient.id]?.recent_comment ?? "",
         diet_start_date: savedClient.diet_start_date || "",
         diet_end_date: savedClient.diet_end_date || "",
+        program_start_date: savedClient.program_start_date || "",
+        program_end_date: savedClient.program_end_date || "",
         last_follow_up_date: savedClient.last_follow_up_date || "",
         upcoming_follow_up_date: savedClient.upcoming_follow_up_date || "",
       },
@@ -555,6 +662,33 @@ export function ClientsPage() {
   }, []);
 
   const resetForm = () => setFormData(CLIENT_FORM_DEFAULTS);
+
+  const updateDietSchedule = (changes) => {
+    setFormData((prev) => {
+      const next = { ...prev, ...changes };
+      const durationDays = getDietDurationDays(next.diet_duration);
+      if (next.diet_start_date && durationDays) {
+        next.diet_end_date = addDaysToIsoDate(next.diet_start_date, durationDays - 1);
+      }
+      return next;
+    });
+  };
+
+  const updateProgramSchedule = (changes) => {
+    setFormData((prev) => {
+      const next = { ...prev, ...changes };
+      const durationMonths = getProgramDurationMonths(next.program_duration);
+      const pauseDays = parseInt(String(next.pause_days || "").trim(), 10);
+      if (next.program_start_date && durationMonths) {
+        let computedEndDate = addMonthsToIsoDate(next.program_start_date, durationMonths);
+        if (computedEndDate && Number.isFinite(pauseDays) && pauseDays > 0) {
+          computedEndDate = addDaysToIsoDate(computedEndDate, pauseDays);
+        }
+        next.program_end_date = computedEndDate;
+      }
+      return next;
+    });
+  };
 
   const openCreateDialog = () => {
     resetForm();
@@ -623,6 +757,18 @@ export function ClientsPage() {
   const handleInlineDateChange = async (clientId, field, value) => {
     setRowDrafts((prev) => ({ ...prev, [clientId]: { ...prev[clientId], [field]: value } }));
     await saveInlineField(clientId, field, value);
+  };
+
+  const handleClientStatusMove = async (client, nextStatus) => {
+    const previousStatus = client.status || "active";
+    setClients((prev) => prev.map((item) => (item.id === client.id ? { ...item, status: nextStatus } : item)));
+    try {
+      await api.put(`/clients/${client.id}`, { status: nextStatus });
+      toast.success(`${client.name} moved to ${getClientStatusMeta(nextStatus).label}`);
+    } catch (err) {
+      setClients((prev) => prev.map((item) => (item.id === client.id ? { ...item, status: previousStatus } : item)));
+      toast.error("Failed to update client status");
+    }
   };
 
   const openQuickView = async (client) => {
@@ -723,7 +869,7 @@ export function ClientsPage() {
 
   const totalCount = clients.length;
   const statusCounts = clients.reduce((accumulator, client) => {
-    const key = client.status || "active";
+    const key = normalizeClientStatus(client.status);
     accumulator[key] = (accumulator[key] || 0) + 1;
     return accumulator;
   }, {});
@@ -753,9 +899,22 @@ export function ClientsPage() {
     });
   };
 
+  const toggleTrackerColumn = (columnKey, checked) => {
+    setVisibleTrackerColumns((current) => {
+      if (checked) {
+        return current.includes(columnKey) ? current : [...current, columnKey];
+      }
+      if (current.length === 1 && current.includes(columnKey)) {
+        return current;
+      }
+      return current.filter((value) => value !== columnKey);
+    });
+  };
+
   const visibleClients = clients
     .filter((client) => {
-      if (statusFilters.length && !statusFilters.includes(client.status || "active")) return false;
+      const normalizedStatus = normalizeClientStatus(client.status);
+      if (clientViewMode === "table" && statusFilters.length && !statusFilters.includes(normalizedStatus)) return false;
       if (!search.trim()) return true;
       const q = search.toLowerCase();
       return [client.name, client.email, client.phone].some((field) => (field || "").toLowerCase().includes(q));
@@ -793,6 +952,7 @@ export function ClientsPage() {
     });
   const gridRows = visibleClients.map((client) => ({
     ...client,
+    status: normalizeClientStatus(client.status),
     weight_summary: weightSummaries[client.id] || null,
     weight_delta: weightSummaries[client.id]?.delta_kg ?? null,
   }));
@@ -813,6 +973,28 @@ export function ClientsPage() {
           <p className="text-muted-foreground mt-1">Stay on top of every client touchpoint and upcoming follow-up.</p>
         </div>
         <div className="flex items-center gap-2">
+          <div className="flex rounded-lg border border-border bg-background p-1">
+            <Button
+              type="button"
+              variant={clientViewMode === "table" ? "secondary" : "ghost"}
+              size="sm"
+              className="h-8 px-3"
+              onClick={() => setClientViewMode("table")}
+            >
+              <Table2 className="mr-2 h-4 w-4" />
+              Table
+            </Button>
+            <Button
+              type="button"
+              variant={clientViewMode === "kanban" ? "secondary" : "ghost"}
+              size="sm"
+              className="h-8 px-3"
+              onClick={() => setClientViewMode("kanban")}
+            >
+              <Columns3 className="mr-2 h-4 w-4" />
+              Kanban
+            </Button>
+          </div>
           <Button variant="outline" onClick={triggerCsvPicker} disabled={csvImporting}>
             <Upload className="w-4 h-4 mr-2" />
             {csvImporting ? "Importing CSV..." : "Import Client CSV"}
@@ -827,37 +1009,39 @@ export function ClientsPage() {
       </div>
 
       <div className="flex flex-col xl:flex-row gap-3">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="outline"
-              className="h-11 w-full justify-between xl:w-72"
-              data-testid="client-status-filter"
-            >
-              <span className="truncate">{selectedStatusLabel}</span>
-              <ArrowDown className="h-4 w-4 text-muted-foreground" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-72">
-            <DropdownMenuLabel>Filter by status</DropdownMenuLabel>
-            <DropdownMenuCheckboxItem
-              checked={!statusFilters.length || statusFilters.length === CLIENT_STATUS_OPTIONS.length}
-              onCheckedChange={() => setStatusFilters([])}
-            >
-              All Clients ({totalCount})
-            </DropdownMenuCheckboxItem>
-            <DropdownMenuSeparator />
-            {statusFilterOptions.map((option) => (
-              <DropdownMenuCheckboxItem
-                key={option.value}
-                checked={statusFilters.includes(option.value)}
-                onCheckedChange={(checked) => toggleStatusFilter(option.value, checked === true)}
+        {clientViewMode === "table" ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                className="h-11 w-full justify-between xl:w-72"
+                data-testid="client-status-filter"
               >
-                {option.label}
+                <span className="truncate">{selectedStatusLabel}</span>
+                <ArrowDown className="h-4 w-4 text-muted-foreground" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-72">
+              <DropdownMenuLabel>Filter by status</DropdownMenuLabel>
+              <DropdownMenuCheckboxItem
+                checked={!statusFilters.length || statusFilters.length === CLIENT_STATUS_OPTIONS.length}
+                onCheckedChange={() => setStatusFilters([])}
+              >
+                All Clients ({totalCount})
               </DropdownMenuCheckboxItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
+              <DropdownMenuSeparator />
+              {statusFilterOptions.map((option) => (
+                <DropdownMenuCheckboxItem
+                  key={option.value}
+                  checked={statusFilters.includes(option.value)}
+                  onCheckedChange={(checked) => toggleStatusFilter(option.value, checked === true)}
+                >
+                  {option.label}
+                </DropdownMenuCheckboxItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
 
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -881,9 +1065,33 @@ export function ClientsPage() {
             ))}
           </SelectContent>
         </Select>
+
+        {clientViewMode === "table" ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" className="h-11 w-full justify-between xl:w-60">
+                <span className="truncate">Columns</span>
+                <ArrowDown className="h-4 w-4 text-muted-foreground" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-64">
+              <DropdownMenuLabel>Show table columns</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {TRACKER_COLUMN_OPTIONS.map((option) => (
+                <DropdownMenuCheckboxItem
+                  key={option.key}
+                  checked={visibleTrackerColumns.includes(option.key)}
+                  onCheckedChange={(checked) => toggleTrackerColumn(option.key, checked === true)}
+                >
+                  {option.label}
+                </DropdownMenuCheckboxItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
       </div>
 
-      {statusFilters.length > 0 && statusFilters.length < CLIENT_STATUS_OPTIONS.length ? (
+      {clientViewMode === "table" && statusFilters.length > 0 && statusFilters.length < CLIENT_STATUS_OPTIONS.length ? (
         <div className="flex flex-wrap items-center gap-2">
           {statusFilters.map((statusValue) => {
             const statusMeta = getClientStatusMeta(statusValue);
@@ -911,24 +1119,50 @@ export function ClientsPage() {
         </div>
       ) : null}
 
-      <ClientTrackerGrid
-        rowData={gridRows}
-        loading={loading}
-        rowDrafts={rowDrafts}
-        editingCommentClientId={editingCommentClientId}
-        commentInputRefs={commentInputRefs}
-        canDeleteClient={canDeleteClient}
-        getClientStatusMeta={getClientStatusMeta}
-        getDateUrgencyMeta={getDateUrgencyMeta}
-        onOpenQuickView={openQuickView}
-        onStartInlineCommentEdit={startInlineCommentEdit}
-        onCancelInlineCommentEdit={cancelInlineCommentEdit}
-        onCommentDraftChange={(clientId, value) => setRowDrafts((prev) => ({ ...prev, [clientId]: { ...prev[clientId], recent_comment: value } }))}
-        onSubmitInlineComment={submitInlineComment}
-        onInlineDateChange={handleInlineDateChange}
-        onEditClient={openEditDialog}
-        onDeleteClient={setDeleteTarget}
-      />
+      {clientViewMode === "table" ? (
+        <ClientTrackerGrid
+          rowData={gridRows}
+          loading={loading}
+          rowDrafts={rowDrafts}
+          visibleColumns={visibleTrackerColumns}
+          editingCommentClientId={editingCommentClientId}
+          commentInputRefs={commentInputRefs}
+          canDeleteClient={canDeleteClient}
+          getClientStatusMeta={getClientStatusMeta}
+          getDateUrgencyMeta={getDateUrgencyMeta}
+          onOpenQuickView={openQuickView}
+          onStartInlineCommentEdit={startInlineCommentEdit}
+          onCancelInlineCommentEdit={cancelInlineCommentEdit}
+          onCommentDraftChange={(clientId, value) => setRowDrafts((prev) => ({ ...prev, [clientId]: { ...prev[clientId], recent_comment: value } }))}
+          onSubmitInlineComment={submitInlineComment}
+          onInlineDateChange={handleInlineDateChange}
+          onEditClient={openEditDialog}
+          onDeleteClient={setDeleteTarget}
+        />
+      ) : (
+        <KanbanBoard
+          columns={CLIENT_KANBAN_COLUMNS}
+          items={gridRows}
+          getItemId={(client) => client.id}
+          getItemStatus={(client) => client.status || "active"}
+          onItemStatusChange={handleClientStatusMove}
+          emptyLabel="No clients"
+          renderCard={(client) => {
+            return (
+              <div className="rounded-xl border border-border/70 bg-background px-3.5 py-2.5 shadow-[0_1px_2px_rgba(15,23,42,0.05),0_6px_14px_rgba(15,23,42,0.035)] transition-all hover:border-primary/25 hover:shadow-[0_2px_6px_rgba(15,23,42,0.08),0_10px_22px_rgba(15,23,42,0.055)]">
+                <button
+                  type="button"
+                  onClick={() => openQuickView(client)}
+                  className="block w-full truncate text-left text-sm font-semibold leading-6 text-foreground hover:text-primary"
+                  title={client.name}
+                >
+                  {client.name}
+                </button>
+              </div>
+            );
+          }}
+        />
+      )}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-6xl max-h-[92vh] overflow-y-auto">
@@ -1022,15 +1256,15 @@ export function ClientsPage() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="space-y-2">
                 <Label>Diet Start Date</Label>
-                <DatePickerInput value={formData.diet_start_date} onChange={(value) => setFormData({ ...formData, diet_start_date: value })} />
+                <DatePickerInput value={formData.diet_start_date} onChange={(value) => updateDietSchedule({ diet_start_date: value })} />
               </div>
               <div className="space-y-2">
                 <Label>Diet Duration</Label>
-                <Select value={formData.diet_duration || "none"} onValueChange={(value) => setFormData({ ...formData, diet_duration: value === "none" ? "" : value })}>
+                <Select value={formData.diet_duration || "none"} onValueChange={(value) => updateDietSchedule({ diet_duration: value === "none" ? "" : value })}>
                   <SelectTrigger><SelectValue placeholder="Select duration" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">Not specified</SelectItem>
-                    {DURATION_OPTIONS.map((option) => <SelectItem key={option} value={option}>{option}</SelectItem>)}
+                    {DIET_DURATION_OPTIONS.map((option) => <SelectItem key={option} value={option}>{option}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
@@ -1043,21 +1277,21 @@ export function ClientsPage() {
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="space-y-2">
                 <Label>Program Start Date</Label>
-                <DatePickerInput value={formData.program_start_date} onChange={(value) => setFormData({ ...formData, program_start_date: value })} />
+                <DatePickerInput value={formData.program_start_date} onChange={(value) => updateProgramSchedule({ program_start_date: value })} />
               </div>
               <div className="space-y-2">
                 <Label>Program Duration</Label>
-                <Select value={formData.program_duration || "none"} onValueChange={(value) => setFormData({ ...formData, program_duration: value === "none" ? "" : value })}>
+                <Select value={formData.program_duration || "none"} onValueChange={(value) => updateProgramSchedule({ program_duration: value === "none" ? "" : value })}>
                   <SelectTrigger><SelectValue placeholder="Select duration" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">Not specified</SelectItem>
-                    {DURATION_OPTIONS.map((option) => <SelectItem key={option} value={option}>{option}</SelectItem>)}
+                    {PROGRAM_DURATION_OPTIONS.map((option) => <SelectItem key={option} value={option}>{option}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-2">
                 <Label>Pause Days</Label>
-                <Input type="number" value={formData.pause_days} onChange={(e) => setFormData({ ...formData, pause_days: e.target.value })} placeholder="0" />
+                <Input type="number" value={formData.pause_days} onChange={(e) => updateProgramSchedule({ pause_days: e.target.value })} placeholder="0" />
               </div>
               <div className="space-y-2">
                 <Label>Program End Date</Label>

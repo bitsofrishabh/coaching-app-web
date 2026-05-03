@@ -4,7 +4,7 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from fastapi import HTTPException
 
-from services.ai.openai_client import OpenAIAPIError
+from services.ai.openai_client import OpenAIAPIError, get_default_model
 from services.ai.health_analysis import generate_client_health_analysis
 
 
@@ -83,11 +83,11 @@ async def generate_health_analysis_handler(
             client=client_record,
             blood_report_text=blood_report_text,
             past_diet_text=past_diet_text,
-            model=os.environ.get("OPENAI_MODEL"),
+            model=os.environ.get("AI_MODEL") or os.environ.get("GEMINI_MODEL") or os.environ.get("OPENAI_MODEL"),
         )
     except OpenAIAPIError as exc:
         detail = str(exc)
-        status_code = 503 if "OPENAI_API_KEY" in detail else 502
+        status_code = 503 if "_API_KEY" in detail else 502
         raise HTTPException(status_code=status_code, detail=detail)
 
     now = datetime.now(timezone.utc).isoformat()
@@ -106,7 +106,7 @@ async def generate_health_analysis_handler(
         **analysis_payload,
         "source_files": source_file_records,
         "source_file_ids": [record["id"] for record in [latest_blood_report, latest_past_diet] if record],
-        "model": os.environ.get("OPENAI_MODEL", "gpt-4o"),
+        "model": get_default_model(),
         "generated_at": now,
         "generated_by_name": user.get("name"),
         "generated_by_id": user.get("id"),
