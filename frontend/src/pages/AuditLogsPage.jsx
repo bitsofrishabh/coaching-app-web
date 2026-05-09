@@ -72,15 +72,16 @@ export function AuditLogsPage() {
 
   return (
     <div className="space-y-8 animate-fade-in" data-testid="audit-logs-page">
-      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+      <div className="flex flex-col gap-4 rounded-[2rem] border border-[#E3E0D8] bg-white/90 p-5 shadow-sm md:flex-row md:items-start md:justify-between">
         <div>
-          <h1 className="text-3xl font-bold font-['Manrope']">Audit Logs</h1>
-          <p className="mt-1 text-muted-foreground">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#8A7BC8]">Workspace History</p>
+          <h1 className="mt-1 font-['Sora'] text-3xl font-semibold text-[#18115E]">Audit Logs</h1>
+          <p className="mt-2 text-[#5F6472]">
             Track date updates, follow-up changes, client creation, and finance activity in a structured table.
           </p>
         </div>
         <Select value={filter} onValueChange={setFilter}>
-          <SelectTrigger className="w-full md:w-52">
+          <SelectTrigger className="w-full rounded-2xl border-[#E3E0D8] bg-white md:w-52">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -93,17 +94,17 @@ export function AuditLogsPage() {
         </Select>
       </div>
 
-      <Card className="border-border/40 bg-card/50">
+      <Card className="overflow-hidden border-[#E3E0D8] bg-white shadow-sm">
         <CardHeader>
-          <CardTitle className="font-['Manrope']">Audit Activity</CardTitle>
+          <CardTitle className="font-['Sora'] text-[#18115E]">Audit Activity</CardTitle>
           <CardDescription>Newest events first.</CardDescription>
         </CardHeader>
         <CardContent>
           {visibleLogs.length ? (
-            <div className="overflow-x-auto rounded-xl border border-border/40">
+            <div className="overflow-x-auto rounded-3xl border border-[#E3E0D8]">
               <Table>
                 <TableHeader>
-                  <TableRow className="bg-muted/20">
+                  <TableRow className="bg-[#F8F7F4]">
                     <TableHead className="min-w-[140px] text-center">Event Type</TableHead>
                     <TableHead className="min-w-[180px] text-center">Client Name</TableHead>
                     <TableHead className="min-w-[180px] text-center">Timestamp</TableHead>

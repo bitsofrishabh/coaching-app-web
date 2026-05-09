@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Sora:wght@500;600;700&family=JetBrains+Mono:wght@400&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -6,13 +6,13 @@
 
 body {
     margin: 0;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
 }
 
 h1, h2, h3, h4, h5, h6 {
-    font-family: 'Manrope', sans-serif;
+    font-family: 'Sora', sans-serif;
 }
 
 code {
@@ -21,33 +21,35 @@ code {
 
 @layer base {
     :root {
-        --background: 0 0% 99%;
-        --foreground: 224 17% 12%;
+        --background: 45 20% 95%;
+        --foreground: 0 0% 10%;
         --card: 0 0% 100%;
-        --card-foreground: 224 17% 12%;
+        --card-foreground: 0 0% 10%;
         --popover: 0 0% 100%;
-        --popover-foreground: 224 17% 12%;
-        --primary: 268 76% 58%;
+        --popover-foreground: 0 0% 10%;
+        --primary: 262 73% 51%;
         --primary-foreground: 0 0% 100%;
-        --secondary: 210 20% 96%;
-        --secondary-foreground: 224 17% 12%;
-        --muted: 210 20% 96%;
-        --muted-foreground: 220 9% 46%;
-        --accent: 210 20% 96%;
-        --accent-foreground: 224 17% 12%;
+        --secondary: 43 18% 94%;
+        --secondary-foreground: 249 69% 22%;
+        --muted: 43 18% 94%;
+        --muted-foreground: 40 3% 48%;
+        --accent: 258 89% 96%;
+        --accent-foreground: 249 69% 22%;
         --destructive: 0 84% 60%;
         --destructive-foreground: 0 0% 98%;
-        --border: 214 32% 91%;
-        --input: 214 32% 91%;
-        --ring: 268 76% 58%;
-        --chart-1: 268 76% 58%;
-        --chart-2: 292 72% 56%;
-        --chart-3: 236 80% 62%;
-        --chart-4: 198 89% 58%;
-        --chart-5: 328 78% 60%;
-        --radius: 0.5rem;
+        --border: 40 14% 89%;
+        --input: 40 14% 83%;
+        --ring: 262 73% 51%;
+        --chart-1: 262 73% 51%;
+        --chart-2: 142 62% 35%;
+        --chart-3: 38 92% 50%;
+        --chart-4: 0 72% 51%;
+        --chart-5: 217 91% 60%;
+        --radius: 0.625rem;
         --glass-bg: rgba(255, 255, 255, 0.86);
-        --primary-gradient: linear-gradient(135deg, rgb(124 58 237) 0%, rgb(168 85 247) 55%, rgb(236 72 153) 100%);
+        --primary-gradient: linear-gradient(135deg, rgb(109 40 217) 0%, rgb(124 58 237) 100%);
+        --app-shell: #18115E;
+        --app-shell-muted: #a78bfa;
     }
 
     .dark {
@@ -185,4 +187,17 @@ code {
 
 .table-dense tr {
     @apply border-b border-border/50 hover:bg-muted/30 transition-colors;
+}
+
+.client-tracker-row-urgent {
+    border-left: 3px solid #ef4444 !important;
+}
+
+.client-tracker-row-warn {
+    border-left: 3px solid #f59e0b !important;
+}
+
+.client-tracker-row-urgent,
+.client-tracker-row-warn {
+    background: #fff !important;
 }

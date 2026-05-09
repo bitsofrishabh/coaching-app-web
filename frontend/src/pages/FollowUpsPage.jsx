@@ -266,19 +266,20 @@ export function FollowUpsPage() {
     .filter((group) => group.items.length > 0);
 
   return (
-    <div className="space-y-6 animate-fade-in" data-testid="follow-ups-page">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="space-y-7 animate-fade-in" data-testid="follow-ups-page">
+      <div className="flex flex-col justify-between gap-4 rounded-[2rem] border border-[#E3E0D8] bg-white/90 p-5 shadow-sm sm:flex-row sm:items-center">
         <div>
-          <h1 className="text-3xl font-bold font-['Manrope']">Follow-ups</h1>
-          <p className="text-muted-foreground mt-1">Schedule and track client follow-ups</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#8A7BC8]">Schedule</p>
+          <h1 className="mt-1 font-['Sora'] text-3xl font-semibold text-[#18115E]">Follow-ups</h1>
+          <p className="mt-2 text-[#5F6472]">Schedule and track client follow-ups.</p>
         </div>
-        <Button data-testid="schedule-followup-btn" onClick={() => setDialogOpen(true)} className="bg-primary text-primary-foreground hover:bg-primary/90 btn-glow">
+        <Button data-testid="schedule-followup-btn" onClick={() => setDialogOpen(true)} className="rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-violet-500/20 hover:bg-primary/90">
           <Plus className="w-4 h-4 mr-2" /> Schedule Follow-up
         </Button>
       </div>
 
       {!loading && (
-        <Card className="border-border/40 bg-card/50">
+        <Card className="border-[#E3E0D8] bg-white shadow-sm">
           <CardContent className="p-4">
             <div className="grid grid-cols-1 md:grid-cols-[1fr_180px_auto] gap-3">
               <div className="relative">
@@ -287,7 +288,7 @@ export function FollowUpsPage() {
                   value={searchQuery}
                   onChange={(event) => setSearchQuery(event.target.value)}
                   placeholder="Filter by client name"
-                  className="pl-9"
+                  className="rounded-2xl border-[#E3E0D8] bg-white pl-9"
                 />
               </div>
               <DatePickerInput
@@ -295,7 +296,7 @@ export function FollowUpsPage() {
                 onChange={setFilterDate}
                 placeholder="Filter by date"
               />
-              <Button variant="outline" onClick={() => { setSearchQuery(""); setFilterDate(""); }}>
+              <Button variant="outline" className="rounded-2xl bg-white" onClick={() => { setSearchQuery(""); setFilterDate(""); }}>
                 Clear Filters
               </Button>
             </div>
@@ -306,7 +307,7 @@ export function FollowUpsPage() {
       {loading ? (
         <LoadingScreen />
       ) : (
-        <Card className="border-border/40 bg-card/50">
+        <Card className="overflow-hidden border-[#E3E0D8] bg-white shadow-sm">
           <CardContent className="p-0">
             {filteredFollowUps.length === 0 ? (
               <div className="py-12 text-center">
@@ -318,20 +319,20 @@ export function FollowUpsPage() {
                 {groupedFollowUps.map((group) => (
                   <div key={group.key} className="space-y-3">
                     <div className="flex items-center justify-between">
-                      <h3 className="text-sm font-semibold text-foreground">{group.label}</h3>
+                      <h3 className="font-['Sora'] text-sm font-semibold text-[#18115E]">{group.label}</h3>
                       <span className="text-xs text-muted-foreground">{group.items.length} follow-up{group.items.length === 1 ? "" : "s"}</span>
                     </div>
-                    <div className="overflow-hidden rounded-lg border border-border/50">
+                    <div className="overflow-hidden rounded-3xl border border-[#E3E0D8]">
                       <Table className="text-sm">
                         <TableHeader>
-                          <TableRow className="hover:bg-transparent">
-                            <TableHead className="w-[220px] font-semibold text-foreground">Client</TableHead>
-                            <TableHead className="w-[160px] font-semibold text-foreground">Type</TableHead>
-                            <TableHead className="w-[190px] font-semibold text-foreground">Scheduled For</TableHead>
-                            <TableHead className="w-[130px] font-semibold text-foreground">Status</TableHead>
-                            <TableHead className="font-semibold text-foreground">Notes</TableHead>
-                            <TableHead className="w-[160px] font-semibold text-foreground">Created By</TableHead>
-                            <TableHead className="w-[180px] text-right font-semibold text-foreground">Actions</TableHead>
+                          <TableRow className="bg-[#F8F7F4] hover:bg-[#F8F7F4]">
+                            <TableHead className="w-[220px] font-semibold text-[#18115E]">Client</TableHead>
+                            <TableHead className="w-[160px] font-semibold text-[#18115E]">Type</TableHead>
+                            <TableHead className="w-[190px] font-semibold text-[#18115E]">Scheduled For</TableHead>
+                            <TableHead className="w-[130px] font-semibold text-[#18115E]">Status</TableHead>
+                            <TableHead className="font-semibold text-[#18115E]">Notes</TableHead>
+                            <TableHead className="w-[160px] font-semibold text-[#18115E]">Created By</TableHead>
+                            <TableHead className="w-[180px] text-right font-semibold text-[#18115E]">Actions</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -344,7 +345,7 @@ export function FollowUpsPage() {
                             >
                               <TableCell>
                                 <div className="flex min-w-0 items-center gap-3">
-                                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+                                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-primary/10">
                                     <Calendar className="h-4 w-4 text-primary" />
                                   </div>
                                   <span className="truncate font-medium">{getClientName(followUp.client_id)}</span>
@@ -408,12 +409,14 @@ export function FollowUpsPage() {
       )}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent>
+        <DialogContent className="overflow-hidden border-0 bg-[#F5F4F0] p-0 shadow-2xl">
+          <div className="border-b border-[#E3E0D8] bg-white/90 px-6 py-5">
           <DialogHeader>
-            <DialogTitle className="font-['Manrope']">Schedule Follow-up</DialogTitle>
+            <DialogTitle className="font-['Sora'] text-2xl text-[#18115E]">Schedule Follow-up</DialogTitle>
             <DialogDescription>Schedule a new follow-up with a client</DialogDescription>
           </DialogHeader>
-          <form onSubmit={handleSubmit} className="space-y-4">
+          </div>
+          <form onSubmit={handleSubmit} className="space-y-4 px-6 py-5">
             <div className="space-y-2">
               <Label>Client *</Label>
               <Select value={formData.client_id} onValueChange={(v) => setFormData({ ...formData, client_id: v })}>
@@ -464,9 +467,9 @@ export function FollowUpsPage() {
               <Label>Notes</Label>
               <Textarea data-testid="followup-notes-input" value={formData.notes} onChange={(e) => setFormData({ ...formData, notes: e.target.value })} />
             </div>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
-              <Button type="submit" data-testid="save-followup-btn" className="bg-primary text-primary-foreground">Schedule</Button>
+            <DialogFooter className="border-t border-[#E3E0D8] pt-4">
+              <Button type="button" variant="outline" className="rounded-2xl bg-white" onClick={() => setDialogOpen(false)}>Cancel</Button>
+              <Button type="submit" data-testid="save-followup-btn" className="rounded-2xl bg-primary text-primary-foreground">Schedule</Button>
             </DialogFooter>
           </form>
         </DialogContent>
@@ -481,17 +484,19 @@ export function FollowUpsPage() {
           }
         }}
       >
-        <DialogContent>
+        <DialogContent className="overflow-hidden border-0 bg-[#F5F4F0] p-0 shadow-2xl">
+          <div className="border-b border-[#E3E0D8] bg-white/90 px-6 py-5">
           <DialogHeader>
-            <DialogTitle className="font-['Manrope']">Follow-up Details</DialogTitle>
+            <DialogTitle className="font-['Sora'] text-2xl text-[#18115E]">Follow-up Details</DialogTitle>
             <DialogDescription>View and edit follow-up notes from the full follow-up list.</DialogDescription>
           </DialogHeader>
+          </div>
 
           {selectedFollowUp ? (
-            <div className="space-y-5">
+            <div className="space-y-5 px-6 py-5">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-lg font-semibold">{getClientName(selectedFollowUp.client_id)}</p>
+                  <p className="font-['Sora'] text-lg font-semibold text-[#18115E]">{getClientName(selectedFollowUp.client_id)}</p>
                   <p className="text-sm text-muted-foreground capitalize">
                     {selectedFollowUp.type.replace(/-/g, " ")} • {formatFollowUpSchedule(selectedFollowUp)}
                   </p>
@@ -524,7 +529,7 @@ export function FollowUpsPage() {
                 </div>
               </div>
 
-              <div className="rounded-lg border border-border/40 p-4">
+              <div className="rounded-3xl border border-[#E3E0D8] bg-white p-4">
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-sm font-medium">Notes</p>
                   <Button variant="outline" size="sm" onClick={saveFollowUpNotes} disabled={noteSaving}>

@@ -233,15 +233,16 @@ export function SettingsPage() {
   const isDarkMode = mounted ? theme !== "light" : true;
 
   return (
-    <div className="space-y-6 animate-fade-in" data-testid="settings-page">
-      <div>
-        <h1 className="text-3xl font-bold font-['Manrope']">Settings</h1>
-        <p className="mt-1 text-muted-foreground">Manage your account, team access, and workspace preferences.</p>
+    <div className="space-y-7 animate-fade-in" data-testid="settings-page">
+      <div className="rounded-[2rem] border border-[#E3E0D8] bg-white/90 p-5 shadow-sm">
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#8A7BC8]">Workspace</p>
+        <h1 className="mt-1 font-['Sora'] text-3xl font-semibold text-[#18115E]">Settings</h1>
+        <p className="mt-2 text-[#5F6472]">Manage your account, team access, and workspace preferences.</p>
       </div>
 
-      <Card className="border-border/40 bg-card/50">
+      <Card className="border-[#E3E0D8] bg-white shadow-sm">
         <CardHeader>
-          <CardTitle className="font-['Manrope']">Profile</CardTitle>
+          <CardTitle className="font-['Sora'] text-[#18115E]">Profile</CardTitle>
           <CardDescription>Your account information</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -265,13 +266,13 @@ export function SettingsPage() {
         </CardContent>
       </Card>
 
-      <Card className="border-border/40 bg-card/50">
+      <Card className="border-[#E3E0D8] bg-white shadow-sm">
         <CardHeader>
-          <CardTitle className="font-['Manrope']">Appearance</CardTitle>
+          <CardTitle className="font-['Sora'] text-[#18115E]">Appearance</CardTitle>
           <CardDescription>Choose how the dashboard looks while you work</CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
-          <div className="flex items-center justify-between gap-4 rounded-xl border border-border/60 bg-background/60 px-4 py-4">
+          <div className="flex items-center justify-between gap-4 rounded-2xl border border-[#E3E0D8] bg-[#F8F7F4] px-4 py-4">
             <div className="space-y-1">
               <Label htmlFor="theme-switch" className="text-sm font-medium">
                 Theme Mode
@@ -298,19 +299,19 @@ export function SettingsPage() {
         </CardContent>
       </Card>
 
-      <Card className="border-border/40 bg-card/50">
+      <Card className="border-[#E3E0D8] bg-white shadow-sm">
         <CardHeader>
-          <CardTitle className="font-['Manrope']">Client Invite Code</CardTitle>
+          <CardTitle className="font-['Sora'] text-[#18115E]">Client Invite Code</CardTitle>
           <CardDescription>Share this code with clients to connect them to your account</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center gap-3">
             {inviteCode ? (
               <>
-                <div className="flex-1 rounded-lg bg-muted p-3 text-center font-mono text-lg tracking-widest">
+                <div className="flex-1 rounded-2xl bg-[#F8F7F4] p-3 text-center font-mono text-lg tracking-widest">
                   {inviteCode}
                 </div>
-                <Button variant="outline" onClick={copyCode} data-testid="copy-invite-code">
+                <Button variant="outline" className="rounded-2xl bg-white" onClick={copyCode} data-testid="copy-invite-code">
                   <Copy className="h-4 w-4" />
                 </Button>
               </>
@@ -318,7 +319,7 @@ export function SettingsPage() {
               <p className="text-muted-foreground">No invite code generated yet</p>
             )}
           </div>
-          <Button onClick={generateCode} disabled={generating} variant="outline" className="w-full" data-testid="generate-invite-code">
+          <Button onClick={generateCode} disabled={generating} variant="outline" className="w-full rounded-2xl bg-white" data-testid="generate-invite-code">
             <RefreshCw className={`mr-2 h-4 w-4 ${generating ? "animate-spin" : ""}`} />
             {inviteCode ? "Generate New Code" : "Generate Invite Code"}
           </Button>
@@ -330,9 +331,9 @@ export function SettingsPage() {
 
       {isSuperAdmin && (
         <>
-          <Card className="border-border/40 bg-card/50">
+          <Card className="border-[#E3E0D8] bg-white shadow-sm">
             <CardHeader>
-              <CardTitle className="flex items-center gap-2 font-['Manrope']">
+              <CardTitle className="flex items-center gap-2 font-['Sora'] text-[#18115E]">
                 <UserPlus className="h-5 w-5 text-primary" />
                 Add Team Member
               </CardTitle>
@@ -400,10 +401,10 @@ export function SettingsPage() {
             </CardContent>
           </Card>
 
-          <Card className="border-border/40 bg-card/50">
+          <Card className="border-[#E3E0D8] bg-white shadow-sm">
             <CardHeader className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
               <div>
-                <CardTitle className="flex items-center gap-2 font-['Manrope']">
+                <CardTitle className="flex items-center gap-2 font-['Sora'] text-[#18115E]">
                   <Users className="h-5 w-5 text-primary" />
                   Team Access
                 </CardTitle>
@@ -412,17 +413,17 @@ export function SettingsPage() {
                 </CardDescription>
               </div>
               <div className="flex gap-2">
-                <Button variant="outline" onClick={loadStaffMembers} disabled={loadingStaff}>
+                <Button variant="outline" className="rounded-2xl bg-white" onClick={loadStaffMembers} disabled={loadingStaff}>
                   <RefreshCw className={`mr-2 h-4 w-4 ${loadingStaff ? "animate-spin" : ""}`} />
                   Refresh
                 </Button>
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="rounded-2xl border border-border/60">
+              <div className="overflow-hidden rounded-3xl border border-[#E3E0D8]">
                 <Table>
                   <TableHeader>
-                    <TableRow className="bg-muted/30">
+                    <TableRow className="bg-[#F8F7F4]">
                       <TableHead className="w-[22%]">Team Member</TableHead>
                       <TableHead className="w-[18%]">Contact</TableHead>
                       <TableHead className="w-[18%]">Role</TableHead>
@@ -564,15 +565,17 @@ export function SettingsPage() {
       )}
 
       <Dialog open={assignmentDialogOpen} onOpenChange={setAssignmentDialogOpen}>
-        <DialogContent className="max-w-3xl">
+        <DialogContent className="max-w-3xl overflow-hidden border-0 bg-[#F5F4F0] p-0 shadow-2xl">
+          <div className="border-b border-[#E3E0D8] bg-white/90 px-6 py-5">
           <DialogHeader>
-            <DialogTitle>Assign Clients</DialogTitle>
+            <DialogTitle className="font-['Sora'] text-2xl text-[#18115E]">Assign Clients</DialogTitle>
             <DialogDescription>
               {selectedStaff ? `Choose clients for ${selectedStaff.name}. Clients remain visible to all staff for now.` : "Choose clients."}
             </DialogDescription>
           </DialogHeader>
+          </div>
 
-          <div className="space-y-4">
+          <div className="space-y-4 px-6 py-5">
             <div className="flex items-center justify-between gap-4">
               <div className="w-full max-w-sm space-y-2">
                 <Label htmlFor="client-search">Search Clients</Label>
@@ -583,12 +586,12 @@ export function SettingsPage() {
                   placeholder="Search by client name"
                 />
               </div>
-              <div className="rounded-xl border border-border/60 bg-muted/30 px-4 py-3 text-sm">
+              <div className="rounded-2xl border border-[#E3E0D8] bg-white px-4 py-3 text-sm">
                 Selected: <span className="font-semibold">{selectedClientIds.length}</span>
               </div>
             </div>
 
-            <div className="rounded-2xl border border-border/60">
+            <div className="overflow-hidden rounded-3xl border border-[#E3E0D8] bg-white">
               <ScrollArea className="h-[360px]">
                 <div className="divide-y divide-border/50">
                   {filteredClients.map((client) => {
@@ -626,11 +629,11 @@ export function SettingsPage() {
             </div>
           </div>
 
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAssignmentDialogOpen(false)}>
+          <DialogFooter className="border-t border-[#E3E0D8] px-6 py-4">
+            <Button variant="outline" className="rounded-2xl bg-white" onClick={() => setAssignmentDialogOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={saveAssignments} disabled={savingAssignments || !selectedStaff}>
+            <Button className="rounded-2xl" onClick={saveAssignments} disabled={savingAssignments || !selectedStaff}>
               {savingAssignments ? "Saving..." : "Save Assignments"}
             </Button>
           </DialogFooter>

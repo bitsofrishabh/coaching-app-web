@@ -38,6 +38,16 @@ const buildWeightTooltip = (entries = []) =>
     .map((entry) => `${entry.recorded_date}: ${entry.weight_kg} kg`)
     .join("\n");
 
+const getDaysUntilDate = (value) => {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  parsed.setHours(0, 0, 0, 0);
+  return Math.round((parsed.getTime() - today.getTime()) / 86400000);
+};
+
 const TOGGLEABLE_COLUMN_FIELDS = new Set([
   "diet_start_date",
   "diet_end_date",
@@ -396,6 +406,12 @@ export function ClientTrackerGrid({
             rowHeight={54}
             headerHeight={52}
             loading={loading}
+            getRowClass={(params) => {
+              const daysLeft = getDaysUntilDate(params.data?.diet_end_date);
+              if (daysLeft !== null && daysLeft >= 0 && daysLeft <= 1) return "client-tracker-row-urgent";
+              if (daysLeft !== null && daysLeft >= 2 && daysLeft <= 7) return "client-tracker-row-warn";
+              return "";
+            }}
             suppressCellFocus
             ensureDomOrder
             tooltipShowDelay={120}

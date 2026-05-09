@@ -134,15 +134,15 @@ function FinanceStatCard({ title, value, hint, icon: Icon, tone = "default" }) {
   const valueTone = tone === "positive" ? "text-violet-500" : tone === "negative" ? "text-red-500" : "";
 
   return (
-    <Card className="stat-highlight border-border/40 bg-card/50">
+    <Card className="border-[#E3E0D8] bg-white shadow-sm">
       <CardContent className="p-6">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm font-medium text-muted-foreground">{title}</p>
-            <p className={`text-3xl font-bold font-['Manrope'] mt-2 ${valueTone}`}>{value}</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#8A7BC8]">{title}</p>
+            <p className={`mt-2 font-['Sora'] text-3xl font-semibold ${valueTone || "text-[#18115E]"}`}>{value}</p>
             {hint ? <p className="text-xs text-muted-foreground mt-2">{hint}</p> : null}
           </div>
-          <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${iconTone}`}>
+          <div className={`flex h-12 w-12 items-center justify-center rounded-2xl ${iconTone}`}>
             <Icon className="w-6 h-6" />
           </div>
         </div>
@@ -323,7 +323,7 @@ export function FinancePage() {
   if (loading) return <LoadingScreen />;
 
   return (
-    <div className="space-y-6 animate-fade-in" data-testid="finance-page">
+    <div className="space-y-7 animate-fade-in" data-testid="finance-page">
       <input
         ref={csvInputRef}
         type="file"
@@ -333,31 +333,32 @@ export function FinancePage() {
         onChange={handleCsvUpload}
       />
 
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col justify-between gap-4 rounded-[2rem] border border-[#E3E0D8] bg-white/90 p-5 shadow-sm sm:flex-row sm:items-center">
         <div>
-          <h1 className="text-3xl font-bold font-['Manrope']">Finance</h1>
-          <p className="text-muted-foreground mt-1">Track month-wise collections, import payment CSVs, and record new client enrollments.</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#8A7BC8]">Business</p>
+          <h1 className="mt-1 font-['Sora'] text-3xl font-semibold text-[#18115E]">Finance</h1>
+          <p className="mt-2 text-[#5F6472]">Track month-wise collections, import payment CSVs, and record new client enrollments.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" onClick={triggerCsvPicker} disabled={csvImporting}>
+          <Button variant="outline" className="rounded-2xl bg-white" onClick={triggerCsvPicker} disabled={csvImporting}>
             <Upload className="w-4 h-4 mr-2" />
             {csvImporting ? "Importing CSV..." : "Import CSV"}
           </Button>
           <Button
             data-testid="add-transaction-btn"
             onClick={openCreateDialog}
-            className="bg-primary text-primary-foreground hover:bg-primary/90 btn-glow"
+            className="rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-violet-500/20 hover:bg-primary/90"
           >
             <Plus className="w-4 h-4 mr-2" /> Add Transaction
           </Button>
         </div>
       </div>
 
-      <div className="flex flex-col lg:flex-row gap-3">
+      <div className="flex flex-col gap-3 rounded-[2rem] border border-[#E3E0D8] bg-white p-4 shadow-sm lg:flex-row">
         <div className="w-full lg:w-72">
           <Label className="mb-2 block">Month Filter</Label>
           <Select value={selectedMonth || "all"} onValueChange={setSelectedMonth}>
-            <SelectTrigger>
+            <SelectTrigger className="rounded-2xl border-[#E3E0D8] bg-white">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -401,9 +402,9 @@ export function FinancePage() {
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        <Card className="border-border/40 bg-card/50">
+        <Card className="overflow-hidden border-[#E3E0D8] bg-white shadow-sm">
           <CardHeader>
-            <CardTitle className="font-['Manrope']">Last 6 Months Progress</CardTitle>
+            <CardTitle className="font-['Sora'] text-[#18115E]">Last 6 Months Progress</CardTitle>
             <CardDescription>Monthly collection trend based on imported and manually added transactions.</CardDescription>
           </CardHeader>
           <CardContent>
@@ -436,9 +437,9 @@ export function FinancePage() {
           </CardContent>
         </Card>
 
-        <Card className="border-border/40 bg-card/50">
+        <Card className="overflow-hidden border-[#E3E0D8] bg-white shadow-sm">
           <CardHeader>
-            <CardTitle className="font-['Manrope']">{formatMonthLabel(activeMonthKey)} Daily Progress</CardTitle>
+            <CardTitle className="font-['Sora'] text-[#18115E]">{formatMonthLabel(activeMonthKey)} Daily Progress</CardTitle>
             <CardDescription>Day-wise collections for the selected month.</CardDescription>
           </CardHeader>
           <CardContent>
@@ -466,9 +467,9 @@ export function FinancePage() {
         </Card>
       </div>
 
-      <Card className="border-border/40 bg-card/50">
+      <Card className="overflow-hidden border-[#E3E0D8] bg-white shadow-sm">
         <CardHeader>
-          <CardTitle className="font-['Manrope']">
+          <CardTitle className="font-['Sora'] text-[#18115E]">
             {selectedMonth === "all" ? "All Transactions" : `${formatMonthLabel(activeMonthKey)} Transactions`}
           </CardTitle>
           <CardDescription>
@@ -484,7 +485,7 @@ export function FinancePage() {
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[1200px] text-sm">
-                <thead className="bg-muted/20 border-b border-border/50">
+                <thead className="border-b border-[#E3E0D8] bg-[#F8F7F4]">
                   <tr>
                     <th className="px-4 py-3 text-left font-semibold">Date</th>
                     <th className="px-4 py-3 text-left font-semibold">Client</th>
@@ -532,12 +533,14 @@ export function FinancePage() {
           if (!open) resetForm();
         }}
       >
-        <DialogContent className="max-w-3xl">
+        <DialogContent className="max-w-3xl overflow-hidden border-0 bg-[#F5F4F0] p-0 shadow-2xl">
+          <div className="border-b border-[#E3E0D8] bg-white/90 px-6 py-5">
           <DialogHeader>
-            <DialogTitle className="font-['Manrope']">Add Transaction</DialogTitle>
+            <DialogTitle className="font-['Sora'] text-2xl text-[#18115E]">Add Transaction</DialogTitle>
             <DialogDescription>Record a client enrollment payment or any other finance entry.</DialogDescription>
           </DialogHeader>
-          <form onSubmit={handleSubmit} className="space-y-4">
+          </div>
+          <form onSubmit={handleSubmit} className="space-y-4 px-6 py-5">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Type *</Label>
@@ -694,9 +697,9 @@ export function FinancePage() {
               />
             </div>
 
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
-              <Button type="submit" data-testid="save-transaction-btn" className="bg-primary text-primary-foreground">
+            <DialogFooter className="border-t border-[#E3E0D8] pt-4">
+              <Button type="button" variant="outline" className="rounded-2xl bg-white" onClick={() => setDialogOpen(false)}>Cancel</Button>
+              <Button type="submit" data-testid="save-transaction-btn" className="rounded-2xl bg-primary text-primary-foreground">
                 Add Transaction
               </Button>
             </DialogFooter>

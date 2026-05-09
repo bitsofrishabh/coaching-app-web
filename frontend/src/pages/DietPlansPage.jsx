@@ -1009,7 +1009,7 @@ export function DietPlansPage() {
   };
 
   return (
-    <div className="space-y-6 animate-fade-in" data-testid="diet-plans-page">
+    <div className="space-y-5 animate-fade-in" data-testid="diet-plans-page">
       <input
         ref={pdfInputRef}
         type="file"
@@ -1018,46 +1018,50 @@ export function DietPlansPage() {
         onChange={handlePdfUpload}
       />
 
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="rounded-xl border border-border bg-card px-4 py-4 shadow-[0_1px_0_rgba(15,23,42,0.02)] md:px-5">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold font-['Manrope']">Diet Plans</h1>
-          <p className="text-muted-foreground mt-1">Manage reusable master templates and assign them into client-specific diet plans.</p>
+            <h1 className="font-['Sora'] text-2xl font-semibold text-[#18115E] md:text-3xl dark:text-violet-100">Diet Plans</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {clientPlans.length} client plans · {masterTemplates.length} reusable templates · AI-assisted parsing and exports
+            </p>
         </div>
         <Button
           data-testid="create-diet-plan-btn"
           onClick={() => openCreateDialog(activeTab === TAB_MASTER_TEMPLATES ? PLAN_TYPE_TEMPLATE : PLAN_TYPE_CLIENT)}
-          className="bg-primary text-primary-foreground hover:bg-primary/90 btn-glow"
+            className="h-10 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90"
         >
           <Plus className="w-4 h-4 mr-2" />
           {activeTab === TAB_MASTER_TEMPLATES ? "Create Master Template" : "Create Client Plan"}
         </Button>
       </div>
+      </div>
 
       {loading ? (
         <LoadingScreen />
       ) : (
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="bg-muted/50 p-1">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-5">
+          <TabsList className="rounded-lg bg-muted p-1">
             <TabsTrigger value={TAB_CLIENT_PLANS}>Client Plans ({clientPlans.length})</TabsTrigger>
             <TabsTrigger value={TAB_MASTER_TEMPLATES}>Master Templates ({masterTemplates.length})</TabsTrigger>
           </TabsList>
 
           <TabsContent value={TAB_CLIENT_PLANS} className="space-y-6">
             {clientPlans.length === 0 ? (
-              <Card className="border-border/40 bg-card/50">
+              <Card className="border-border bg-card">
                 <CardContent className="py-12 text-center">
                   <Utensils className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
                   <p className="text-muted-foreground">No client diet plans yet. Create a plan directly or use a master template.</p>
                 </CardContent>
               </Card>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
                 {clientPlans.map((plan) => (
-                  <Card key={plan.id} className="border-border/40 bg-card/50 hover:border-primary/30 transition-all" data-testid={`diet-plan-${plan.id}`}>
+                  <Card key={plan.id} className="border-border bg-card transition-all hover:border-primary/30 hover:shadow-[0_8px_24px_rgba(15,23,42,0.06)]" data-testid={`diet-plan-${plan.id}`}>
                     <CardHeader className="pb-3">
                       <div className="flex items-start justify-between">
                         <div>
-                          <CardTitle className="font-['Manrope'] text-lg">{plan.name}</CardTitle>
+                          <CardTitle className="font-['Sora'] text-base text-[#18115E] dark:text-violet-100">{plan.name}</CardTitle>
                           <CardDescription className="mt-1">{getClientName(plan.client_id)}</CardDescription>
                         </div>
                         <DropdownMenu>
@@ -1079,15 +1083,15 @@ export function DietPlansPage() {
                     </CardHeader>
                     <CardContent className="space-y-4">
                       {plan.description && <p className="text-sm text-muted-foreground">{plan.description}</p>}
-                      <div className="flex flex-wrap items-center gap-3 text-sm">
+                      <div className="flex flex-wrap items-center gap-2 text-sm">
                         {plan.daily_calories && (
-                          <span className="flex items-center gap-1">
+                          <span className="flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-xs">
                             <Activity className="w-4 h-4 text-primary" /> {plan.daily_calories} cal/day
                           </span>
                         )}
-                        <Badge variant="outline">{plan.plan_days || plan.day_wise_plan?.length || 0} days</Badge>
-                        <Badge variant="outline">{(plan.visible_columns || DEFAULT_VISIBLE_COLUMNS).length} cols</Badge>
-                        <Badge variant="outline">{plan.export_layout === EXPORT_LAYOUT_DOCUMENT ? "Document" : "Table"} Export</Badge>
+                        <Badge variant="outline" className="bg-muted">{plan.plan_days || plan.day_wise_plan?.length || 0} days</Badge>
+                        <Badge variant="outline" className="bg-muted">{(plan.visible_columns || DEFAULT_VISIBLE_COLUMNS).length} cols</Badge>
+                        <Badge variant="outline" className="bg-muted">{plan.export_layout === EXPORT_LAYOUT_DOCUMENT ? "Document" : "Table"} Export</Badge>
                         {plan.source_template_id ? <Badge variant="secondary">From {getTemplateName(plan.source_template_id)}</Badge> : null}
                       </div>
                       <div className="flex items-center justify-between pt-3 border-t border-border/50">
@@ -1103,20 +1107,20 @@ export function DietPlansPage() {
 
           <TabsContent value={TAB_MASTER_TEMPLATES} className="space-y-6">
             {masterTemplates.length === 0 ? (
-              <Card className="border-border/40 bg-card/50">
+              <Card className="border-border bg-card">
                 <CardContent className="py-12 text-center">
                   <Utensils className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
                   <p className="text-muted-foreground">No reusable templates yet. Create a master template and assign it to clients later.</p>
                 </CardContent>
               </Card>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
                 {masterTemplates.map((plan) => (
-                  <Card key={plan.id} className="border-border/40 bg-card/50 hover:border-primary/30 transition-all" data-testid={`diet-template-${plan.id}`}>
+                  <Card key={plan.id} className="border-border bg-card transition-all hover:border-primary/30 hover:shadow-[0_8px_24px_rgba(15,23,42,0.06)]" data-testid={`diet-template-${plan.id}`}>
                     <CardHeader className="pb-3">
                       <div className="flex items-start justify-between gap-3">
                         <div>
-                          <CardTitle className="font-['Manrope'] text-lg">{plan.name}</CardTitle>
+                          <CardTitle className="font-['Sora'] text-base text-[#18115E] dark:text-violet-100">{plan.name}</CardTitle>
                           <CardDescription className="mt-1">Reusable master template</CardDescription>
                         </div>
                         <DropdownMenu>
@@ -1139,9 +1143,9 @@ export function DietPlansPage() {
                     <CardContent className="space-y-4">
                       {plan.description && <p className="text-sm text-muted-foreground">{plan.description}</p>}
                       <div className="flex flex-wrap items-center gap-3 text-sm">
-                        <Badge variant="outline">{plan.plan_days || plan.day_wise_plan?.length || 0} days</Badge>
-                        <Badge variant="outline">{(plan.visible_columns || DEFAULT_VISIBLE_COLUMNS).length} cols</Badge>
-                        <Badge variant="outline">{plan.export_layout === EXPORT_LAYOUT_DOCUMENT ? "Document" : "Table"} Export</Badge>
+                        <Badge variant="outline" className="bg-muted">{plan.plan_days || plan.day_wise_plan?.length || 0} days</Badge>
+                        <Badge variant="outline" className="bg-muted">{(plan.visible_columns || DEFAULT_VISIBLE_COLUMNS).length} cols</Badge>
+                        <Badge variant="outline" className="bg-muted">{plan.export_layout === EXPORT_LAYOUT_DOCUMENT ? "Document" : "Table"} Export</Badge>
                         {plan.daily_calories ? (
                           <span className="flex items-center gap-1 text-muted-foreground">
                             <Activity className="w-4 h-4 text-primary" /> {plan.daily_calories} cal/day
@@ -1170,18 +1174,28 @@ export function DietPlansPage() {
           if (!open) resetAIState();
         }}
       >
-        <DialogContent className="w-[97vw] max-w-[97vw] h-[95vh] max-h-[95vh] p-0">
-          <div className="h-full overflow-y-auto px-6 py-5">
-            <DialogHeader className="pr-8">
-              <DialogTitle className="font-['Manrope']">{isTemplateDialog ? "Create Master Template" : "Create Diet Plan"}</DialogTitle>
-              <DialogDescription>
+        <DialogContent className="w-[97vw] max-w-[97vw] h-[95vh] max-h-[95vh] overflow-hidden border-0 bg-[#F5F4F0] p-0 shadow-2xl">
+          <div className="h-full overflow-y-auto">
+            <div className="sticky top-0 z-30 border-b border-[#E3E0D8] bg-[#F5F4F0]/95 px-6 py-5 backdrop-blur-xl">
+              <DialogHeader className="pr-8">
+                <DialogTitle className="font-['Sora'] text-2xl text-[#18115E]">
+                  {isTemplateDialog ? "Create Master Template" : "Create Diet Plan"}
+                </DialogTitle>
+                <DialogDescription className="max-w-3xl text-base text-[#5F6472]">
                 {isTemplateDialog
                   ? "Build a reusable template once, then assign it to multiple clients from the templates tab."
                   : "Create a client-specific diet plan manually or start from a reusable template. Export is optimized for 1-2 page A4 portrait."}
-              </DialogDescription>
-            </DialogHeader>
+                </DialogDescription>
+              </DialogHeader>
+            </div>
 
-            <form onSubmit={handleSubmit} className="space-y-6 mt-4">
+            <form onSubmit={handleSubmit} className="space-y-6 px-6 py-5">
+            <Card className="border-[#E3E0D8] bg-white/90 shadow-sm">
+              <CardHeader className="pb-3">
+                <CardTitle className="font-['Sora'] text-lg text-[#18115E]">Plan Setup</CardTitle>
+                <CardDescription>Choose the client, duration, calories, and export structure before editing meals.</CardDescription>
+              </CardHeader>
+              <CardContent>
             <div className={`grid grid-cols-1 md:grid-cols-2 ${isTemplateDialog ? "xl:grid-cols-3" : "xl:grid-cols-4"} gap-4`}>
               {!isTemplateDialog ? (
                 <div className="space-y-2">
@@ -1245,51 +1259,71 @@ export function DietPlansPage() {
                 </Select>
               </div>
             </div>
+              </CardContent>
+            </Card>
 
             {!isTemplateDialog ? (
-              <Card className="border-border/40 bg-card/40">
+              <Card className="overflow-hidden border-[#DED8FF] bg-white shadow-sm">
                 <CardHeader className="pb-3">
-                  <CardTitle className="text-lg font-['Manrope']">Header Preview</CardTitle>
+                  <CardTitle className="font-['Sora'] text-lg text-[#18115E]">Client Header Preview</CardTitle>
+                  <CardDescription>These six fields will appear at the top of exported diet PDFs.</CardDescription>
                 </CardHeader>
                 <CardContent>
                   {!selectedClient ? (
-                    <p className="text-sm text-muted-foreground">Select a client to prefill header metrics.</p>
+                    <p className="rounded-2xl border border-dashed border-[#DED8FF] bg-[#F7F4FF] px-4 py-6 text-sm text-[#6C6680]">
+                      Select a client to prefill header metrics.
+                    </p>
                   ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 text-sm">
-                      <div><span className="text-muted-foreground">Name:</span> {selectedClient.name}</div>
-                      <div><span className="text-muted-foreground">Age:</span> {selectedClient.age || "—"}</div>
-                      <div><span className="text-muted-foreground">Start Weight:</span> {selectedClient.initial_weight_kg || "—"} kg</div>
-                      <div><span className="text-muted-foreground">Current Weight:</span> {selectedClient.current_weight_kg || selectedClient.initial_weight_kg || "—"} kg</div>
-                      <div><span className="text-muted-foreground">Maintenance Calories:</span> {formData.daily_calories || selectedClientMaintenance || "—"} kcal/day</div>
-                      <div className="md:col-span-2 xl:col-span-2">
-                        <span className="text-muted-foreground">Healthy Range:</span>{" "}
-                        {selectedClientHealthyRange
-                          ? `${selectedClientHealthyRange.minKg.toFixed(1)} - ${selectedClientHealthyRange.maxKg.toFixed(1)} kg`
-                          : "—"}
-                      </div>
+                    <div className="grid grid-cols-1 gap-3 text-sm md:grid-cols-2 xl:grid-cols-3">
+                      {[
+                        ["Name", selectedClient.name],
+                        ["Age", selectedClient.age || "—"],
+                        ["Start Weight", `${selectedClient.initial_weight_kg || "—"} kg`],
+                        ["Current Weight", `${selectedClient.current_weight_kg || selectedClient.initial_weight_kg || "—"} kg`],
+                        ["Maintenance Calories", `${formData.daily_calories || selectedClientMaintenance || "—"} kcal/day`],
+                        [
+                          "Healthy Range",
+                          selectedClientHealthyRange
+                            ? `${selectedClientHealthyRange.minKg.toFixed(1)} - ${selectedClientHealthyRange.maxKg.toFixed(1)} kg`
+                            : "—"
+                        ]
+                      ].map(([label, value]) => (
+                        <div key={label} className="rounded-2xl border border-[#ECE8FF] bg-[#F7F4FF] px-4 py-3">
+                          <div className="text-xs font-semibold uppercase tracking-[0.16em] text-[#8A7BC8]">{label}</div>
+                          <div className="mt-1 font-semibold text-[#18115E]">{value}</div>
+                        </div>
+                      ))}
                     </div>
                   )}
                 </CardContent>
               </Card>
             ) : (
-              <Card className="border-border/40 bg-card/40">
-                <CardContent className="py-4 text-sm text-muted-foreground">
+              <Card className="border-[#E3E0D8] bg-white/90 shadow-sm">
+                <CardContent className="py-4 text-sm text-[#5F6472]">
                   Master templates are reusable layouts. Use “Use for Client” later to assign this template and generate a client-specific diet plan with header metrics.
                 </CardContent>
               </Card>
             )}
 
-            <div className="space-y-2">
-              <Label>Reference PDF Parser</Label>
-              <div className="flex items-center gap-2">
-                <Button type="button" variant="outline" onClick={triggerPdfPicker} disabled={pdfParsing}>
+            <Card className="border-dashed border-[#BDB5EA] bg-[#FBFAF7] shadow-sm">
+              <CardContent className="flex flex-col gap-4 py-5 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <Label className="text-sm font-semibold text-[#18115E]">Reference PDF Parser</Label>
+                  <p className="mt-1 text-sm text-[#6C6680]">Text-based PDFs only. Parser auto-fits to the selected 7, 10, or 14 day duration.</p>
+                </div>
+                <Button type="button" variant="outline" onClick={triggerPdfPicker} disabled={pdfParsing} className="rounded-2xl border-[#DED8FF] bg-white">
                   <FileText className="w-4 h-4 mr-2" />
                   {pdfParsing ? "Parsing..." : "Upload Reference PDF"}
                 </Button>
-                <p className="text-xs text-muted-foreground">Text-based PDFs only. Parser auto-fits to selected duration.</p>
-              </div>
-            </div>
+              </CardContent>
+            </Card>
 
+            <Card className="border-[#E3E0D8] bg-white/90 shadow-sm">
+              <CardHeader className="pb-3">
+                <CardTitle className="font-['Sora'] text-lg text-[#18115E]">Notes & Daily Drinks</CardTitle>
+                <CardDescription>Keep client-facing notes and daily drinks tidy before exporting.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-5">
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Description</Label>
@@ -1314,12 +1348,16 @@ export function DietPlansPage() {
                 </div>
               </div>
             </div>
+              </CardContent>
+            </Card>
 
+            <Card className="border-[#E3E0D8] bg-white/90 shadow-sm">
+              <CardContent className="space-y-4 py-5">
             <div className="space-y-2">
               <Label>Column Picker (export + editor)</Label>
-              <div className="flex flex-wrap gap-4 rounded-lg border border-border/50 px-3 py-2">
+              <div className="flex flex-wrap gap-3 rounded-2xl border border-[#E3E0D8] bg-[#F8F7F4] px-3 py-3">
                 {EDITABLE_COLUMN_KEYS.map((column) => (
-                  <label key={column} className="flex items-center gap-2 text-sm">
+                  <label key={column} className="flex items-center gap-2 rounded-full bg-white px-3 py-2 text-sm font-medium shadow-sm">
                     <input
                       type="checkbox"
                       checked={formData.visible_columns.includes(column)}
@@ -1335,6 +1373,8 @@ export function DietPlansPage() {
               <Label>Footer Note</Label>
               <Textarea value={formData.footer_note} onChange={(e) => setFormData((prev) => ({ ...prev, footer_note: e.target.value }))} />
             </div>
+              </CardContent>
+            </Card>
 
             {!isTemplateDialog && formData.source_template_id ? (
               <div className="rounded-lg border border-border/50 bg-muted/20 px-3 py-2 text-sm">
@@ -1342,20 +1382,20 @@ export function DietPlansPage() {
               </div>
             ) : null}
 
-            <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.6fr)_minmax(360px,0.9fr)] gap-4 items-start">
-              <Card className="border-border/40 bg-card/40">
+            <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[minmax(0,1.6fr)_minmax(380px,0.9fr)]">
+              <Card className="overflow-hidden border-[#E3E0D8] bg-white shadow-sm">
                 <CardHeader className="pb-3">
-                  <CardTitle className="text-lg font-['Manrope']">Inline Day-wise Editor</CardTitle>
+                  <CardTitle className="font-['Sora'] text-lg text-[#18115E]">Inline Day-wise Editor</CardTitle>
                   <CardDescription>All days in one table view. Columns reflect your picker selection.</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="rounded-lg border border-border/50">
+                  <div className="overflow-hidden rounded-3xl border border-[#E3E0D8] bg-[#F8F7F4]">
                     <table className="w-full table-fixed text-sm">
-                      <thead className="sticky top-0 z-10 bg-muted/80 backdrop-blur-sm">
-                        <tr className="border-b border-border/50">
-                          <th className="px-3 py-2 text-left font-semibold w-28">Day</th>
+                      <thead className="sticky top-0 z-10 bg-[#EFEDE7]/95 backdrop-blur-sm">
+                        <tr className="border-b border-[#E3E0D8]">
+                          <th className="w-28 px-3 py-3 text-left font-semibold text-[#18115E]">Day</th>
                           {formData.visible_columns.map((column) => (
-                            <th key={`head-${column}`} className="px-3 py-2 text-left font-semibold">
+                            <th key={`head-${column}`} className="px-3 py-3 text-left font-semibold text-[#18115E]">
                               {SLOT_LABELS[column]}
                             </th>
                           ))}
@@ -1364,8 +1404,8 @@ export function DietPlansPage() {
                       <tbody>
                         {formData.day_wise_plan.map((dayPlan) => {
                           return (
-                            <tr key={dayPlan.day} className="border-b border-border/30 align-top">
-                              <td className="px-3 py-3 font-medium whitespace-nowrap">Day {dayPlan.day}</td>
+                            <tr key={dayPlan.day} className="border-b border-[#E8E4DC] align-top last:border-0">
+                              <td className="whitespace-nowrap px-3 py-4 font-semibold text-[#18115E]">Day {dayPlan.day}</td>
                               {formData.visible_columns.map((column) => {
                                 const value = dayPlan[column] || "";
                                 const { primary, secondary } = splitMealOptions(value);
@@ -1380,7 +1420,7 @@ export function DietPlansPage() {
                                       onChange={(e) => updateMealCell(dayPlan.day, column, "primary", e.target.value)}
                                       onFocus={() => setActiveCellKey(cellKey)}
                                       placeholder={`Enter ${SLOT_LABELS[column].toLowerCase()} option 1`}
-                                      className="min-h-[64px] max-h-[64px] resize-none"
+                                      className="min-h-[68px] max-h-[68px] resize-none rounded-2xl border-[#E3E0D8] bg-white shadow-sm focus-visible:ring-[#6D28D9]"
                                     />
                                     {orEnabled ? (
                                       <div className="mt-2 space-y-2">
@@ -1400,7 +1440,7 @@ export function DietPlansPage() {
                                           onChange={(e) => updateMealCell(dayPlan.day, column, "secondary", e.target.value)}
                                           onFocus={() => setActiveCellKey(cellKey)}
                                           placeholder={`Enter ${SLOT_LABELS[column].toLowerCase()} option 2`}
-                                          className="min-h-[64px] max-h-[64px] resize-none"
+                                          className="min-h-[68px] max-h-[68px] resize-none rounded-2xl border-[#E3E0D8] bg-white shadow-sm focus-visible:ring-[#6D28D9]"
                                         />
                                       </div>
                                     ) : isActiveCell ? (
@@ -1424,15 +1464,17 @@ export function DietPlansPage() {
                 </CardContent>
               </Card>
 
-              <Card className="border-border/40 bg-card/40">
-                <CardHeader className="pb-3">
+              <Card className="overflow-hidden border-[#241A78]/20 bg-white shadow-sm">
+                <CardHeader className="bg-[#18115E] pb-4 text-white">
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <CardTitle className="text-lg font-['Manrope'] flex items-center gap-2">
-                        <Sparkles className="w-4 h-4 text-primary" />
+                      <CardTitle className="flex items-center gap-2 font-['Sora'] text-lg">
+                        <span className="flex h-8 w-8 items-center justify-center rounded-2xl bg-white/12">
+                          <Sparkles className="w-4 h-4 text-white" />
+                        </span>
                         AI Diet Assistant
                       </CardTitle>
-                      <CardDescription>
+                      <CardDescription className="mt-2 text-white/70">
                         Analyze parsed diets, estimate calories and protein, and apply targeted Indian-diet suggestions.
                       </CardDescription>
                     </div>
@@ -1442,6 +1484,7 @@ export function DietPlansPage() {
                       size="sm"
                       onClick={() => void runAIAnalysis()}
                       disabled={aiAnalyzing || !formData.client_id}
+                      className="border-white/20 bg-white/10 text-white hover:bg-white/20 hover:text-white"
                     >
                       {aiAnalyzing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCcw className="w-4 h-4 mr-2" />}
                       {aiAnalysis ? "Re-run" : "Analyze"}
@@ -1450,15 +1493,15 @@ export function DietPlansPage() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {isTemplateDialog ? (
-                    <div className="rounded-lg border border-dashed border-border/60 px-4 py-6 text-sm text-muted-foreground">
+                    <div className="rounded-3xl border border-dashed border-[#DED8FF] bg-[#F7F4FF] px-4 py-6 text-sm text-[#6C6680]">
                       AI analysis is available for client-specific diet plans after you select a client.
                     </div>
                   ) : !formData.client_id ? (
-                    <div className="rounded-lg border border-dashed border-border/60 px-4 py-6 text-sm text-muted-foreground">
+                    <div className="rounded-3xl border border-dashed border-[#DED8FF] bg-[#F7F4FF] px-4 py-6 text-sm text-[#6C6680]">
                       Select a client first. PDF parsing still works without AI, but nutrition analysis needs client context.
                     </div>
                   ) : !aiAnalysis ? (
-                    <div className="rounded-lg border border-dashed border-border/60 px-4 py-6 text-sm text-muted-foreground">
+                    <div className="rounded-3xl border border-dashed border-[#DED8FF] bg-[#F7F4FF] px-4 py-6 text-sm text-[#6C6680]">
                       Upload a diet PDF or click Analyze to generate AI calorie/protein insights for this draft.
                     </div>
                   ) : (

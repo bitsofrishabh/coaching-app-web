@@ -170,32 +170,52 @@ export function LeadsPage() {
     return [lead.name, lead.phone, lead.email, lead.source, lead.location]
       .some((field) => (field || "").toLowerCase().includes(query));
   });
+  const totalLeads = leads.length;
+  const activeLeads = leads.filter((lead) => !["converted", "lost"].includes(lead.status)).length;
+  const convertedLeads = leads.filter((lead) => lead.status === "converted").length;
+  const followUpLeads = leads.filter((lead) => lead.status === "follow-up").length;
 
   return (
-    <div className="space-y-6 animate-fade-in" data-testid="leads-page">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+    <div className="space-y-7 animate-fade-in" data-testid="leads-page">
+      <div className="overflow-hidden rounded-[2rem] border border-[#E3E0D8] bg-white/90 p-5 shadow-sm">
+      <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <h1 className="text-3xl font-bold font-['Manrope']">Leads</h1>
-          <p className="mt-1 text-muted-foreground">Manage new enquiries from first contact to conversion.</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#8A7BC8]">Pipeline</p>
+          <h1 className="mt-1 font-['Sora'] text-3xl font-semibold text-[#18115E]">Leads</h1>
+          <p className="mt-2 text-[#5F6472]">Manage new enquiries from first contact to conversion.</p>
+          <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+            {[
+              ["Total", totalLeads],
+              ["Active", activeLeads],
+              ["Follow-up", followUpLeads],
+              ["Converted", convertedLeads]
+            ].map(([label, value]) => (
+              <div key={label} className="rounded-2xl border border-[#ECE8FF] bg-[#F7F4FF] px-4 py-3">
+                <div className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A7BC8]">{label}</div>
+                <div className="mt-1 font-['Sora'] text-2xl font-semibold text-[#18115E]">{value}</div>
+              </div>
+            ))}
+          </div>
         </div>
-        <Button onClick={openCreateDialog} className="bg-primary text-primary-foreground">
+        <Button onClick={openCreateDialog} className="rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-violet-500/20">
           <Plus className="mr-2 h-4 w-4" />
           Add Lead
         </Button>
       </div>
+      </div>
 
-      <div className="relative max-w-xl">
+      <div className="relative max-w-2xl">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           placeholder="Search leads by name, source, phone"
-          className="h-11 pl-10"
+          className="h-12 rounded-2xl border-[#E3E0D8] bg-white pl-10 shadow-sm"
         />
       </div>
 
       {loading ? (
-        <div className="rounded-lg border border-border/60 p-8 text-center text-sm text-muted-foreground">Loading leads...</div>
+        <div className="rounded-[2rem] border border-[#E3E0D8] bg-white p-8 text-center text-sm text-muted-foreground shadow-sm">Loading leads...</div>
       ) : (
         <KanbanBoard
           columns={LEAD_STATUSES}
@@ -205,9 +225,9 @@ export function LeadsPage() {
           onItemStatusChange={handleLeadStatusMove}
           emptyLabel="No leads"
           renderCard={(lead) => (
-            <div className="rounded-lg border border-border/70 bg-background p-3 shadow-sm transition-shadow hover:shadow-md">
+            <div className="rounded-2xl border border-[#E3E0D8] bg-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg">
               <div className="flex items-start justify-between gap-2">
-                <button type="button" onClick={() => openEditDialog(lead)} className="min-w-0 text-left text-sm font-semibold hover:text-primary">
+                <button type="button" onClick={() => openEditDialog(lead)} className="min-w-0 text-left font-['Sora'] text-sm font-semibold text-[#18115E] hover:text-primary">
                   <span className="block truncate">{lead.name}</span>
                 </button>
                 <Badge variant="outline" className={`shrink-0 border-border/70 ${LEAD_STATUS_META[lead.status] || ""}`}>
@@ -215,7 +235,7 @@ export function LeadsPage() {
                 </Badge>
               </div>
 
-              <div className="mt-3 space-y-1.5 text-xs text-muted-foreground">
+              <div className="mt-3 space-y-1.5 text-xs text-[#6C6680]">
                 {lead.phone ? (
                   <p className="flex items-center gap-2 truncate">
                     <Phone className="h-3.5 w-3.5" />
@@ -243,12 +263,12 @@ export function LeadsPage() {
               </div>
 
               <div className="mt-3 flex items-center justify-between gap-2">
-                <span className="min-w-0 truncate text-xs text-muted-foreground">{lead.source || "No source"}</span>
+                <span className="min-w-0 truncate text-xs text-[#6C6680]">{lead.source || "No source"}</span>
                 <div className="flex items-center gap-1">
-                  <Button type="button" variant="ghost" size="sm" className="h-8 px-2" onClick={() => openEditDialog(lead)}>
+                  <Button type="button" variant="ghost" size="sm" className="h-8 rounded-xl px-2" onClick={() => openEditDialog(lead)}>
                     Edit
                   </Button>
-                  <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleDeleteLead(lead)}>
+                  <Button type="button" variant="ghost" size="icon" className="h-8 w-8 rounded-xl text-destructive" onClick={() => handleDeleteLead(lead)}>
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>
@@ -259,13 +279,15 @@ export function LeadsPage() {
       )}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-3xl">
+        <DialogContent className="max-w-3xl overflow-hidden border-0 bg-[#F5F4F0] p-0 shadow-2xl">
+          <div className="border-b border-[#E3E0D8] bg-white/90 px-6 py-5">
           <DialogHeader>
-            <DialogTitle>{editingLead ? "Edit Lead" : "Add Lead"}</DialogTitle>
-            <DialogDescription>Capture the basics and move the lead through the pipeline.</DialogDescription>
+            <DialogTitle className="font-['Sora'] text-2xl text-[#18115E]">{editingLead ? "Edit Lead" : "Add Lead"}</DialogTitle>
+            <DialogDescription className="text-[#5F6472]">Capture the basics and move the lead through the pipeline.</DialogDescription>
           </DialogHeader>
+          </div>
 
-          <form onSubmit={handleSubmit} className="space-y-5">
+          <form onSubmit={handleSubmit} className="space-y-5 px-6 py-5">
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label>Name *</Label>
@@ -336,9 +358,9 @@ export function LeadsPage() {
               </div>
             </div>
 
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
-              <Button type="submit">
+            <DialogFooter className="border-t border-[#E3E0D8] pt-4">
+              <Button type="button" variant="outline" className="rounded-2xl bg-white" onClick={() => setDialogOpen(false)}>Cancel</Button>
+              <Button type="submit" className="rounded-2xl">
                 <UserRound className="mr-2 h-4 w-4" />
                 {editingLead ? "Save Lead" : "Create Lead"}
               </Button>

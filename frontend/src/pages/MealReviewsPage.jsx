@@ -54,11 +54,12 @@ export function MealReviewsPage() {
   };
 
   return (
-    <div className="space-y-6 animate-fade-in" data-testid="meal-reviews-page">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="space-y-7 animate-fade-in" data-testid="meal-reviews-page">
+      <div className="flex flex-col justify-between gap-4 rounded-[2rem] border border-[#E3E0D8] bg-white/90 p-5 shadow-sm sm:flex-row sm:items-center">
         <div>
-          <h1 className="text-3xl font-bold font-['Manrope']">Meal Reviews</h1>
-          <p className="text-muted-foreground mt-1">Review client meal photos and provide feedback</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#8A7BC8]">Client Check-ins</p>
+          <h1 className="mt-1 font-['Sora'] text-3xl font-semibold text-[#18115E]">Meal Reviews</h1>
+          <p className="mt-2 text-[#5F6472]">Review client meal photos and provide feedback.</p>
         </div>
         <div className="flex items-center gap-2">
           <Select value={filter} onValueChange={setFilter}>
@@ -80,7 +81,7 @@ export function MealReviewsPage() {
       {loading ? (
         <div className="text-center py-12 text-muted-foreground">Loading...</div>
       ) : uploads.length === 0 ? (
-        <Card className="border-border/40 bg-card/50">
+        <Card className="border-[#E3E0D8] bg-white shadow-sm">
           <CardContent className="py-12 text-center">
             <Camera className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
             <p className="text-muted-foreground">No meal uploads to review</p>
@@ -91,12 +92,12 @@ export function MealReviewsPage() {
           {uploads.map((upload) => (
             <Card
               key={upload.id}
-              className={`border-border/40 bg-card/50 overflow-hidden transition-all hover:border-primary/30 ${
+              className={`overflow-hidden border-[#E3E0D8] bg-white shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-lg ${
                 !upload.reviewed ? "ring-2 ring-primary/20" : ""
               }`}
               data-testid={`meal-upload-${upload.id}`}
             >
-              <div className="aspect-video bg-muted relative">
+              <div className="relative aspect-video bg-[#F0EEE8]">
                 <div className="absolute inset-0 flex items-center justify-center">
                   <Image className="w-12 h-12 text-muted-foreground/50" />
                 </div>
@@ -113,7 +114,7 @@ export function MealReviewsPage() {
               </div>
               <CardContent className="p-4">
                 <div className="flex items-center justify-between mb-2">
-                  <p className="font-medium">{upload.client_name}</p>
+                  <p className="font-['Sora'] font-semibold text-[#18115E]">{upload.client_name}</p>
                   <p className="text-xs text-muted-foreground">{upload.date}</p>
                 </div>
                 {upload.caption && (
@@ -121,11 +122,11 @@ export function MealReviewsPage() {
                 )}
                 {upload.coach_feedback ? (
                   <div className="p-2 rounded-lg bg-primary/10 border border-primary/20">
-                    <p className="text-xs font-medium text-primary mb-1">Your Feedback:</p>
+                    <p className="mb-1 text-xs font-medium text-primary">Your Feedback:</p>
                     <p className="text-sm">{upload.coach_feedback}</p>
                   </div>
                 ) : (
-                  <Button variant="outline" size="sm" className="w-full" onClick={() => { setSelectedUpload(upload); setFeedback(""); }} data-testid={`add-feedback-${upload.id}`}>
+                  <Button variant="outline" size="sm" className="w-full rounded-2xl bg-white" onClick={() => { setSelectedUpload(upload); setFeedback(""); }} data-testid={`add-feedback-${upload.id}`}>
                     <MessageCircle className="w-4 h-4 mr-1" /> Add Feedback
                   </Button>
                 )}
@@ -136,14 +137,16 @@ export function MealReviewsPage() {
       )}
 
       <Dialog open={!!selectedUpload} onOpenChange={() => setSelectedUpload(null)}>
-        <DialogContent>
+        <DialogContent className="overflow-hidden border-0 bg-[#F5F4F0] p-0 shadow-2xl">
+          <div className="border-b border-[#E3E0D8] bg-white/90 px-6 py-5">
           <DialogHeader>
-            <DialogTitle className="font-['Manrope']">Add Feedback</DialogTitle>
+            <DialogTitle className="font-['Sora'] text-2xl text-[#18115E]">Add Feedback</DialogTitle>
             <DialogDescription>
               Provide feedback for {selectedUpload?.client_name}'s {selectedUpload?.meal_type}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
+          </div>
+          <div className="space-y-4 px-6 py-5">
             <Textarea
               value={feedback}
               onChange={(e) => setFeedback(e.target.value)}
@@ -152,9 +155,9 @@ export function MealReviewsPage() {
               data-testid="feedback-input"
             />
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setSelectedUpload(null)}>Cancel</Button>
-            <Button onClick={submitFeedback} data-testid="submit-feedback-btn" className="bg-primary text-primary-foreground" disabled={!feedback.trim()}>
+          <DialogFooter className="border-t border-[#E3E0D8] px-6 py-4">
+            <Button variant="outline" className="rounded-2xl bg-white" onClick={() => setSelectedUpload(null)}>Cancel</Button>
+            <Button onClick={submitFeedback} data-testid="submit-feedback-btn" className="rounded-2xl bg-primary text-primary-foreground" disabled={!feedback.trim()}>
               Send Feedback
             </Button>
           </DialogFooter>

@@ -47,44 +47,45 @@ export function PendingTasksPage() {
 
   return (
     <div className="space-y-8 animate-fade-in" data-testid="pending-tasks-page">
-      <div>
-        <h1 className="text-3xl font-bold font-['Manrope']">Pending Tasks</h1>
-        <p className="mt-1 text-muted-foreground">
+      <div className="rounded-[2rem] border border-[#E3E0D8] bg-white/90 p-5 shadow-sm">
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#8A7BC8]">Action Queue</p>
+        <h1 className="mt-1 font-['Sora'] text-3xl font-semibold text-[#18115E]">Pending Tasks</h1>
+        <p className="mt-2 text-[#5F6472]">
           Diet and follow-up deadlines due in the next {feed?.window_days || 3} days. Program endings due in the next {feed?.program_window_days || 7} days.
         </p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
-        <Card className="border-border/40 bg-card/50">
+        <Card className="border-[#E3E0D8] bg-white shadow-sm">
           <CardContent className="p-6">
-            <p className="text-sm text-muted-foreground">Total Pending Tasks</p>
-            <p className="mt-2 text-3xl font-bold font-['Manrope']">{feed?.total_count || 0}</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#8A7BC8]">Total Pending Tasks</p>
+            <p className="mt-2 font-['Sora'] text-3xl font-semibold text-[#18115E]">{feed?.total_count || 0}</p>
           </CardContent>
         </Card>
-        <Card className="border-border/40 bg-card/50">
+        <Card className="border-[#E3E0D8] bg-white shadow-sm">
           <CardContent className="p-6">
-            <p className="text-sm text-muted-foreground">Diet Expiring Soon</p>
-            <p className="mt-2 text-3xl font-bold font-['Manrope']">{feed?.diet_expiry_count || 0}</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#8A7BC8]">Diet Expiring Soon</p>
+            <p className="mt-2 font-['Sora'] text-3xl font-semibold text-[#18115E]">{feed?.diet_expiry_count || 0}</p>
           </CardContent>
         </Card>
-        <Card className="border-border/40 bg-card/50">
+        <Card className="border-[#E3E0D8] bg-white shadow-sm">
           <CardContent className="p-6">
-            <p className="text-sm text-muted-foreground">Programs Ending Soon</p>
-            <p className="mt-2 text-3xl font-bold font-['Manrope']">{feed?.program_expiry_count || 0}</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#8A7BC8]">Programs Ending Soon</p>
+            <p className="mt-2 font-['Sora'] text-3xl font-semibold text-[#18115E]">{feed?.program_expiry_count || 0}</p>
           </CardContent>
         </Card>
-        <Card className="border-border/40 bg-card/50">
+        <Card className="border-[#E3E0D8] bg-white shadow-sm">
           <CardContent className="p-6">
-            <p className="text-sm text-muted-foreground">Follow-ups Due Soon</p>
-            <p className="mt-2 text-3xl font-bold font-['Manrope']">{feed?.follow_up_count || 0}</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#8A7BC8]">Follow-ups Due Soon</p>
+            <p className="mt-2 font-['Sora'] text-3xl font-semibold text-[#18115E]">{feed?.follow_up_count || 0}</p>
           </CardContent>
         </Card>
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        <Card className="border-border/40 bg-card/50">
+        <Card className="border-[#E3E0D8] bg-white shadow-sm">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 font-['Manrope']">
+            <CardTitle className="flex items-center gap-2 font-['Sora'] text-[#18115E]">
               <Utensils className="h-5 w-5 text-primary" /> Diet Expiry Tasks
             </CardTitle>
             <CardDescription>Clients whose diet plan ends within the next few days.</CardDescription>
@@ -92,7 +93,7 @@ export function PendingTasksPage() {
           <CardContent className="space-y-3">
             {taskGroups.diet.length ? (
               taskGroups.diet.map((task) => (
-                <div key={task.id} className="rounded-lg border border-border/40 p-4">
+                <div key={task.id} className="rounded-2xl border border-[#E3E0D8] p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <Link to={`/clients/${task.client_id}`} className="font-medium text-primary hover:underline">
@@ -123,9 +124,9 @@ export function PendingTasksPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-border/40 bg-card/50">
+        <Card className="border-[#E3E0D8] bg-white shadow-sm">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 font-['Manrope']">
+            <CardTitle className="flex items-center gap-2 font-['Sora'] text-[#18115E]">
               <Flag className="h-5 w-5 text-primary" /> Program End Tasks
             </CardTitle>
             <CardDescription>Clients whose program ends within the next 7 days.</CardDescription>
@@ -133,7 +134,7 @@ export function PendingTasksPage() {
           <CardContent className="space-y-3">
             {taskGroups.programs.length ? (
               taskGroups.programs.map((task) => (
-                <div key={task.id} className="rounded-lg border border-border/40 p-4">
+                <div key={task.id} className="rounded-2xl border border-[#E3E0D8] p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <Link to={`/clients/${task.client_id}`} className="font-medium text-primary hover:underline">
@@ -164,9 +165,9 @@ export function PendingTasksPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-border/40 bg-card/50">
+        <Card className="border-[#E3E0D8] bg-white shadow-sm">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 font-['Manrope']">
+            <CardTitle className="flex items-center gap-2 font-['Sora'] text-[#18115E]">
               <PhoneCall className="h-5 w-5 text-primary" /> Follow-up Tasks
             </CardTitle>
             <CardDescription>Scheduled follow-up calls due within the next few days.</CardDescription>
@@ -174,7 +175,7 @@ export function PendingTasksPage() {
           <CardContent className="space-y-3">
             {taskGroups.followUps.length ? (
               taskGroups.followUps.map((task) => (
-                <div key={task.id} className="rounded-lg border border-border/40 p-4">
+                <div key={task.id} className="rounded-2xl border border-[#E3E0D8] p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <Link to={`/clients/${task.client_id}`} className="font-medium text-primary hover:underline">
@@ -207,7 +208,7 @@ export function PendingTasksPage() {
       </div>
 
       {!(feed?.tasks?.length) ? (
-        <Card className="border-border/40 bg-card/50">
+        <Card className="border-[#E3E0D8] bg-white shadow-sm">
           <CardContent className="flex flex-col items-center justify-center py-12 text-center">
             <ClipboardList className="h-10 w-10 text-muted-foreground/60" />
             <p className="mt-4 text-base font-medium">No pending tasks right now.</p>

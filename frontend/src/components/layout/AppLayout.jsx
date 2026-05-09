@@ -2,135 +2,197 @@ import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import {
-  Users, LayoutDashboard, Utensils, DollarSign, CalendarCheck, Settings,
-  LogOut, Menu, MessageCircle, Camera, Activity, ClipboardList, UserPlus
+  Activity,
+  CalendarCheck,
+  Camera,
+  ClipboardList,
+  DollarSign,
+  LayoutDashboard,
+  LogOut,
+  Menu,
+  MessageCircle,
+  Settings,
+  UserPlus,
+  Users,
+  Utensils,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { hasAnyRole, useAuth } from "@/context/auth-context";
 import { PendingTasksBell } from "@/components/layout/PendingTasksBell";
 
-function Sidebar({ collapsed, setCollapsed }) {
-  const { user, logout } = useAuth();
-  const location = useLocation();
+const getNavItems = (user) => [
+  { icon: LayoutDashboard, label: "Dashboard", path: "/" },
+  { icon: Users, label: "Clients", path: "/clients" },
+  { icon: UserPlus, label: "Leads", path: "/leads" },
+  { icon: Utensils, label: "Diet Plans", path: "/diet-plans" },
+  { icon: MessageCircle, label: "Chat", path: "/chat" },
+  { icon: Camera, label: "Meal Reviews", path: "/meal-reviews" },
+  { icon: CalendarCheck, label: "Follow-ups", path: "/follow-ups" },
+  ...(hasAnyRole(user, ["super_admin", "admin"]) ? [{ icon: DollarSign, label: "Finance", path: "/finance" }] : []),
+  { icon: ClipboardList, label: "Audit Logs", path: "/audit-logs" },
+  { icon: Settings, label: "Settings", path: "/settings" },
+];
+
+function useLogout() {
+  const { logout } = useAuth();
   const navigate = useNavigate();
 
-  const navItems = [
-    { icon: LayoutDashboard, label: "Dashboard", path: "/" },
-    { icon: Users, label: "Clients", path: "/clients" },
-    { icon: UserPlus, label: "Leads", path: "/leads" },
-    { icon: Utensils, label: "Diet Plans", path: "/diet-plans" },
-    { icon: MessageCircle, label: "Chat", path: "/chat", badge: true },
-    { icon: Camera, label: "Meal Reviews", path: "/meal-reviews" },
-    { icon: CalendarCheck, label: "Follow-ups", path: "/follow-ups" },
-    ...(hasAnyRole(user, ["super_admin", "admin"]) ? [{ icon: DollarSign, label: "Finance", path: "/finance" }] : []),
-    { icon: ClipboardList, label: "Audit Logs", path: "/audit-logs" },
-    { icon: Settings, label: "Settings", path: "/settings" },
-  ];
-
-  const handleLogout = () => {
+  return () => {
     logout();
     navigate("/login");
     toast.success("Logged out successfully");
   };
+}
+
+function IconSidebar() {
+  const { user } = useAuth();
+  const location = useLocation();
+  const handleLogout = useLogout();
+  const navItems = getNavItems(user);
 
   return (
-    <aside className={`${collapsed ? "w-20" : "w-64"} border-r border-border bg-card/50 backdrop-blur-xl h-screen sticky top-0 flex flex-col transition-all duration-300`}>
-      <div className="p-4 border-b border-border/50">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-primary flex items-center justify-center shrink-0">
-            <Activity className="w-5 h-5 text-primary-foreground" />
-          </div>
-          {!collapsed && (
-            <span className="text-lg font-bold font-['Manrope'] text-foreground truncate">DietTracker</span>
-          )}
-        </div>
+    <aside className="sticky top-0 flex h-screen w-14 flex-col items-center border-r border-[#241A78] bg-[#18115E] py-3">
+      <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-[10px] bg-primary">
+        <Activity className="h-5 w-5 text-primary-foreground" />
       </div>
 
-      <nav className="flex-1 p-3 space-y-1">
+      <TooltipProvider delayDuration={120}>
+        <nav className="flex flex-1 flex-col items-center gap-1">
+          {navItems.map((item) => {
+            const isActive = location.pathname === item.path || (item.path !== "/" && location.pathname.startsWith(item.path));
+            return (
+              <Tooltip key={item.path}>
+                <TooltipTrigger asChild>
+                  <Link
+                    to={item.path}
+                    data-testid={`nav-${item.label.toLowerCase().replace(" ", "-")}`}
+                    className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${
+                      isActive
+                        ? "bg-primary/45 text-violet-100"
+                        : "text-violet-300 hover:bg-primary/25 hover:text-violet-100"
+                    }`}
+                    aria-label={item.label}
+                  >
+                    <item.icon className="h-[17px] w-[17px]" />
+                  </Link>
+                </TooltipTrigger>
+                <TooltipContent side="right">{item.label}</TooltipContent>
+              </Tooltip>
+            );
+          })}
+        </nav>
+      </TooltipProvider>
+
+      <div className="flex flex-col items-center gap-2">
+        <Avatar className="h-8 w-8">
+          <AvatarFallback className="bg-primary text-xs font-semibold text-primary-foreground">
+            {user?.name?.charAt(0) || "U"}
+          </AvatarFallback>
+        </Avatar>
+        <Button
+          variant="ghost"
+          size="icon"
+          data-testid="logout-btn"
+          onClick={handleLogout}
+          className="h-9 w-9 text-violet-300 hover:bg-red-500/15 hover:text-red-100"
+          aria-label="Logout"
+        >
+          <LogOut className="h-4 w-4" />
+        </Button>
+      </div>
+    </aside>
+  );
+}
+
+function MobileSidebar({ onClose }) {
+  const { user } = useAuth();
+  const location = useLocation();
+  const handleLogout = useLogout();
+  const navItems = getNavItems(user);
+
+  return (
+    <aside className="flex h-screen w-64 flex-col border-r border-[#241A78] bg-[#18115E] p-3 text-violet-100">
+      <div className="mb-4 flex items-center gap-3 px-1">
+        <div className="flex h-9 w-9 items-center justify-center rounded-[10px] bg-primary">
+          <Activity className="h-5 w-5 text-primary-foreground" />
+        </div>
+        <span className="truncate font-['Sora'] text-sm font-semibold">NutriTrack Pro</span>
+      </div>
+
+      <nav className="flex-1 space-y-1">
         {navItems.map((item) => {
           const isActive = location.pathname === item.path || (item.path !== "/" && location.pathname.startsWith(item.path));
           return (
             <Link
               key={item.path}
               to={item.path}
+              onClick={onClose}
               data-testid={`nav-${item.label.toLowerCase().replace(" ", "-")}`}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 group ${
-                isActive
-                  ? "bg-primary/10 text-primary border border-primary/20"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+              className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors ${
+                isActive ? "bg-primary/45 text-white" : "text-violet-300 hover:bg-primary/25 hover:text-white"
               }`}
             >
-              <item.icon className={`w-5 h-5 shrink-0 ${isActive ? "text-primary" : ""}`} />
-              {!collapsed && <span className="font-medium truncate">{item.label}</span>}
+              <item.icon className="h-4 w-4 shrink-0" />
+              <span className="font-medium">{item.label}</span>
             </Link>
           );
         })}
       </nav>
 
-      <div className="p-3 border-t border-border/50">
-        <div className={`flex items-center gap-3 ${collapsed ? "justify-center" : ""}`}>
-          <Avatar className="w-9 h-9 shrink-0">
-            <AvatarFallback className="bg-primary/20 text-primary text-sm font-semibold">
-              {user?.name?.charAt(0) || "U"}
-            </AvatarFallback>
-          </Avatar>
-          {!collapsed && (
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium truncate">{user?.name}</p>
-              <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
-            </div>
-          )}
-          <Button
-            variant="ghost"
-            size="icon"
-            data-testid="logout-btn"
-            onClick={handleLogout}
-            className="shrink-0 text-muted-foreground hover:text-destructive"
-          >
-            <LogOut className="w-4 h-4" />
-          </Button>
-        </div>
+      <div className="border-t border-white/10 pt-3">
+        <Button
+          variant="ghost"
+          onClick={handleLogout}
+          className="w-full justify-start gap-2 text-violet-300 hover:bg-red-500/15 hover:text-red-100"
+        >
+          <LogOut className="h-4 w-4" />
+          Logout
+        </Button>
       </div>
     </aside>
   );
 }
 
 export function Layout({ children }) {
-  const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
-    <div className="min-h-screen bg-background flex">
+    <div className="flex min-h-screen bg-background">
       <div className="hidden md:block">
-        <Sidebar collapsed={collapsed} setCollapsed={setCollapsed} />
+        <IconSidebar />
       </div>
 
-      {mobileOpen && (
+      {mobileOpen ? (
         <div className="fixed inset-0 z-50 md:hidden">
           <div className="absolute inset-0 bg-black/50" onClick={() => setMobileOpen(false)} />
           <div className="absolute left-0 top-0 h-full">
-            <Sidebar collapsed={false} setCollapsed={() => {}} />
+            <MobileSidebar onClose={() => setMobileOpen(false)} />
           </div>
         </div>
-      )}
+      ) : null}
 
-      <div className="flex-1 flex flex-col min-w-0">
-        <header className="h-16 border-b border-border/50 glass sticky top-0 z-40 flex items-center px-4 gap-4">
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="sticky top-0 z-40 flex h-[52px] items-center gap-4 border-b border-border bg-card px-4 md:px-6">
           <Button
             variant="ghost"
             size="icon"
             data-testid="sidebar-toggle"
-            onClick={() => window.innerWidth < 768 ? setMobileOpen(true) : setCollapsed(!collapsed)}
-            className="shrink-0"
+            onClick={() => setMobileOpen(true)}
+            className="shrink-0 md:hidden"
           >
-            <Menu className="w-5 h-5" />
+            <Menu className="h-5 w-5" />
           </Button>
+          <div className="flex items-center gap-3">
+            <Menu className="hidden h-4 w-4 text-muted-foreground md:block" />
+            <span className="font-['Sora'] text-sm font-semibold text-[#18115E] dark:text-violet-100">NutriTrack Pro</span>
+          </div>
           <div className="flex-1" />
           <PendingTasksBell />
         </header>
 
-        <main className="flex-1 p-4 md:p-6 lg:p-8">
+        <main className="flex-1 p-4 md:p-5 lg:p-6">
           {children}
         </main>
       </div>

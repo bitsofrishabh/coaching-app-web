@@ -13,12 +13,12 @@ import { ResponsiveContainer, AreaChart, Area, CartesianGrid, XAxis, YAxis, Tool
 
 function StatCard({ title, value, change, icon: Icon, trend }) {
   return (
-    <Card className="stat-highlight border-border/40 bg-card/50 hover:border-primary/30 transition-all duration-300">
+    <Card className="overflow-hidden border-[#E3E0D8] bg-white shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg">
       <CardContent className="p-6">
         <div className="flex items-start justify-between">
           <div>
-            <p className="text-sm font-medium text-muted-foreground">{title}</p>
-            <p className="text-3xl font-bold font-['Manrope'] mt-2">{value}</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#8A7BC8]">{title}</p>
+            <p className="mt-2 font-['Sora'] text-3xl font-semibold text-[#18115E]">{value}</p>
             {change !== undefined && (
               <div className={`flex items-center gap-1 mt-2 text-sm ${trend === "up" ? "text-violet-500" : trend === "down" ? "text-red-500" : "text-muted-foreground"}`}>
                 {trend === "up" ? <TrendingUp className="w-4 h-4" /> : trend === "down" ? <TrendingDown className="w-4 h-4" /> : null}
@@ -26,7 +26,7 @@ function StatCard({ title, value, change, icon: Icon, trend }) {
               </div>
             )}
           </div>
-          <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#F7F4FF]">
             <Icon className="w-6 h-6 text-primary" />
           </div>
         </div>
@@ -66,9 +66,10 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-8 animate-fade-in" data-testid="dashboard-page">
-      <div>
-        <h1 className="text-3xl font-bold font-['Manrope']">Dashboard</h1>
-        <p className="text-muted-foreground mt-1">Welcome back! Here's your practice overview.</p>
+      <div className="overflow-hidden rounded-[2rem] border border-[#E3E0D8] bg-white/90 p-5 shadow-sm">
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#8A7BC8]">Overview</p>
+        <h1 className="mt-1 font-['Sora'] text-3xl font-semibold text-[#18115E]">Dashboard</h1>
+        <p className="mt-2 text-[#5F6472]">Welcome back! Here's your practice overview.</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -79,9 +80,9 @@ export function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <Card className="lg:col-span-2 border-border/40 bg-card/50">
+        <Card className="lg:col-span-2 overflow-hidden border-[#E3E0D8] bg-white shadow-sm">
           <CardHeader>
-            <CardTitle className="font-['Manrope']">Monthly Overview</CardTitle>
+            <CardTitle className="font-['Sora'] text-[#18115E]">Monthly Overview</CardTitle>
             <CardDescription>Day-wise new client enrollments in {monthLabel}</CardDescription>
           </CardHeader>
           <CardContent>
@@ -114,9 +115,9 @@ export function DashboardPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-border/40 bg-card/50">
+        <Card className="overflow-hidden border-[#E3E0D8] bg-white shadow-sm">
           <CardHeader>
-            <CardTitle className="font-['Manrope']">New Clients in {monthLabel}</CardTitle>
+            <CardTitle className="font-['Sora'] text-[#18115E]">New Clients in {monthLabel}</CardTitle>
             <CardDescription>Clients enrolled during the current month</CardDescription>
           </CardHeader>
           <CardContent>
@@ -124,7 +125,7 @@ export function DashboardPage() {
               <div className="space-y-4">
                 {recentActivity?.recent_clients?.length ? (
                   recentActivity.recent_clients.map((client) => (
-                    <div key={client.id} className="flex items-center gap-3 p-3 rounded-lg hover:bg-muted/30 transition-colors">
+                    <div key={client.id} className="flex items-center gap-3 rounded-2xl border border-transparent p-3 transition-colors hover:border-[#E3E0D8] hover:bg-[#F8F7F4]">
                       <Avatar className="w-10 h-10">
                         <AvatarFallback className="bg-primary/20 text-primary text-sm font-semibold">
                           {client.name?.charAt(0)}
@@ -151,10 +152,10 @@ export function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        <Card className="border-border/40 bg-card/50">
+        <Card className="overflow-hidden border-[#E3E0D8] bg-white shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between">
             <div>
-              <CardTitle className="font-['Manrope']">Upcoming Follow-ups</CardTitle>
+              <CardTitle className="font-['Sora'] text-[#18115E]">Upcoming Follow-ups</CardTitle>
               <CardDescription>Scheduled check-ins with your clients</CardDescription>
             </div>
             <Link to="/follow-ups">
@@ -167,8 +168,8 @@ export function DashboardPage() {
             {recentActivity?.upcoming_follow_ups?.length ? (
               <div className="space-y-3">
                 {recentActivity.upcoming_follow_ups.map((followUp) => (
-                  <div key={followUp.id} className="flex items-center gap-4 p-3 rounded-lg border border-border/40 hover:border-primary/30 transition-colors">
-                    <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                  <div key={followUp.id} className="flex items-center gap-4 rounded-2xl border border-[#E3E0D8] p-3 transition-colors hover:border-primary/30">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/10">
                       <Calendar className="w-5 h-5 text-primary" />
                     </div>
                     <div className="flex-1 min-w-0">
@@ -187,17 +188,17 @@ export function DashboardPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-border/40 bg-card/50">
+        <Card className="overflow-hidden border-[#E3E0D8] bg-white shadow-sm">
           <CardHeader>
-            <CardTitle className="font-['Manrope']">Diet Plans Expiring Soon</CardTitle>
+            <CardTitle className="font-['Sora'] text-[#18115E]">Diet Plans Expiring Soon</CardTitle>
             <CardDescription>Plans ending in the next 5 days</CardDescription>
           </CardHeader>
           <CardContent>
             {recentActivity?.expiring_diet_plans?.length ? (
               <div className="space-y-3">
                 {recentActivity.expiring_diet_plans.map((plan) => (
-                  <div key={plan.id} className="flex items-center gap-4 p-3 rounded-lg border border-border/40 hover:border-primary/30 transition-colors">
-                    <div className="w-10 h-10 rounded-lg bg-amber-500/10 flex items-center justify-center">
+                  <div key={plan.id} className="flex items-center gap-4 rounded-2xl border border-[#E3E0D8] p-3 transition-colors hover:border-primary/30">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-amber-500/10">
                       <Calendar className="w-5 h-5 text-amber-500" />
                     </div>
                     <div className="flex-1 min-w-0">

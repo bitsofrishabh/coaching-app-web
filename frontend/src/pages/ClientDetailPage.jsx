@@ -117,6 +117,18 @@ const getDaysUntilDate = (value) => {
   return Math.round((targetStart.getTime() - todayStart.getTime()) / (1000 * 60 * 60 * 24));
 };
 
+const getInitials = (name = "") =>
+  name
+    .split(/[,\s]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("") || "C";
+
+const profileMetricClassName = "rounded-2xl border border-[#E3E0D8] bg-white px-3.5 py-3 shadow-sm";
+const profileMetricLabelClassName = "text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground";
+const profileMetricValueClassName = "mt-1 font-['Sora'] text-xl font-semibold text-[#18115E] dark:text-violet-100";
+
 const createEmptyFollowUpForm = (clientId) => ({
   client_id: clientId,
   scheduled_date: "",
@@ -540,6 +552,11 @@ export function ClientDetailPage() {
   const pastDietFiles = clientFiles.filter((file) => file.category === "past-diet");
   const clientPictureFiles = clientFiles.filter((file) => file.category === "client-picture");
   const canGenerateAiAnalysis = bloodReportFiles.length > 0 || pastDietFiles.length > 0;
+  const clientInitials = getInitials(client.name);
+  const statusLabel = client.status || "active";
+  const statusBadgeClassName = statusLabel === "active"
+    ? "border-green-500/20 bg-green-500/10 text-green-700"
+    : "border-border bg-muted text-muted-foreground";
 
   const getHistoryTone = (eventLabel) => {
     const normalized = String(eventLabel || "").toLowerCase();
@@ -732,7 +749,7 @@ export function ClientDetailPage() {
   };
 
   return (
-    <div className="space-y-6 animate-fade-in" data-testid="client-detail-page">
+    <div className="space-y-7 animate-fade-in" data-testid="client-detail-page">
       <input
         ref={bloodReportInputRef}
         type="file"
@@ -765,231 +782,177 @@ export function ClientDetailPage() {
         }}
       />
 
-      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-        <div className="flex items-center gap-4">
+      <div className="flex flex-col gap-4 rounded-[2rem] border border-[#E3E0D8] bg-white/90 px-4 py-4 shadow-sm md:px-5">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-4">
           <Link to="/clients">
-            <Button variant="ghost" size="icon">
+            <Button variant="ghost" size="icon" className="rounded-lg">
               <ChevronRight className="w-5 h-5 rotate-180" />
             </Button>
           </Link>
+            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-violet-100 font-['Sora'] text-base font-semibold text-violet-900">
+              {clientInitials}
+            </div>
           <div>
-            <h1 className="text-2xl font-bold font-['Manrope']">{client.name}</h1>
-            <div className="flex items-center gap-3 text-sm text-muted-foreground mt-1">
-              {client.email && <span className="flex items-center gap-1"><Mail className="w-4 h-4" /> {client.email}</span>}
-              {client.phone && <span className="flex items-center gap-1"><Phone className="w-4 h-4" /> {client.phone}</span>}
+              <div className="mb-1 flex flex-wrap items-center gap-2">
+                <h1 className="font-['Sora'] text-xl font-semibold text-[#18115E] md:text-2xl dark:text-violet-100">{client.name}</h1>
+                <Badge variant="outline" className={statusBadgeClassName}>{statusLabel}</Badge>
+                {client.diet_preference ? <Badge variant="outline" className="bg-muted text-muted-foreground">{client.diet_preference}</Badge> : null}
+                {client.location ? <Badge variant="outline" className="bg-muted text-muted-foreground">{client.location}</Badge> : null}
+              </div>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                {client.email ? <span className="flex items-center gap-1"><Mail className="w-4 h-4" /> {client.email}</span> : null}
+                {client.phone ? <span className="flex items-center gap-1"><Phone className="w-4 h-4" /> {client.phone}</span> : null}
+                <span>Primary: {client.primary_coach || user?.name || "—"}</span>
+              </div>
             </div>
           </div>
-        </div>
-        <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Link to="/chat">
+              <Button variant="outline" size="sm" className="rounded-lg bg-card">
+                <MessageCircle className="w-4 h-4 mr-1" /> Chat
+              </Button>
+            </Link>
           <Link to={`/diet-plans?client_id=${clientId}`}>
-            <Button size="sm" className="bg-primary text-primary-foreground">
+              <Button size="sm" className="rounded-lg bg-primary text-primary-foreground">
               <Utensils className="w-4 h-4 mr-1" /> Create Diet Plan
             </Button>
           </Link>
-          <Link to="/chat">
-            <Button variant="outline" size="sm">
-              <MessageCircle className="w-4 h-4 mr-1" /> Chat
-            </Button>
-          </Link>
-          <Badge variant="outline" className={`${client.status === "active" ? "bg-violet-500/10 text-violet-500 border-violet-500/20" : "bg-gray-500/10 text-gray-500"}`}>
-            {client.status}
-          </Badge>
+        </div>
+      </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+        <div className={profileMetricClassName}>
+          <p className={profileMetricLabelClassName}>Weight</p>
+          <p className={profileMetricValueClassName}>{client.current_weight_kg || client.initial_weight_kg || "—"} kg</p>
+        </div>
+        <div className={profileMetricClassName}>
+          <p className={profileMetricLabelClassName}>Goal</p>
+          <p className={profileMetricValueClassName}>{client.goal_weight_kg || "—"} kg</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {client.goal_weight_kg && currentWeightForMetrics ? `${Math.abs(currentWeightForMetrics - client.goal_weight_kg).toFixed(1)} kg gap` : "Target pending"}
+          </p>
+        </div>
+        <div className={profileMetricClassName}>
+          <p className={profileMetricLabelClassName}>BMI</p>
+          <p className={`${profileMetricValueClassName} ${bmi && bmi >= 25 ? "text-red-600 dark:text-red-300" : ""}`}>{bmi ? bmi.toFixed(1) : "—"}</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {healthyWeightDelta
+              ? healthyWeightDelta.direction === "lose"
+                ? `Need -${healthyWeightDelta.kg.toFixed(1)} kg`
+                : healthyWeightDelta.direction === "gain"
+                  ? `Need +${healthyWeightDelta.kg.toFixed(1)} kg`
+                  : "Healthy range"
+              : "Add height & weight"}
+          </p>
+        </div>
+        <div className={profileMetricClassName}>
+          <p className={profileMetricLabelClassName}>Maint. Cals</p>
+          <p className={profileMetricValueClassName}>{maintenanceCalories || "—"}</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">kcal/day</p>
+        </div>
+        <div className={profileMetricClassName}>
+          <p className={profileMetricLabelClassName}>Adherence</p>
+          <p className={`${profileMetricValueClassName} ${adherenceRate < 50 ? "text-red-600 dark:text-red-300" : "text-green-700 dark:text-green-300"}`}>{adherenceRate.toFixed(0)}%</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">This cycle</p>
+        </div>
+        <div className={profileMetricClassName}>
+          <p className={profileMetricLabelClassName}>Progress</p>
+          <p className={`${profileMetricValueClassName} ${weightProgress > 0 ? "text-green-700 dark:text-green-300" : weightProgress < 0 ? "text-red-600 dark:text-red-300" : ""}`}>
+            {weightProgress > 0 ? "-" : "+"}{Math.abs(weightProgress).toFixed(1)}
+          </p>
+          <p className="mt-0.5 text-xs text-muted-foreground">{goalProgress.toFixed(0)}% to goal</p>
         </div>
       </div>
 
-      <Card className="border-border/40 bg-card/50">
-        <CardContent className="p-6">
-          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-            <div className="space-y-4">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge variant={client.status === "active" ? "default" : "secondary"}>{client.status || "active"}</Badge>
-                {client.diet_preference && <Badge variant="outline">{client.diet_preference}</Badge>}
-                {client.location && <Badge variant="outline">{client.location}</Badge>}
-              </div>
-
-              <div className="flex items-center gap-3 text-sm">
-                <Badge variant="outline">{client.initial_weight_kg || "—"} kg → {client.current_weight_kg || client.initial_weight_kg || "—"} kg</Badge>
-                {weightProgress !== 0 && (
-                  <Badge variant="outline" className={weightProgress > 0 ? "text-violet-500 border-violet-500/30" : "text-red-400 border-red-400/30"}>
-                    {weightProgress > 0 ? "-" : "+"}{Math.abs(weightProgress).toFixed(1)} kg
-                  </Badge>
-                )}
-              </div>
-
-              <div className="grid grid-cols-2 gap-3 text-sm">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <Card className="border-[#E3E0D8] bg-white shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-xs font-semibold uppercase tracking-[0.06em] text-[#18115E] dark:text-violet-100">Lifestyle</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 gap-x-8 gap-y-4 text-sm md:grid-cols-2">
                 <div>
-                  <p className="text-muted-foreground">Age</p>
-                  <p className="font-medium">{client.age || "—"} yrs</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">Age / Gender</p>
+                  <p className="mt-1 font-medium">{client.age || "—"} yrs · <span className="capitalize">{client.gender || "—"}</span></p>
                 </div>
                 <div>
-                  <p className="text-muted-foreground">Gender</p>
-                  <p className="font-medium capitalize">{client.gender || "—"}</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">Profession</p>
+                  <p className="mt-1 font-medium">{client.profession || "—"}</p>
                 </div>
                 <div>
-                  <p className="text-muted-foreground">Start Weight</p>
-                  <p className="font-medium">{client.initial_weight_kg || "—"} kg</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">Height</p>
+                  <p className="mt-1 font-medium">{client.height_cm || "—"} cm</p>
                 </div>
                 <div>
-                  <p className="text-muted-foreground">Target Weight</p>
-                  <p className="font-medium">{client.goal_weight_kg || "—"} kg</p>
-                </div>
-                <div className="col-span-2">
-                  <p className="text-muted-foreground">Primary Coach</p>
-                  <p className="font-medium">{client.primary_coach || user?.name || "—"}</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-xl border border-border/40 bg-muted/20 p-4">
-              <h3 className="text-lg font-semibold font-['Manrope'] mb-3">Lifestyle Snapshot</h3>
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <div>
-                  <p className="text-muted-foreground">Profession</p>
-                  <p className="font-medium">{client.profession || "—"}</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">Sleep</p>
+                  <p className="mt-1 font-medium">{client.sleep_hours || "—"} · {client.sleep_quality || "—"}</p>
                 </div>
                 <div>
-                  <p className="text-muted-foreground">Location</p>
-                  <p className="font-medium">{client.location || "—"}</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">Diet Prefs</p>
+                  <p className="mt-1 font-medium">{client.diet_preference || "—"}</p>
                 </div>
                 <div>
-                  <p className="text-muted-foreground">Height</p>
-                  <p className="font-medium">{client.height_cm || "—"} cm</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">Morning Freshness</p>
+                  <p className="mt-1 font-medium">{client.morning_freshness || "—"}</p>
                 </div>
                 <div>
-                  <p className="text-muted-foreground">Sleep Quality</p>
-                  <p className="font-medium">{client.sleep_quality || "—"}</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">Start Weight</p>
+                  <p className="mt-1 font-medium">{client.initial_weight_kg || "—"} kg</p>
                 </div>
                 <div>
-                  <p className="text-muted-foreground">Sleeping Hours</p>
-                  <p className="font-medium">{client.sleep_hours || "—"}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">Morning Freshness</p>
-                  <p className="font-medium">{client.morning_freshness || "—"}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">BMI</p>
-                  <p className="font-medium">{bmi ? bmi.toFixed(1) : "—"}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">Healthy Range</p>
-                  <p className="font-medium">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">Healthy Range</p>
+                  <p className="mt-1 font-medium">
                     {healthyWeightRange ? `${healthyWeightRange.minKg.toFixed(1)} - ${healthyWeightRange.maxKg.toFixed(1)} kg` : "—"}
                   </p>
                 </div>
               </div>
-              <div className="flex flex-wrap gap-2 mt-4">
-                {client.health_issues && <Badge variant="outline" className="bg-yellow-500/10 text-yellow-500">{client.health_issues}</Badge>}
-                {client.diet_preference && <Badge variant="outline" className="bg-violet-500/10 text-violet-500">{client.diet_preference}</Badge>}
+              <div className="mt-4 flex flex-wrap gap-2">
+                {client.health_issues ? <Badge variant="outline" className="border-amber-500/20 bg-amber-500/10 text-amber-700">{client.health_issues}</Badge> : null}
+                {client.about_client ? <Badge variant="outline" className="bg-muted text-muted-foreground">{client.about_client}</Badge> : null}
               </div>
-            </div>
+          </CardContent>
+        </Card>
 
-            <div className="space-y-4">
-              <h3 className="text-lg font-semibold font-['Manrope']">Key Dates & Milestones</h3>
-              <div className="space-y-3 text-sm">
-                <div className="flex items-start gap-2">
-                  <Calendar className="w-4 h-4 text-primary mt-0.5" />
-                  <div>
-                    <p className="text-muted-foreground">Diet Period</p>
-                    <p className="font-medium">{client.diet_start_date || "—"} to {client.diet_end_date || "—"}</p>
-                  </div>
-                </div>
-                <div className="flex items-start gap-2">
-                  <Calendar className="w-4 h-4 text-primary mt-0.5" />
-                  <div>
-                    <p className="text-muted-foreground">Program Period</p>
-                    <p className="font-medium">{client.program_start_date || "—"} to {client.program_end_date || "—"}</p>
-                    {isProgramEndingSoon ? (
-                      <Badge variant="outline" className="mt-2 border-red-500/20 bg-red-500/10 text-red-600">
-                        {programEndingLabel}
-                      </Badge>
-                    ) : null}
-                  </div>
-                </div>
-                <div className="flex items-start gap-2">
-                  <Calendar className="w-4 h-4 text-primary mt-0.5" />
-                  <div>
-                    <p className="text-muted-foreground">Last Follow-up</p>
-                    <p className="font-medium">{formatDisplayDate(latestFollowUp, { day: "2-digit", month: "short", year: "numeric" })}</p>
-                  </div>
-                </div>
-                <div className="flex items-start gap-2">
-                  <Calendar className="w-4 h-4 text-primary mt-0.5" />
-                  <div>
-                    <p className="text-muted-foreground">Upcoming Follow-up</p>
-                    <p className="font-medium">{formatDisplayDate(upcomingFollowUp, { day: "2-digit", month: "short", year: "numeric" })}</p>
-                  </div>
-                </div>
+        <Card className="border-[#E3E0D8] bg-white shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-xs font-semibold uppercase tracking-[0.06em] text-[#18115E] dark:text-violet-100">Key Dates</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3 text-sm">
+              <div className="flex items-center justify-between gap-4 border-b border-border/70 pb-3">
+                <span className="text-muted-foreground">Diet period</span>
+                <span className="text-right font-medium">{formatDisplayDate(client.diet_start_date, { day: "2-digit", month: "short" })} → {formatDisplayDate(client.diet_end_date, { day: "2-digit", month: "short", year: "numeric" })}</span>
               </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-7 gap-4">
-        <Card className="border-border/40 bg-card/50">
-          <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground uppercase tracking-wider">Current Weight</p>
-            <p className="text-2xl font-bold font-['Manrope'] mt-1">{client.current_weight_kg || "—"} kg</p>
-          </CardContent>
-        </Card>
-        <Card className="border-border/40 bg-card/50">
-          <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground uppercase tracking-wider">Goal Weight</p>
-            <p className="text-2xl font-bold font-['Manrope'] mt-1">{client.goal_weight_kg || "—"} kg</p>
-          </CardContent>
-        </Card>
-        <Card className="border-border/40 bg-card/50">
-          <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground uppercase tracking-wider">Progress</p>
-            <p className={`text-2xl font-bold font-['Manrope'] mt-1 ${weightProgress > 0 ? "text-violet-500" : weightProgress < 0 ? "text-red-500" : ""}`}>
-              {weightProgress > 0 ? "-" : "+"}{Math.abs(weightProgress).toFixed(1)} kg
-            </p>
-          </CardContent>
-        </Card>
-        <Card className="border-border/40 bg-card/50">
-          <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground uppercase tracking-wider">Adherence</p>
-            <p className="text-2xl font-bold font-['Manrope'] mt-1 text-primary">{adherenceRate.toFixed(0)}%</p>
-          </CardContent>
-        </Card>
-        <Card className="border-border/40 bg-card/50">
-          <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground uppercase tracking-wider">BMI</p>
-            <p className="text-2xl font-bold font-['Manrope'] mt-1">{bmi ? bmi.toFixed(1) : "—"}</p>
-            <p className="text-xs text-muted-foreground mt-1">
-              {healthyWeightDelta
-                ? healthyWeightDelta.direction === "lose"
-                  ? `Need to lose ${healthyWeightDelta.kg.toFixed(1)} kg`
-                  : healthyWeightDelta.direction === "gain"
-                    ? `Need to gain ${healthyWeightDelta.kg.toFixed(1)} kg`
-                    : "Within healthy BMI range"
-                : "Add height & weight"}
-            </p>
-          </CardContent>
-        </Card>
-        <Card className="border-border/40 bg-card/50">
-          <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground uppercase tracking-wider">Maintenance Cals</p>
-            <p className="text-2xl font-bold font-['Manrope'] mt-1 text-primary">{maintenanceCalories || "—"}</p>
-            <p className="text-xs text-muted-foreground mt-1">kcal/day estimate</p>
-          </CardContent>
-        </Card>
-        <Card className="border-border/40 bg-card/50">
-          <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground uppercase tracking-wider">Goal Progress</p>
-            <div className="mt-2">
-              <Progress value={goalProgress} className="h-2" />
-              <p className="text-xs text-muted-foreground mt-1">{goalProgress.toFixed(0)}% to goal</p>
+              <div className="flex items-center justify-between gap-4 border-b border-border/70 pb-3">
+                <span className="text-muted-foreground">Program</span>
+                <span className="text-right font-medium">{formatDisplayDate(client.program_start_date, { day: "2-digit", month: "short" })} → {formatDisplayDate(client.program_end_date, { day: "2-digit", month: "short", year: "numeric" })}</span>
+              </div>
+              {isProgramEndingSoon ? (
+                <div className="flex justify-end">
+                  <Badge variant="outline" className="border-red-500/20 bg-red-500/10 text-red-600">{programEndingLabel}</Badge>
+                </div>
+              ) : null}
+              <div className="flex items-center justify-between gap-4 border-b border-border/70 pb-3">
+                <span className="text-muted-foreground">Last follow-up</span>
+                <span className="text-right font-medium">{formatDisplayDate(latestFollowUp, { day: "2-digit", month: "short", year: "numeric" })}</span>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-muted-foreground">Next follow-up</span>
+                <Badge variant="outline" className="border-amber-500/20 bg-amber-500/10 text-amber-700">
+                  {formatDisplayDate(upcomingFollowUp, { day: "2-digit", month: "short", year: "numeric" })}
+                </Badge>
+              </div>
             </div>
           </CardContent>
         </Card>
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-        <Card className="border-border/40 bg-card/50">
+        <Card className="overflow-hidden border-[#E3E0D8] bg-white shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="font-['Manrope']">Weight Progress</CardTitle>
+            <CardTitle className="font-['Sora'] text-[#18115E]">Weight Progress</CardTitle>
             <div className="flex items-center gap-2">
               <Button
                 variant="outline"
@@ -1031,9 +994,9 @@ export function ClientDetailPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-border/40 bg-card/50">
+        <Card className="overflow-hidden border-[#E3E0D8] bg-white shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="font-['Manrope']">Follow-up Records</CardTitle>
+            <CardTitle className="font-['Sora'] text-[#18115E]">Follow-up Records</CardTitle>
             <Button size="icon" className="bg-primary text-primary-foreground" onClick={() => setFollowUpDialogOpen(true)}>
               <Plus className="w-4 h-4" />
             </Button>
@@ -1071,9 +1034,9 @@ export function ClientDetailPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-border/40 bg-card/50">
+        <Card className="overflow-hidden border-[#E3E0D8] bg-white shadow-sm">
           <CardHeader>
-            <CardTitle className="font-['Manrope']">Team Comments</CardTitle>
+            <CardTitle className="font-['Sora'] text-[#18115E]">Team Comments</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <ScrollArea className="h-[190px] pr-3">
@@ -1112,9 +1075,9 @@ export function ClientDetailPage() {
         </Card>
       </div>
 
-      <Card className="border-border/40 bg-card/50">
+      <Card className="overflow-hidden border-[#E3E0D8] bg-white shadow-sm">
         <CardHeader>
-          <CardTitle className="font-['Manrope']">History</CardTitle>
+          <CardTitle className="font-['Sora'] text-[#18115E]">History</CardTitle>
           <CardDescription>Recent diet date and follow-up changes for this client.</CardDescription>
         </CardHeader>
         <CardContent>
@@ -1162,10 +1125,10 @@ export function ClientDetailPage() {
         </CardContent>
       </Card>
 
-      <Card className="border-border/40 bg-card/50">
+      <Card className="overflow-hidden border-[#E3E0D8] bg-white shadow-sm">
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
-            <CardTitle className="font-['Manrope']">Monthly Progress Tracking</CardTitle>
+            <CardTitle className="font-['Sora'] text-[#18115E]">Monthly Progress Tracking</CardTitle>
             <CardDescription>Log daily weights and meal adherence to keep trendline updated.</CardDescription>
           </div>
           <Select value={selectedMonth} onValueChange={setSelectedMonth}>
@@ -1183,26 +1146,26 @@ export function ClientDetailPage() {
           </Select>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto rounded-3xl border border-[#E3E0D8] bg-[#F8F7F4]">
             <table className="min-w-[1700px] w-full">
-              <thead>
-                <tr className="border-b border-border/40">
-                  <th className="text-left py-2 pr-3 text-sm font-semibold">Activity</th>
+              <thead className="bg-[#EFEDE7]">
+                <tr className="border-b border-[#E3E0D8]">
+                  <th className="text-left py-3 pl-4 pr-3 text-sm font-semibold text-[#18115E]">Activity</th>
                   {trackerDays.map((day) => (
-                    <th key={day} className="py-2 px-2 text-xs text-muted-foreground font-medium">{String(day).padStart(2, "0")}</th>
+                    <th key={day} className="py-3 px-2 text-xs font-semibold text-[#6C6680]">{String(day).padStart(2, "0")}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                <tr className="border-b border-border/30">
-                  <td className="py-3 pr-3 text-sm font-medium">Daily Weight (kg)</td>
+                <tr className="border-b border-[#E8E4DC] bg-white/70">
+                  <td className="py-3 pl-4 pr-3 text-sm font-semibold text-[#18115E]">Daily Weight (kg)</td>
                   {trackerDays.map((day) => (
                     <td key={`weight-${day}`} className="py-2 px-1">
                       <Input
                         value={monthlyTracker.weights[day] || ""}
                         onChange={(e) => updateTrackerWeight(day, e.target.value)}
                         onBlur={() => saveTrackerWeight(day)}
-                        className="h-8 text-center"
+                        className="h-8 rounded-xl border-[#E3E0D8] bg-white text-center"
                       />
                       {trackerWeightSavingCell === `weight-${day}` && (
                         <div className="mt-1 flex justify-center">
@@ -1213,8 +1176,8 @@ export function ClientDetailPage() {
                   ))}
                 </tr>
                 {MONTHLY_TRACKER_ROWS.map((rowName) => (
-                  <tr key={rowName} className="border-b border-border/20">
-                    <td className="py-3 pr-3 text-sm">{rowName}</td>
+                  <tr key={rowName} className="border-b border-[#E8E4DC] bg-white/40 last:border-0">
+                    <td className="py-3 pl-4 pr-3 text-sm font-medium text-[#18115E]">{rowName}</td>
                     {trackerDays.map((day) => (
                       <td key={`${rowName}-${day}`} className="py-2 px-1 text-center">
                         <input
@@ -1238,10 +1201,10 @@ export function ClientDetailPage() {
         </CardContent>
       </Card>
 
-      <Card className="border-border/40 bg-card/50">
+      <Card className="overflow-hidden border-[#E3E0D8] bg-white shadow-sm">
         <CardContent className="pt-6">
           <Tabs defaultValue="reports">
-            <TabsList className="bg-muted/50 p-1">
+            <TabsList className="rounded-2xl bg-[#F0EEE8] p-1">
               <TabsTrigger value="reports">Diet & Reports</TabsTrigger>
               <TabsTrigger value="ai">AI Health Analysis</TabsTrigger>
               <TabsTrigger value="pictures">Client Pictures</TabsTrigger>
@@ -1249,7 +1212,7 @@ export function ClientDetailPage() {
 
             <TabsContent value="reports" className="space-y-6 pt-4">
               <div>
-                <h3 className="text-xl font-semibold font-['Manrope']">Blood Report Insights</h3>
+                <h3 className="text-xl font-semibold font-['Sora'] text-[#18115E]">Blood Report Insights</h3>
                 <p className="text-muted-foreground text-sm mt-1">Upload the latest blood report PDF to let AI highlight metabolic risks and nutritional gaps.</p>
                 <Button variant="outline" className="mt-3" onClick={() => bloodReportInputRef.current?.click()} disabled={uploadingCategory === "blood-report"}>
                   {uploadingCategory === "blood-report" ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
@@ -1261,7 +1224,7 @@ export function ClientDetailPage() {
               <Separator />
 
               <div>
-                <h3 className="text-xl font-semibold font-['Manrope']">Diet History & New Plan</h3>
+                <h3 className="text-xl font-semibold font-['Sora'] text-[#18115E]">Diet History & New Plan</h3>
                 <p className="text-muted-foreground text-sm mt-1">Upload the client's past diet chart PDF for AI-based summary and new plan suggestions.</p>
                 <Button variant="outline" className="mt-3" onClick={() => pastDietInputRef.current?.click()} disabled={uploadingCategory === "past-diet"}>
                   {uploadingCategory === "past-diet" ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
@@ -1272,10 +1235,10 @@ export function ClientDetailPage() {
             </TabsContent>
 
             <TabsContent value="ai" className="space-y-4 pt-4">
-              <Card className="border-border/40 bg-muted/20">
+              <Card className="overflow-hidden border-[#241A78]/20 bg-white">
                 <CardHeader className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                   <div className="space-y-1">
-                    <CardTitle className="flex items-center gap-2 text-lg font-['Manrope']">
+                    <CardTitle className="flex items-center gap-2 text-lg font-['Sora'] text-[#18115E]">
                       <Sparkles className="h-5 w-5 text-primary" />
                       AI Health Snapshot
                     </CardTitle>
@@ -1422,7 +1385,7 @@ export function ClientDetailPage() {
             <TabsContent value="pictures" className="space-y-4 pt-4">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <h3 className="text-xl font-semibold font-['Manrope']">Client Pictures</h3>
+                  <h3 className="text-xl font-semibold font-['Sora'] text-[#18115E]">Client Pictures</h3>
                   <p className="text-muted-foreground text-sm mt-1">Upload and review progress pictures for this client.</p>
                 </div>
                 <Button variant="outline" onClick={() => clientPicturesInputRef.current?.click()} disabled={uploadingCategory === "client-picture"}>
@@ -1463,7 +1426,7 @@ export function ClientDetailPage() {
       </Card>
 
       <Tabs defaultValue="progress" className="space-y-6">
-        <TabsList className="bg-muted/50 p-1">
+        <TabsList className="rounded-2xl bg-[#F0EEE8] p-1">
           <TabsTrigger value="progress" data-testid="tab-progress">Progress</TabsTrigger>
           <TabsTrigger value="meals" data-testid="tab-meals">Meal Photos</TabsTrigger>
           <TabsTrigger value="diet-plans" data-testid="tab-diet-plans">Diet Plans</TabsTrigger>
@@ -1471,9 +1434,9 @@ export function ClientDetailPage() {
         </TabsList>
 
         <TabsContent value="progress" className="space-y-6">
-          <Card className="border-border/40 bg-card/50">
+          <Card className="overflow-hidden border-[#E3E0D8] bg-white shadow-sm">
             <CardHeader>
-              <CardTitle className="font-['Manrope']">Weight History</CardTitle>
+              <CardTitle className="font-['Sora'] text-[#18115E]">Weight History</CardTitle>
             </CardHeader>
             <CardContent>
               <ScrollArea className="h-[250px]">
@@ -1519,9 +1482,9 @@ export function ClientDetailPage() {
         </TabsContent>
 
         <TabsContent value="meals" className="space-y-6">
-          <Card className="border-border/40 bg-card/50">
+          <Card className="overflow-hidden border-[#E3E0D8] bg-white shadow-sm">
             <CardHeader>
-              <CardTitle className="font-['Manrope']">Meal Photo Uploads</CardTitle>
+              <CardTitle className="font-['Sora'] text-[#18115E]">Meal Photo Uploads</CardTitle>
               <CardDescription>Photos uploaded by this client</CardDescription>
             </CardHeader>
             <CardContent>
@@ -1559,10 +1522,10 @@ export function ClientDetailPage() {
         </TabsContent>
 
         <TabsContent value="diet-plans" className="space-y-6">
-          <Card className="border-border/40 bg-card/50">
+          <Card className="overflow-hidden border-[#E3E0D8] bg-white shadow-sm">
             <CardHeader className="flex flex-row items-center justify-between">
               <div>
-                <CardTitle className="font-['Manrope']">Diet Plans</CardTitle>
+                <CardTitle className="font-['Sora'] text-[#18115E]">Diet Plans</CardTitle>
                 <CardDescription>Assigned diet plans for this client</CardDescription>
               </div>
               <Link to={`/diet-plans?client_id=${clientId}`}>
@@ -1601,9 +1564,9 @@ export function ClientDetailPage() {
         </TabsContent>
 
         <TabsContent value="info">
-          <Card className="border-border/40 bg-card/50">
+          <Card className="overflow-hidden border-[#E3E0D8] bg-white shadow-sm">
             <CardHeader>
-              <CardTitle className="font-['Manrope']">Client Information</CardTitle>
+              <CardTitle className="font-['Sora'] text-[#18115E]">Client Information</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-2 gap-4">

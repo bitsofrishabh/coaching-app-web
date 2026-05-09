@@ -96,7 +96,10 @@ const TRACKER_COLUMN_OPTIONS = [
   { key: "upcoming_follow_up_date", label: "Upcoming Follow-up" }
 ];
 
-const DEFAULT_VISIBLE_TRACKER_COLUMNS = TRACKER_COLUMN_OPTIONS.map((option) => option.key);
+const DEFAULT_HIDDEN_TRACKER_COLUMNS = new Set(["program_start_date", "program_end_date"]);
+const DEFAULT_VISIBLE_TRACKER_COLUMNS = TRACKER_COLUMN_OPTIONS
+  .filter((option) => !DEFAULT_HIDDEN_TRACKER_COLUMNS.has(option.key))
+  .map((option) => option.key);
 
 const CLIENT_STATUS_META = {
   "yet-to-start": {
@@ -535,6 +538,39 @@ const formatWeight = (value) => {
   return `${numeric.toFixed(1)} kg`;
 };
 
+const normalizeDuplicateText = (value) => String(value || "").trim().toLowerCase().replace(/\s+/g, " ");
+const normalizeDuplicatePhone = (value) => {
+  const digits = String(value || "").replace(/\D/g, "");
+  if (digits.length > 10 && digits.startsWith("91")) return digits.slice(-10);
+  return digits;
+};
+
+const findExistingClientForImport = (clients, importedClient) => {
+  const importedEmail = normalizeDuplicateText(importedClient.email);
+  const importedPhone = normalizeDuplicatePhone(importedClient.phone);
+  const importedName = normalizeDuplicateText(importedClient.name);
+
+  return clients.find((client) => {
+    const clientEmail = normalizeDuplicateText(client.email);
+    const clientPhone = normalizeDuplicatePhone(client.phone);
+    const clientName = normalizeDuplicateText(client.name);
+
+    if (importedEmail && clientEmail && importedEmail === clientEmail) return true;
+    if (importedPhone && importedPhone.length >= 8 && clientPhone && importedPhone === clientPhone) return true;
+    return importedName && clientName && importedName === clientName;
+  });
+};
+
+const mergeImportedClientPayload = (existingClient, importedClient) => {
+  const merged = { ...existingClient };
+  Object.entries(importedClient || {}).forEach(([key, value]) => {
+    if (value !== null && value !== undefined && value !== "") {
+      merged[key] = value;
+    }
+  });
+  return merged;
+};
+
 const getSortState = (sortValue) => {
   if ((sortValue || "").endsWith("-asc")) {
     return { key: sortValue.slice(0, -4), direction: "asc" };
@@ -560,6 +596,15 @@ const compareNullableValues = (leftValue, rightValue, direction, type = "text") 
   }
 
   return direction === "asc" ? result : -result;
+};
+
+const getDaysUntilIsoDate = (value) => {
+  const targetDate = parseIsoDateToLocal(value);
+  if (!targetDate) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  targetDate.setHours(0, 0, 0, 0);
+  return Math.round((targetDate.getTime() - today.getTime()) / 86400000);
 };
 
 export function ClientsPage() {
@@ -810,6 +855,15 @@ export function ClientsPage() {
         return;
       }
 
+      const existingClient = findExistingClientForImport(clients, payload);
+      if (existingClient) {
+        setEditingClient(existingClient);
+        setFormData(clientPayloadToFormData(mergeImportedClientPayload(existingClient, payload)));
+        setDialogOpen(true);
+        toast.info(`${existingClient.name} already exists. Imported data opened in edit mode for review.`);
+        return;
+      }
+
       setEditingClient(null);
       setFormData(clientPayloadToFormData(payload));
       setDialogOpen(true);
@@ -868,6 +922,15 @@ export function ClientsPage() {
   };
 
   const totalCount = clients.length;
+  const activeClientCount = clients.filter((client) => normalizeClientStatus(client.status) === "active").length;
+  const dietExpiringUrgentCount = clients.filter((client) => {
+    const daysLeft = getDaysUntilIsoDate(client.diet_end_date);
+    return daysLeft !== null && daysLeft >= 0 && daysLeft <= 1;
+  }).length;
+  const dietExpiringWeekCount = clients.filter((client) => {
+    const daysLeft = getDaysUntilIsoDate(client.diet_end_date);
+    return daysLeft !== null && daysLeft >= 2 && daysLeft <= 7;
+  }).length;
   const statusCounts = clients.reduce((accumulator, client) => {
     const key = normalizeClientStatus(client.status);
     accumulator[key] = (accumulator[key] || 0) + 1;
@@ -958,7 +1021,7 @@ export function ClientsPage() {
   }));
 
   return (
-    <div className="space-y-6 animate-fade-in" data-testid="clients-page">
+    <div className="space-y-5 animate-fade-in" data-testid="clients-page">
       <input
         ref={csvInputRef}
         type="file"
@@ -967,13 +1030,23 @@ export function ClientsPage() {
         onChange={handleCsvUpload}
       />
 
-      <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
+      <div className="rounded-xl border border-border bg-card px-4 py-4 shadow-[0_1px_0_rgba(15,23,42,0.02)] md:px-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <h1 className="text-3xl font-bold font-['Manrope']">Client Tracker</h1>
-          <p className="text-muted-foreground mt-1">Stay on top of every client touchpoint and upcoming follow-up.</p>
+          <h1 className="font-['Sora'] text-2xl font-semibold text-[#18115E] md:text-3xl dark:text-violet-100">Client Tracker</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {activeClientCount} active clients ·{" "}
+            <span className={dietExpiringUrgentCount ? "font-medium text-red-600" : "text-muted-foreground"}>
+              {dietExpiringUrgentCount} diets expiring today/tomorrow
+            </span>
+            {" "}·{" "}
+            <span className={dietExpiringWeekCount ? "font-medium text-amber-600" : "text-muted-foreground"}>
+              {dietExpiringWeekCount} expiring this week
+            </span>
+          </p>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="flex rounded-lg border border-border bg-background p-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex rounded-lg border border-border bg-muted/45 p-1">
             <Button
               type="button"
               variant={clientViewMode === "table" ? "secondary" : "ghost"}
@@ -995,26 +1068,42 @@ export function ClientsPage() {
               Kanban
             </Button>
           </div>
-          <Button variant="outline" onClick={triggerCsvPicker} disabled={csvImporting}>
+          <Button variant="outline" onClick={triggerCsvPicker} disabled={csvImporting} className="h-10 rounded-lg bg-card">
             <Upload className="w-4 h-4 mr-2" />
             {csvImporting ? "Importing CSV..." : "Import Client CSV"}
           </Button>
-          <Button onClick={openCreateDialog} data-testid="add-client-btn" className="bg-primary text-primary-foreground">
+          <Button onClick={openCreateDialog} data-testid="add-client-btn" className="h-10 rounded-lg bg-primary text-primary-foreground">
             <Plus className="w-4 h-4 mr-2" /> Add Client
           </Button>
-          <Button variant="outline">
+          <Button variant="outline" className="h-10 rounded-lg bg-card">
             <Sparkles className="w-4 h-4 mr-2" /> Ask AI
           </Button>
         </div>
       </div>
+      </div>
 
-      <div className="flex flex-col xl:flex-row gap-3">
+      <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+        <div className="flex items-center gap-2">
+          <span className="h-2.5 w-2.5 rounded-sm bg-red-500" />
+          <span>Expiring today/tomorrow</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="h-2.5 w-2.5 rounded-sm bg-amber-500" />
+          <span>Expiring this week</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="h-2.5 w-2.5 rounded-sm bg-green-500" />
+          <span>Active & healthy</span>
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-3 xl:flex-row">
         {clientViewMode === "table" ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
                 variant="outline"
-                className="h-11 w-full justify-between xl:w-72"
+                className="h-10 w-full justify-between rounded-lg bg-card xl:w-72"
                 data-testid="client-status-filter"
               >
                 <span className="truncate">{selectedStatusLabel}</span>
@@ -1049,12 +1138,12 @@ export function ClientsPage() {
             placeholder="Search clients"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="pl-10 h-11"
+            className="h-10 rounded-lg bg-card pl-10"
           />
         </div>
 
         <Select value={sortBy} onValueChange={setSortBy}>
-          <SelectTrigger className="w-full xl:w-60 h-11">
+          <SelectTrigger className="h-10 w-full rounded-lg bg-card xl:w-60">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -1069,7 +1158,7 @@ export function ClientsPage() {
         {clientViewMode === "table" ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" className="h-11 w-full justify-between xl:w-60">
+              <Button variant="outline" className="h-10 w-full justify-between rounded-lg bg-card xl:w-60">
                 <span className="truncate">Columns</span>
                 <ArrowDown className="h-4 w-4 text-muted-foreground" />
               </Button>
