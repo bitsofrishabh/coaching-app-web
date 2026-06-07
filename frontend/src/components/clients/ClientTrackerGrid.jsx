@@ -4,10 +4,8 @@ import { AllCommunityModule, ModuleRegistry, themeQuartz } from "ag-grid-communi
 import { useTheme } from "next-themes";
 import { CalendarDays, Edit, Eye, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { DatePickerInput } from "@/components/ui/date-picker-input";
-import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -33,11 +31,6 @@ const clientTrackerGridTheme = themeQuartz.withParams({
   headerColumnResizeHandleColor: "rgb(139 92 246)",
 });
 
-const buildWeightTooltip = (entries = []) =>
-  entries
-    .map((entry) => `${entry.recorded_date}: ${entry.weight_kg} kg`)
-    .join("\n");
-
 const getDaysUntilDate = (value) => {
   if (!value) return null;
   const parsed = new Date(value);
@@ -62,6 +55,7 @@ export function ClientTrackerGrid({
   loading,
   rowDrafts,
   visibleColumns,
+  statusOptions,
   editingCommentClientId,
   commentInputRefs,
   canDeleteClient,
@@ -73,6 +67,7 @@ export function ClientTrackerGrid({
   onCommentDraftChange,
   onSubmitInlineComment,
   onInlineDateChange,
+  onStatusChange,
   onEditClient,
   onDeleteClient,
 }) {
@@ -117,85 +112,27 @@ export function ClientTrackerGrid({
     {
       field: "status",
       headerName: "Status",
-      width: 130,
-      minWidth: 112,
+      width: 160,
+      minWidth: 145,
       sortable: true,
       valueGetter: (params) => getClientStatusMeta(params.data.status).label,
       cellRenderer: (params) => {
         const statusMeta = getClientStatusMeta(params.data.status);
         return (
-          <div className="w-full overflow-hidden">
-            <span className={`inline-block max-w-full truncate text-[12px] font-medium ${statusMeta.badgeClassName}`}>
-              {statusMeta.label}
-            </span>
-          </div>
-        );
-      },
-    },
-    {
-      field: "weight_delta",
-      headerName: "10-Day Diff",
-      width: 135,
-      minWidth: 118,
-      sortable: true,
-      comparator: (leftValue, rightValue) => {
-        const leftMissing = leftValue === null || leftValue === undefined;
-        const rightMissing = rightValue === null || rightValue === undefined;
-        if (leftMissing && rightMissing) return 0;
-        if (leftMissing) return 1;
-        if (rightMissing) return -1;
-        return Number(leftValue) - Number(rightValue);
-      },
-      cellRenderer: (params) => {
-        const weightSummary = params.data.weight_summary;
-        const weightDelta = params.data.weight_delta;
-        const hasWeightTrend = typeof weightDelta === "number";
-        if (!weightSummary?.entries?.length) {
-          return <span className="text-sm text-muted-foreground">—</span>;
-        }
-        const formattedWeightDelta = hasWeightTrend
-          ? `${weightDelta > 0 ? "+" : ""}${weightDelta.toFixed(1)} kg`
-          : "—";
-        return (
-          <HoverCard openDelay={120} closeDelay={100}>
-            <HoverCardTrigger asChild>
-              <button
-                type="button"
-                title={buildWeightTooltip(weightSummary.entries)}
-                className={`text-sm font-semibold ${
-                  weightDelta < 0 ? "text-violet-500" : weightDelta > 0 ? "text-red-400" : "text-muted-foreground"
-                }`}
-              >
-                {hasWeightTrend ? formattedWeightDelta : "—"}
-              </button>
-            </HoverCardTrigger>
-            <HoverCardContent align="start" className="w-72">
-              <div className="space-y-3">
-                <div>
-                  <p className="text-sm font-semibold">Last 10 Weight Logs</p>
-                  <p className="text-xs text-muted-foreground">Newest entry shown first.</p>
-                </div>
-                <div className="overflow-hidden rounded-lg border border-border/50">
-                  <table className="w-full text-sm">
-                    <thead className="bg-muted/40">
-                      <tr>
-                        <th className="px-3 py-2 text-left font-medium">Date</th>
-                        <th className="px-3 py-2 text-right font-medium">Weight</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {weightSummary.entries.map((entry) => (
-                        <tr key={`${params.data.id}-${entry.recorded_date}`} className="border-t border-border/40">
-                          <td className="px-3 py-2">{entry.recorded_date}</td>
-                          <td className="px-3 py-2 text-right">{entry.weight_kg} kg</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </HoverCardContent>
-          </HoverCard>
+          <select
+            value={params.data.status || "active"}
+            onChange={(event) => onStatusChange(params.data, event.target.value)}
+            onClick={(event) => event.stopPropagation()}
+            onMouseDown={(event) => event.stopPropagation()}
+            aria-label={`Change status for ${params.data.name}`}
+            className={`h-8 w-full rounded-none border-0 bg-transparent px-0 text-[14px] font-medium shadow-none outline-none transition-colors hover:bg-transparent focus:ring-0 ${statusMeta.badgeClassName}`}
+          >
+            {(statusOptions || []).map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
         );
       },
     },

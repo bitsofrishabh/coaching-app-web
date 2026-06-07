@@ -142,6 +142,16 @@ def _truncate(value: Any, max_chars: int) -> str:
     return f"{text[:max_chars]}\n\n[truncated]"
 
 
+def _format_list_field(value: Any) -> str:
+    if isinstance(value, list):
+        items = [str(item).strip() for item in value if str(item).strip()]
+    elif value:
+        items = [str(value).strip()]
+    else:
+        items = []
+    return ", ".join(items) or "None provided"
+
+
 def _serialize_day_wise_plan(day_wise_plan: List[Dict[str, Any]]) -> str:
     return json.dumps(day_wise_plan, ensure_ascii=True, indent=2)
 
@@ -156,12 +166,14 @@ def generate_diet_plan_analysis(
     model: Optional[str] = None,
 ) -> Dict[str, Any]:
     system_prompt = (
-        "You are an assistant supporting an Indian dietitian. "
+        "You are the dietitian's analytical business partner and client-success strategist. "
         "You will analyze a structured day-wise diet plan, estimate daily calories and protein conservatively, "
         "compare it against the provided calorie target and protein target, and explain practical improvement areas. "
+        "Think carefully before answering, but do not reveal private chain-of-thought; return only conclusions, "
+        "evidence-based rationale, next actions, and uncertainty notes. "
         "Prefer Indian diet assumptions unless the meals clearly indicate otherwise. "
         "Do not claim precision when the meal wording is vague. Put uncertainty into confidence_notes. "
-        "Do not rewrite the diet here; focus on analysis plus suggested action seeds."
+        "Do not rewrite the diet here; focus on analysis, adherence risks, client-fit issues, and suggested action seeds."
     )
 
     user_prompt = (
@@ -174,6 +186,11 @@ def generate_diet_plan_analysis(
         f"- Goal weight (kg): {client.get('goal_weight_kg') or 'Unknown'}\n"
         f"- Diet preference: {client.get('diet_preference') or 'Unknown'}\n"
         f"- Health issues: {client.get('health_issues') or 'None provided'}\n"
+        f"- Allergies: {_format_list_field(client.get('allergies'))}\n"
+        f"- Avoid foods: {_format_list_field(client.get('avoid_foods'))}\n"
+        f"- Preferred foods: {_format_list_field(client.get('preferred_foods'))}\n"
+        f"- Disliked foods: {_format_list_field(client.get('disliked_foods'))}\n"
+        f"- Medical food restrictions: {_format_list_field(client.get('medical_food_restrictions'))}\n"
         f"- Notes: {client.get('notes') or client.get('about_client') or 'None provided'}\n\n"
         "Target context:\n"
         f"- Maintenance calories: {client_context.get('maintenance_calories') or 'Unknown'}\n"
@@ -212,8 +229,10 @@ def generate_diet_plan_suggestions(
     model: Optional[str] = None,
 ) -> Dict[str, Any]:
     system_prompt = (
-        "You are an assistant supporting an Indian dietitian. "
+        "You are the dietitian's analytical business partner and client-success strategist. "
         "Return structured, coach-facing suggestions only. "
+        "Think carefully before answering, but do not reveal private chain-of-thought; return practical recommendations "
+        "and concise rationale only. "
         "Keep recommendations realistic for Indian diet plans and respect the client's diet preference. "
         "When suggesting changes, target explicit day/slot edits only, do not invent slots outside the provided plan schema. "
         "If the user asks for five options, include them in recommendations and use proposed_changes only where a concrete replacement makes sense. "
@@ -225,6 +244,11 @@ def generate_diet_plan_suggestions(
         f"- Name: {client.get('name') or 'Unknown'}\n"
         f"- Diet preference: {client.get('diet_preference') or 'Unknown'}\n"
         f"- Health issues: {client.get('health_issues') or 'None provided'}\n"
+        f"- Allergies: {_format_list_field(client.get('allergies'))}\n"
+        f"- Avoid foods: {_format_list_field(client.get('avoid_foods'))}\n"
+        f"- Preferred foods: {_format_list_field(client.get('preferred_foods'))}\n"
+        f"- Disliked foods: {_format_list_field(client.get('disliked_foods'))}\n"
+        f"- Medical food restrictions: {_format_list_field(client.get('medical_food_restrictions'))}\n"
         f"- Maintenance calories: {client_context.get('maintenance_calories') or 'Unknown'}\n"
         f"- Target daily calories: {client_context.get('target_daily_calories') or 'Unknown'}\n"
         f"- Estimated protein target (g): {client_context.get('estimated_protein_target_g') or 'Unknown'}\n\n"

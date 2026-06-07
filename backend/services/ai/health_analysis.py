@@ -58,6 +58,16 @@ def _truncate_text(value: Optional[str], max_chars: int) -> str:
     return f"{text[:max_chars]}\n\n[truncated]"
 
 
+def _format_list_field(value: Any) -> str:
+    if isinstance(value, list):
+        items = [str(item).strip() for item in value if str(item).strip()]
+    elif value:
+        items = [str(value).strip()]
+    else:
+        items = []
+    return ", ".join(items) or "None provided"
+
+
 def _normalize_analysis_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "overall_summary": str(payload.get("overall_summary") or "").strip(),
@@ -78,11 +88,16 @@ def generate_client_health_analysis(
     model: Optional[str] = None,
 ) -> Dict[str, Any]:
     system_prompt = (
-        "You are an assistant supporting a dietitian. "
+        "You are the dietitian's analytical business partner and client-success strategist. "
         "Analyze the supplied blood report text, past diet plan text, and client profile to produce a concise, "
-        "coach-facing health summary. Do not diagnose disease, do not invent lab values, and do not claim evidence "
-        "that is not explicitly present in the inputs. If information is missing or unclear, state that in confidence_notes. "
-        "Focus on practical risk flags, nutrition gaps, diet adherence patterns, and actionable follow-up questions."
+        "coach-facing health and operations summary that helps the team decide what to do next. "
+        "Think carefully before answering, but do not reveal private chain-of-thought; return only conclusions, "
+        "evidence-based rationale, next actions, and uncertainty notes. "
+        "Do not diagnose disease, do not invent lab values, and do not claim evidence that is not explicitly present "
+        "in the inputs. If information is missing or unclear, state that in confidence_notes. "
+        "Focus on practical risk flags, nutrition gaps, diet adherence patterns, food-preference fit, routine constraints, "
+        "client-retention risks, and actionable follow-up questions. Keep recommendations Indian-diet friendly unless "
+        "the client's context clearly suggests otherwise."
     )
 
     user_prompt = (
@@ -95,6 +110,20 @@ def generate_client_health_analysis(
         f"- Goal weight (kg): {client.get('goal_weight_kg') or 'Unknown'}\n"
         f"- Diet preference: {client.get('diet_preference') or 'Unknown'}\n"
         f"- Health issues: {client.get('health_issues') or 'None provided'}\n"
+        f"- Allergies: {_format_list_field(client.get('allergies'))}\n"
+        f"- Avoid foods: {_format_list_field(client.get('avoid_foods'))}\n"
+        f"- Preferred foods: {_format_list_field(client.get('preferred_foods'))}\n"
+        f"- Disliked foods: {_format_list_field(client.get('disliked_foods'))}\n"
+        f"- Medical food restrictions: {_format_list_field(client.get('medical_food_restrictions'))}\n"
+        f"- Status: {client.get('status') or 'Unknown'}\n"
+        f"- Profession: {client.get('profession') or 'Unknown'}\n"
+        f"- Location: {client.get('location') or 'Unknown'}\n"
+        f"- Sleep quality: {client.get('sleep_quality') or 'Unknown'}\n"
+        f"- Sleep hours: {client.get('sleep_hours') or 'Unknown'}\n"
+        f"- Morning freshness: {client.get('morning_freshness') or 'Unknown'}\n"
+        f"- Recent team comment: {client.get('recent_comment') or 'None provided'}\n"
+        f"- Last follow-up date: {client.get('last_follow_up_date') or 'Unknown'}\n"
+        f"- Upcoming follow-up date: {client.get('upcoming_follow_up_date') or 'Unknown'}\n"
         f"- Notes: {client.get('notes') or client.get('about_client') or 'None provided'}\n\n"
         "Blood report text:\n"
         f"{_truncate_text(blood_report_text, 24000) or '[No blood report text available]'}\n\n"

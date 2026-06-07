@@ -13,21 +13,45 @@ import { api } from "@/lib/api";
 
 const LEAD_STATUSES = [
   { key: "new", label: "New", tone: "gray" },
-  { key: "contacted", label: "Contacted", tone: "blue" },
-  { key: "consultation-booked", label: "Consultation Booked", tone: "violet" },
+  { key: "call-booked", label: "Call Booked", tone: "blue" },
+  { key: "consultation-done", label: "Consultation Done", tone: "violet" },
   { key: "follow-up", label: "Follow-up", tone: "amber" },
+  { key: "plan-next-month", label: "Plan For Next Month", tone: "indigo" },
   { key: "converted", label: "Converted", tone: "green" },
   { key: "lost", label: "Lost", tone: "red" },
 ];
 
 const LEAD_STATUS_META = {
   new: "text-sky-600 dark:text-sky-300",
-  contacted: "text-violet-600 dark:text-violet-300",
-  "consultation-booked": "text-emerald-600 dark:text-emerald-300",
+  "call-booked": "text-violet-600 dark:text-violet-300",
+  "consultation-done": "text-emerald-600 dark:text-emerald-300",
   "follow-up": "text-amber-600 dark:text-amber-300",
+  "plan-next-month": "text-indigo-600 dark:text-indigo-300",
   converted: "text-green-600 dark:text-green-300",
   lost: "text-red-500 dark:text-red-300",
 };
+
+const LEGACY_LEAD_STATUS_MAP = {
+  contacted: "call-booked",
+  "consultation-booked": "consultation-done",
+};
+
+const normalizeLeadStatus = (status) => LEGACY_LEAD_STATUS_MAP[status] || status || "new";
+
+const getCurrentLeadMonth = () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  return `${year}-${month}`;
+};
+
+const formatLeadMonth = (value) => {
+  if (!/^\d{4}-\d{2}$/.test(value || "")) return "Selected Month";
+  const [year, month] = value.split("-").map((part) => parseInt(part, 10));
+  return new Date(year, month - 1, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+};
+
+const getLeadMonth = (lead) => String(lead?.created_at || "").slice(0, 7);
 
 const LEAD_FORM_DEFAULTS = {
   name: "",
@@ -59,7 +83,7 @@ const buildLeadPayload = (source) => ({
   gender: source.gender || null,
   location: source.location.trim() || null,
   source: source.source.trim() || null,
-  status: source.status || "new",
+  status: normalizeLeadStatus(source.status),
   notes: source.notes.trim() || null,
   last_contacted_date: source.last_contacted_date || null,
   next_follow_up_date: source.next_follow_up_date || null,
@@ -69,6 +93,7 @@ const buildLeadPayload = (source) => ({
 const leadToFormData = (lead = {}) => ({
   ...LEAD_FORM_DEFAULTS,
   ...Object.fromEntries(Object.entries(lead).map(([key, value]) => [key, value ?? ""])),
+  status: normalizeLeadStatus(lead.status),
   age: lead.age?.toString() || "",
 });
 
@@ -76,25 +101,26 @@ export function LeadsPage() {
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [selectedMonth, setSelectedMonth] = useState(getCurrentLeadMonth());
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingLead, setEditingLead] = useState(null);
   const [formData, setFormData] = useState(LEAD_FORM_DEFAULTS);
 
-  const fetchLeads = async () => {
-    setLoading(true);
-    try {
-      const response = await api.get("/leads");
-      setLeads(response.data || []);
-    } catch (error) {
-      toast.error(error.response?.data?.detail || "Failed to load leads");
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
+    const fetchLeads = async () => {
+      setLoading(true);
+      try {
+        const response = await api.get("/leads", { params: { month: selectedMonth } });
+        setLeads((response.data || []).map((lead) => ({ ...lead, status: normalizeLeadStatus(lead.status) })));
+      } catch (error) {
+        toast.error(error.response?.data?.detail || "Failed to load leads");
+      } finally {
+        setLoading(false);
+      }
+    };
+
     fetchLeads();
-  }, []);
+  }, [selectedMonth]);
 
   const openCreateDialog = () => {
     setEditingLead(null);
@@ -111,8 +137,10 @@ export function LeadsPage() {
   const syncLeadIntoState = (savedLead) => {
     setLeads((current) => {
       const exists = current.some((lead) => lead.id === savedLead.id);
-      if (!exists) return [savedLead, ...current];
-      return current.map((lead) => (lead.id === savedLead.id ? savedLead : lead));
+      const normalizedLead = { ...savedLead, status: normalizeLeadStatus(savedLead.status) };
+      if (!exists && getLeadMonth(normalizedLead) !== selectedMonth) return current;
+      if (!exists) return [normalizedLead, ...current];
+      return current.map((lead) => (lead.id === normalizedLead.id ? normalizedLead : lead));
     });
   };
 
@@ -154,9 +182,10 @@ export function LeadsPage() {
 
   const handleLeadStatusMove = async (lead, nextStatus) => {
     const previousStatus = lead.status || "new";
-    setLeads((current) => current.map((item) => (item.id === lead.id ? { ...item, status: nextStatus } : item)));
+    const normalizedNextStatus = normalizeLeadStatus(nextStatus);
+    setLeads((current) => current.map((item) => (item.id === lead.id ? { ...item, status: normalizedNextStatus } : item)));
     try {
-      await api.put(`/leads/${lead.id}`, { status: nextStatus });
+      await api.put(`/leads/${lead.id}`, { status: normalizedNextStatus });
       toast.success(`${lead.name} moved`);
     } catch (error) {
       setLeads((current) => current.map((item) => (item.id === lead.id ? { ...item, status: previousStatus } : item)));
@@ -174,6 +203,8 @@ export function LeadsPage() {
   const activeLeads = leads.filter((lead) => !["converted", "lost"].includes(lead.status)).length;
   const convertedLeads = leads.filter((lead) => lead.status === "converted").length;
   const followUpLeads = leads.filter((lead) => lead.status === "follow-up").length;
+  const planNextMonthLeads = leads.filter((lead) => lead.status === "plan-next-month").length;
+  const monthLabel = formatLeadMonth(selectedMonth);
 
   return (
     <div className="space-y-7 animate-fade-in" data-testid="leads-page">
@@ -181,13 +212,14 @@ export function LeadsPage() {
       <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#8A7BC8]">Pipeline</p>
-          <h1 className="mt-1 font-['Sora'] text-3xl font-semibold text-[#18115E]">Leads</h1>
-          <p className="mt-2 text-[#5F6472]">Manage new enquiries from first contact to conversion.</p>
-          <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+          <h1 className="mt-1 font-['Sora'] text-3xl font-semibold text-[#18115E]">{monthLabel} Leads</h1>
+          <p className="mt-2 text-[#5F6472]">Manage this month&apos;s enquiries from first contact to conversion.</p>
+          <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-5">
             {[
-              ["Total", totalLeads],
+              ["Monthly Leads", totalLeads],
               ["Active", activeLeads],
               ["Follow-up", followUpLeads],
+              ["Next Month", planNextMonthLeads],
               ["Converted", convertedLeads]
             ].map(([label, value]) => (
               <div key={label} className="rounded-2xl border border-[#ECE8FF] bg-[#F7F4FF] px-4 py-3">
@@ -197,10 +229,24 @@ export function LeadsPage() {
             ))}
           </div>
         </div>
-        <Button onClick={openCreateDialog} className="rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-violet-500/20">
-          <Plus className="mr-2 h-4 w-4" />
-          Add Lead
-        </Button>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+          <div className="space-y-2">
+            <Label htmlFor="lead-month" className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A7BC8]">
+              Lead Month
+            </Label>
+            <Input
+              id="lead-month"
+              type="month"
+              value={selectedMonth}
+              onChange={(event) => setSelectedMonth(event.target.value || getCurrentLeadMonth())}
+              className="h-11 min-w-[170px] rounded-2xl border-[#E3E0D8] bg-white shadow-sm"
+            />
+          </div>
+          <Button onClick={openCreateDialog} className="h-11 rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-violet-500/20">
+            <Plus className="mr-2 h-4 w-4" />
+            Add Lead
+          </Button>
+        </div>
       </div>
       </div>
 
@@ -209,7 +255,7 @@ export function LeadsPage() {
         <Input
           value={search}
           onChange={(event) => setSearch(event.target.value)}
-          placeholder="Search leads by name, source, phone"
+          placeholder={`Search ${monthLabel} leads by name, source, phone`}
           className="h-12 rounded-2xl border-[#E3E0D8] bg-white pl-10 shadow-sm"
         />
       </div>

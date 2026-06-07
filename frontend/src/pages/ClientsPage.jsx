@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Columns3, Plus, Search, Upload, Sparkles, ArrowDown, Loader2, Table2, X } from "lucide-react";
+import { Columns3, Plus, Search, Upload, Sparkles, ArrowDown, Loader2, Table2, X, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -62,7 +62,12 @@ const CLIENT_FORM_DEFAULTS = {
   notes: "",
   recent_comment: "",
   last_follow_up_date: "",
-  upcoming_follow_up_date: ""
+  upcoming_follow_up_date: "",
+  allergies: "",
+  avoid_foods: "",
+  preferred_foods: "",
+  disliked_foods: "",
+  medical_food_restrictions: ""
 };
 
 const DIET_DURATION_OPTIONS = ["7 Days", "10 Days", "14 Days"];
@@ -85,6 +90,14 @@ const CLIENT_STATUS_OPTIONS = [
   { value: "out-of-town", label: "Out of Town", tone: "violet" }
 ];
 
+const CLIENT_AI_PRESET_PROMPTS = [
+  "Who lost 1 kg in last 10 days?",
+  "Whose diet expires in 3 days?",
+  "Whose program ends in 7 days?",
+  "Which clients need follow-up today?",
+  "Find allergy/diet risk clients"
+];
+
 const CLIENT_KANBAN_COLUMNS = CLIENT_STATUS_OPTIONS;
 
 const TRACKER_COLUMN_OPTIONS = [
@@ -100,6 +113,42 @@ const DEFAULT_HIDDEN_TRACKER_COLUMNS = new Set(["program_start_date", "program_e
 const DEFAULT_VISIBLE_TRACKER_COLUMNS = TRACKER_COLUMN_OPTIONS
   .filter((option) => !DEFAULT_HIDDEN_TRACKER_COLUMNS.has(option.key))
   .map((option) => option.key);
+
+const CLIENT_EXPORT_COLUMNS = [
+  { header: "Name", value: (client) => client.name },
+  { header: "Status", value: (client) => getClientStatusMeta(normalizeClientStatus(client.status)).label },
+  { header: "Age", value: (client) => client.age },
+  { header: "Gender", value: (client) => client.gender },
+  { header: "Phone", value: (client) => client.phone },
+  { header: "Email", value: (client) => client.email },
+  { header: "Location", value: (client) => client.location },
+  { header: "Profession", value: (client) => client.profession },
+  { header: "Diet Preference", value: (client) => client.diet_preference },
+  { header: "Height Cm", value: (client) => client.height_cm },
+  { header: "Start Weight Kg", value: (client) => client.initial_weight_kg },
+  { header: "Current Weight Kg", value: (client) => client.current_weight_kg },
+  { header: "Goal Weight Kg", value: (client) => client.goal_weight_kg },
+  { header: "Recent Comment", value: (client) => client.recent_comment },
+  { header: "Diet Start", value: (client) => client.diet_start_date },
+  { header: "Diet End", value: (client) => client.diet_end_date },
+  { header: "Program Start", value: (client) => client.program_start_date },
+  { header: "Program End", value: (client) => client.program_end_date },
+  { header: "Last Follow-up", value: (client) => client.last_follow_up_date },
+  { header: "Upcoming Follow-up", value: (client) => client.upcoming_follow_up_date },
+  { header: "Primary Coach", value: (client) => client.primary_coach },
+  { header: "Allergies", value: (client) => formatListForForm(client.allergies) },
+  { header: "Avoid Foods", value: (client) => formatListForForm(client.avoid_foods) },
+  { header: "Preferred Foods", value: (client) => formatListForForm(client.preferred_foods) },
+  { header: "Disliked Foods", value: (client) => formatListForForm(client.disliked_foods) },
+  { header: "Medical Food Restrictions", value: (client) => formatListForForm(client.medical_food_restrictions) },
+  { header: "Health Issues", value: (client) => client.health_issues },
+  { header: "About Client", value: (client) => client.about_client },
+  { header: "Sleep Quality", value: (client) => client.sleep_quality },
+  { header: "Sleep Hours", value: (client) => client.sleep_hours },
+  { header: "Morning Freshness", value: (client) => client.morning_freshness },
+  { header: "Notes", value: (client) => client.notes },
+  { header: "Created At", value: (client) => client.created_at },
+];
 
 const CLIENT_STATUS_META = {
   "yet-to-start": {
@@ -143,6 +192,18 @@ const textOrNull = (value) => {
   const text = (value ?? "").toString().trim();
   return text || null;
 };
+
+const parseListField = (value) => {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item || "").trim()).filter(Boolean);
+  }
+  return String(value || "")
+    .split(/[,;\n|]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+};
+
+const formatListForForm = (value) => parseListField(value).join(", ");
 
 const parseNullableInt = (value) => {
   const parsed = parseInt((value ?? "").toString().trim(), 10);
@@ -339,6 +400,11 @@ const buildClientPayload = (source) => ({
   sleep_quality: textOrNull(source.sleep_quality),
   sleep_hours: textOrNull(source.sleep_hours),
   morning_freshness: textOrNull(source.morning_freshness),
+  allergies: parseListField(source.allergies),
+  avoid_foods: parseListField(source.avoid_foods),
+  preferred_foods: parseListField(source.preferred_foods),
+  disliked_foods: parseListField(source.disliked_foods),
+  medical_food_restrictions: parseListField(source.medical_food_restrictions),
   notes: textOrNull(source.notes)
 });
 
@@ -351,6 +417,11 @@ const clientPayloadToFormData = (source = {}) => ({
   current_weight_kg: source.current_weight_kg?.toString() || "",
   goal_weight_kg: source.goal_weight_kg?.toString() || "",
   pause_days: source.pause_days?.toString() || "",
+  allergies: formatListForForm(source.allergies),
+  avoid_foods: formatListForForm(source.avoid_foods),
+  preferred_foods: formatListForForm(source.preferred_foods),
+  disliked_foods: formatListForForm(source.disliked_foods),
+  medical_food_restrictions: formatListForForm(source.medical_food_restrictions),
 });
 
 const parseCsvRows = (csvText) => {
@@ -463,6 +534,11 @@ const mapCsvRowToClientPayload = (row) => {
     health_issues: healthConcern,
     diet_preference: pickDietFromCsv(row),
     primary_coach: readCsvValueByAliases(row, ["Primary Coach", "Coach", "Task Owner"]),
+    allergies: readCsvValueByAliases(row, ["Allergies", "Allergy", "Food Allergies", "Allergic Foods", "Any food allergy?"]),
+    avoid_foods: readCsvValueByAliases(row, ["Avoid Foods", "Foods To Avoid", "Food To Avoid", "Avoid Food", "Restricted Foods"]),
+    preferred_foods: readCsvValueByAliases(row, ["Preferred Foods", "Food Preferences", "Favourite Foods", "Favorite Foods", "Likes"]),
+    disliked_foods: readCsvValueByAliases(row, ["Disliked Foods", "Foods Disliked", "Dislikes"]),
+    medical_food_restrictions: readCsvValueByAliases(row, ["Medical Food Restrictions", "Food Restrictions", "Medical Restrictions", "Foods Not Allowed"]),
     status: mapNotionStatus(readCsvValueByAliases(row, ["Status"])),
     diet_start_date: readCsvValueByAliases(row, ["Diet Start", "Diet Start Date"]),
     diet_end_date: readCsvValueByAliases(row, ["Diet Expire", "Diet End", "Diet End Date"]),
@@ -607,10 +683,281 @@ const getDaysUntilIsoDate = (value) => {
   return Math.round((targetDate.getTime() - today.getTime()) / 86400000);
 };
 
+const escapeCsvCell = (value) => {
+  if (value === null || value === undefined) return "";
+  const text = String(value);
+  if (/[",\n\r]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
+  return text;
+};
+
+const buildClientsExportCsv = (clients) => {
+  const headerRow = CLIENT_EXPORT_COLUMNS.map((column) => escapeCsvCell(column.header)).join(",");
+  const dataRows = clients.map((client) =>
+    CLIENT_EXPORT_COLUMNS.map((column) => escapeCsvCell(column.value(client) ?? "")).join(",")
+  );
+  return [headerRow, ...dataRows].join("\n");
+};
+
+const ClientAiResult = ({ analysis }) => {
+  if (!analysis) {
+    return (
+      <div className="rounded-xl border border-dashed border-border/70 p-8 text-center text-sm text-muted-foreground">
+        Ask a question to get exact client lists, expiry reports, weight-change reports, or food/allergy matches.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="rounded-xl border border-primary/15 bg-primary/5 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="font-semibold text-foreground">Answer</h3>
+          <span className="text-xs text-muted-foreground">
+            {String(analysis.intent || "query").replace(/_/g, " ")}
+          </span>
+        </div>
+        <p className="mt-2 text-sm leading-6 text-muted-foreground">{analysis.answer_text}</p>
+      </div>
+
+      {(analysis.result_blocks || []).map((block, blockIndex) => (
+        <div key={`${block.title}-${blockIndex}`} className="rounded-xl border border-border/60 p-4">
+          <h3 className="font-semibold text-foreground">{block.title}</h3>
+          {block.type === "table" ? (
+            <div className="mt-3 overflow-x-auto rounded-lg border border-border/50">
+              <table className="w-full min-w-[520px] text-sm">
+                <thead className="bg-muted/40">
+                  <tr>
+                    {(block.columns || []).map((column) => (
+                      <th key={column} className="px-3 py-2 text-left font-medium text-muted-foreground">{column}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {(block.rows || []).length ? (
+                    block.rows.map((row, rowIndex) => (
+                      <tr key={rowIndex} className="border-t border-border/40">
+                        {(row || []).map((cell, cellIndex) => (
+                          <td key={cellIndex} className="px-3 py-2 text-foreground">{cell ?? "—"}</td>
+                        ))}
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td className="px-3 py-4 text-center text-muted-foreground" colSpan={(block.columns || []).length || 1}>
+                        No matching clients found.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="mt-3 space-y-2">
+              {(block.items || []).length ? block.items.map((item, index) => (
+                <div key={index} className="rounded-lg border border-border/50 bg-background p-3 text-sm">
+                  {Object.entries(item).map(([key, value]) => (
+                    <div key={key} className="flex gap-2">
+                      <span className="font-medium capitalize">{key.replace(/_/g, " ")}:</span>
+                      <span className="text-muted-foreground">{String(value ?? "—")}</span>
+                    </div>
+                  ))}
+                </div>
+              )) : <p className="text-sm text-muted-foreground">No items returned.</p>}
+            </div>
+          )}
+        </div>
+      ))}
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="rounded-xl border border-border/60 p-4">
+          <h3 className="font-semibold text-foreground">Recommended Actions</h3>
+          <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
+            {(analysis.recommended_actions || []).length
+              ? analysis.recommended_actions.map((item, index) => <li key={index}>• {item}</li>)
+              : <li>—</li>}
+          </ul>
+        </div>
+        <div className="rounded-xl border border-border/60 p-4">
+          <h3 className="font-semibold text-foreground">Follow-up Questions</h3>
+          <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
+            {(analysis.follow_up_questions || []).length
+              ? analysis.follow_up_questions.map((item, index) => <li key={index}>• {item}</li>)
+              : <li>—</li>}
+          </ul>
+        </div>
+      </div>
+
+      {(analysis.confidence_notes || []).length ? (
+        <div className="rounded-xl border border-amber-200/70 bg-amber-50/60 p-4 text-sm text-amber-900">
+          <h3 className="font-semibold">Confidence Notes</h3>
+          <ul className="mt-2 space-y-1">
+            {analysis.confidence_notes.map((item, index) => <li key={index}>• {item}</li>)}
+          </ul>
+        </div>
+      ) : null}
+    </div>
+  );
+};
+
+const ClientAiBusinessDialog = memo(function ClientAiBusinessDialog({
+  open,
+  onOpenChange,
+  clientsCount,
+  statusFilters,
+  search,
+}) {
+  const [prompt, setPrompt] = useState("Which clients need attention this week and what should our team do first?");
+  const [analysis, setAnalysis] = useState(null);
+  const [history, setHistory] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const fetchHistory = async () => {
+      setHistoryLoading(true);
+      try {
+        const response = await api.get("/clients/ai/query-history", { params: { limit: 20 } });
+        setHistory(response.data || []);
+      } catch (err) {
+        toast.error(err.response?.data?.detail || "Failed to load AI history");
+      } finally {
+        setHistoryLoading(false);
+      }
+    };
+
+    void fetchHistory();
+  }, [open]);
+
+  const runAnalysis = async () => {
+    const cleanPrompt = prompt.trim();
+    if (!cleanPrompt) {
+      toast.error("Please type a question first");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const response = await api.post("/clients/ai/query", {
+        prompt: cleanPrompt,
+        status_filters: statusFilters,
+        search,
+        limit: 200,
+      });
+      const nextAnalysis = response.data;
+      const nextHistoryItem = {
+        ...nextAnalysis,
+        prompt: cleanPrompt,
+        filters: { status_filters: statusFilters, search, limit: 200 },
+        created_at: new Date().toISOString(),
+      };
+      setAnalysis(nextAnalysis);
+      setHistory((prev) => [nextHistoryItem, ...prev.filter((item) => item.query_id !== nextAnalysis.query_id)].slice(0, 20));
+      toast.success("Client AI query generated");
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Failed to query clients with AI");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const selectHistoryItem = (item) => {
+    setPrompt(item.prompt || "");
+    setAnalysis(item);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-6xl max-h-[92vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 font-['Sora'] text-2xl text-[#18115E]">
+            <Sparkles className="h-5 w-5 text-primary" />
+            AI Business Partner
+          </DialogTitle>
+          <DialogDescription>
+            Ask read-only questions across your visible client data, routines, diet/report signals, meal uploads, and follow-up context.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
+          <div className="space-y-5">
+            <div className="rounded-xl border border-border/60 bg-muted/20 p-4">
+              <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
+                <div className="space-y-2">
+                  <Label>Business question</Label>
+                  <div className="flex flex-wrap gap-2">
+                    {CLIENT_AI_PRESET_PROMPTS.map((presetPrompt) => (
+                      <Button
+                        key={presetPrompt}
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="rounded-full"
+                        onClick={() => setPrompt(presetPrompt)}
+                      >
+                        {presetPrompt}
+                      </Button>
+                    ))}
+                  </div>
+                  <Textarea
+                    value={prompt}
+                    onChange={(event) => setPrompt(event.target.value)}
+                    placeholder="Ask something like: Who lost 1 kg in last 10 days?"
+                    className="min-h-24"
+                  />
+                </div>
+                <Button onClick={runAnalysis} disabled={loading || !clientsCount} className="h-11 bg-primary text-primary-foreground">
+                  {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
+                  Analyze
+                </Button>
+              </div>
+              <p className="mt-3 text-xs text-muted-foreground">
+                Uses current filters: {statusFilters.length ? statusFilters.map((status) => getClientStatusMeta(status).label).join(", ") : "All statuses"}
+                {search ? ` · Search: "${search}"` : ""}. AI is advisory and does not update client records.
+              </p>
+            </div>
+
+            <ClientAiResult analysis={analysis} />
+          </div>
+
+          <aside className="rounded-xl border border-border/60 bg-background p-4">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="font-semibold text-foreground">Saved History</h3>
+              {historyLoading ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : null}
+            </div>
+            <div className="mt-3 max-h-[68vh] space-y-2 overflow-y-auto pr-1">
+              {history.length ? history.map((item) => (
+                <button
+                  key={item.query_id}
+                  type="button"
+                  onClick={() => selectHistoryItem(item)}
+                  className="w-full rounded-xl border border-border/60 bg-muted/20 p-3 text-left transition hover:border-primary/40 hover:bg-primary/5"
+                >
+                  <div className="line-clamp-2 text-sm font-medium text-foreground">{item.prompt || "Saved AI query"}</div>
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                    <span>{String(item.intent || "query").replace(/_/g, " ")}</span>
+                    <span>•</span>
+                    <span>{formatDisplayDate(item.created_at)}</span>
+                  </div>
+                  <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">{item.answer_text}</p>
+                </button>
+              )) : (
+                <div className="rounded-xl border border-dashed border-border/60 p-5 text-center text-sm text-muted-foreground">
+                  No saved AI searches yet.
+                </div>
+              )}
+            </div>
+          </aside>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+});
+
 export function ClientsPage() {
   const { user } = useAuth();
   const [clients, setClients] = useState([]);
-  const [weightSummaries, setWeightSummaries] = useState({});
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilters, setStatusFilters] = useState(["active"]);
@@ -627,16 +974,15 @@ export function ClientsPage() {
   const [quickViewOpen, setQuickViewOpen] = useState(false);
   const [quickViewLoading, setQuickViewLoading] = useState(false);
   const [quickViewClient, setQuickViewClient] = useState(null);
+  const [clientAiDialogOpen, setClientAiDialogOpen] = useState(false);
   const csvInputRef = useRef(null);
+  const csvImportModeRef = useRef("bulk");
   const commentInputRefs = useRef({});
 
   const fetchClients = async () => {
     setLoading(true);
     try {
-      const [clientRes, weightSummaryRes] = await Promise.all([
-        api.get("/clients"),
-        api.get("/clients/weight-summaries", { params: { entries: 10 } }),
-      ]);
+      const clientRes = await api.get("/clients");
       setClients(clientRes.data);
       const drafts = {};
       clientRes.data.forEach((client) => {
@@ -651,7 +997,6 @@ export function ClientsPage() {
         };
       });
       setRowDrafts(drafts);
-      setWeightSummaries(Object.fromEntries((weightSummaryRes.data || []).map((summary) => [summary.client_id, summary])));
     } catch (err) {
       toast.error("Failed to load clients");
     } finally {
@@ -694,11 +1039,6 @@ export function ClientsPage() {
   const removeClientFromState = useCallback((clientId) => {
     setClients((prev) => prev.filter((client) => client.id !== clientId));
     setRowDrafts((prev) => {
-      const next = { ...prev };
-      delete next[clientId];
-      return next;
-    });
-    setWeightSummaries((prev) => {
       const next = { ...prev };
       delete next[clientId];
       return next;
@@ -806,6 +1146,7 @@ export function ClientsPage() {
 
   const handleClientStatusMove = async (client, nextStatus) => {
     const previousStatus = client.status || "active";
+    if (previousStatus === nextStatus) return;
     setClients((prev) => prev.map((item) => (item.id === client.id ? { ...item, status: nextStatus } : item)));
     try {
       await api.put(`/clients/${client.id}`, { status: nextStatus });
@@ -830,49 +1171,113 @@ export function ClientsPage() {
     }
   };
 
-  const triggerCsvPicker = () => {
+  const triggerCsvPicker = (mode = "bulk") => {
     if (csvImporting) return;
+    csvImportModeRef.current = mode;
     csvInputRef.current?.click();
   };
 
   const handleCsvUpload = async (event) => {
-    const file = event.target.files?.[0];
+    const files = Array.from(event.target.files || []);
+    const importMode = csvImportModeRef.current || "bulk";
+    csvImportModeRef.current = "bulk";
     event.target.value = "";
-    if (!file) return;
+    if (!files.length) return;
 
     setCsvImporting(true);
     try {
-      const text = await file.text();
-      const rows = parseCsvRows(text);
-      if (!rows.length) {
-        toast.error("CSV looks empty");
+      const parsedPayloads = [];
+      for (const file of files) {
+        const text = await file.text();
+        const rows = parseCsvRows(text);
+        rows.forEach((row) => {
+          const payload = mapCsvRowToClientPayload(row);
+          if (payload.name) parsedPayloads.push(payload);
+        });
+      }
+
+      if (!parsedPayloads.length) {
+        toast.error("No valid client rows found in selected CSV file(s)");
         return;
       }
 
-      const payload = rows.map(mapCsvRowToClientPayload).find((item) => item.name);
-      if (!payload) {
-        toast.error("No valid client row found in CSV");
-        return;
-      }
+      if (importMode === "prefill") {
+        const payload = parsedPayloads[0];
+        const existingClient = findExistingClientForImport(clients, payload);
+        if (existingClient) {
+          setEditingClient(existingClient);
+          setFormData(clientPayloadToFormData(mergeImportedClientPayload(existingClient, payload)));
+          setDialogOpen(true);
+          toast.info(`${existingClient.name} already exists. Imported data opened in edit mode for review.`);
+          return;
+        }
 
-      const existingClient = findExistingClientForImport(clients, payload);
-      if (existingClient) {
-        setEditingClient(existingClient);
-        setFormData(clientPayloadToFormData(mergeImportedClientPayload(existingClient, payload)));
+        setEditingClient(null);
+        setFormData(clientPayloadToFormData(payload));
         setDialogOpen(true);
-        toast.info(`${existingClient.name} already exists. Imported data opened in edit mode for review.`);
+        toast.success(parsedPayloads.length > 1 ? "First client row imported into the form" : "Client profile imported into the form");
         return;
       }
 
-      setEditingClient(null);
-      setFormData(clientPayloadToFormData(payload));
-      setDialogOpen(true);
-      toast.success(rows.length > 1 ? "First client row imported into the form" : "Client profile imported into the form");
+      const importScope = [...clients];
+      let createdCount = 0;
+      let skippedDuplicateCount = 0;
+      let failedCount = 0;
+
+      for (const payload of parsedPayloads) {
+        const existingClient = findExistingClientForImport(importScope, payload);
+        if (existingClient) {
+          skippedDuplicateCount += 1;
+          continue;
+        }
+
+        importScope.push(payload);
+        try {
+          const response = await api.post("/clients", payload);
+          syncClientIntoState(response.data);
+          createdCount += 1;
+        } catch (_error) {
+          failedCount += 1;
+        }
+      }
+
+      if (createdCount > 0) {
+        toast.success(`Imported ${createdCount} client${createdCount === 1 ? "" : "s"}${skippedDuplicateCount ? `, skipped ${skippedDuplicateCount} duplicate${skippedDuplicateCount === 1 ? "" : "s"}` : ""}`);
+      } else if (skippedDuplicateCount > 0 && failedCount === 0) {
+        toast.info(`No new clients imported. ${skippedDuplicateCount} duplicate${skippedDuplicateCount === 1 ? "" : "s"} skipped.`);
+      }
+
+      if (failedCount > 0) {
+        toast.error(`${failedCount} client${failedCount === 1 ? "" : "s"} failed to import`);
+      }
+
+      if (createdCount > 0) {
+        await fetchClients();
+      }
     } catch (err) {
       toast.error("Failed to parse CSV");
     } finally {
       setCsvImporting(false);
     }
+  };
+
+  const exportClientsCsv = () => {
+    if (!clients.length) {
+      toast.error("No clients available to export");
+      return;
+    }
+
+    const csv = buildClientsExportCsv(clients);
+    const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `clients-export-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    toast.success(`Exported ${clients.length} clients`);
   };
 
   const submitInlineComment = async (clientId) => {
@@ -983,9 +1388,6 @@ export function ClientsPage() {
       return [client.name, client.email, client.phone].some((field) => (field || "").toLowerCase().includes(q));
     })
     .sort((a, b) => {
-      const weightDeltaA = weightSummaries[a.id]?.delta_kg;
-      const weightDeltaB = weightSummaries[b.id]?.delta_kg;
-
       switch (activeSort.key) {
         case "client":
           return compareNullableValues(a.name, b.name, activeSort.direction);
@@ -995,8 +1397,6 @@ export function ClientsPage() {
             getClientStatusMeta(b.status).label,
             activeSort.direction
           );
-        case "weight-diff":
-          return compareNullableValues(weightDeltaA, weightDeltaB, activeSort.direction, "number");
         case "recent-comment":
           return compareNullableValues(a.recent_comment, b.recent_comment, activeSort.direction);
         case "diet-start":
@@ -1016,8 +1416,6 @@ export function ClientsPage() {
   const gridRows = visibleClients.map((client) => ({
     ...client,
     status: normalizeClientStatus(client.status),
-    weight_summary: weightSummaries[client.id] || null,
-    weight_delta: weightSummaries[client.id]?.delta_kg ?? null,
   }));
 
   return (
@@ -1026,6 +1424,7 @@ export function ClientsPage() {
         ref={csvInputRef}
         type="file"
         accept=".csv,text/csv"
+        multiple
         className="hidden"
         onChange={handleCsvUpload}
       />
@@ -1068,14 +1467,18 @@ export function ClientsPage() {
               Kanban
             </Button>
           </div>
-          <Button variant="outline" onClick={triggerCsvPicker} disabled={csvImporting} className="h-10 rounded-lg bg-card">
+          <Button variant="outline" onClick={() => triggerCsvPicker("bulk")} disabled={csvImporting} className="h-10 rounded-lg bg-card">
             <Upload className="w-4 h-4 mr-2" />
             {csvImporting ? "Importing CSV..." : "Import Client CSV"}
+          </Button>
+          <Button variant="outline" onClick={exportClientsCsv} disabled={!clients.length} className="h-10 rounded-lg bg-card">
+            <Download className="w-4 h-4 mr-2" />
+            Export
           </Button>
           <Button onClick={openCreateDialog} data-testid="add-client-btn" className="h-10 rounded-lg bg-primary text-primary-foreground">
             <Plus className="w-4 h-4 mr-2" /> Add Client
           </Button>
-          <Button variant="outline" className="h-10 rounded-lg bg-card">
+          <Button variant="outline" className="h-10 rounded-lg bg-card" onClick={() => setClientAiDialogOpen(true)}>
             <Sparkles className="w-4 h-4 mr-2" /> Ask AI
           </Button>
         </div>
@@ -1214,6 +1617,7 @@ export function ClientsPage() {
           loading={loading}
           rowDrafts={rowDrafts}
           visibleColumns={visibleTrackerColumns}
+          statusOptions={CLIENT_STATUS_OPTIONS}
           editingCommentClientId={editingCommentClientId}
           commentInputRefs={commentInputRefs}
           canDeleteClient={canDeleteClient}
@@ -1225,6 +1629,7 @@ export function ClientsPage() {
           onCommentDraftChange={(clientId, value) => setRowDrafts((prev) => ({ ...prev, [clientId]: { ...prev[clientId], recent_comment: value } }))}
           onSubmitInlineComment={submitInlineComment}
           onInlineDateChange={handleInlineDateChange}
+          onStatusChange={handleClientStatusMove}
           onEditClient={openEditDialog}
           onDeleteClient={setDeleteTarget}
         />
@@ -1267,7 +1672,7 @@ export function ClientsPage() {
               <div className="space-y-3">
                 <Label>Import from CSV</Label>
                 <div className="flex flex-wrap gap-2">
-                  <Button type="button" variant="outline" onClick={triggerCsvPicker} disabled={csvImporting}>
+                  <Button type="button" variant="outline" onClick={() => triggerCsvPicker("prefill")} disabled={csvImporting}>
                     <Upload className="w-4 h-4 mr-2" />
                     {csvImporting ? "Importing..." : "Upload Client Profile CSV"}
                   </Button>
@@ -1340,6 +1745,29 @@ export function ClientsPage() {
             <div className="space-y-2">
               <Label>Health Issues</Label>
               <Input value={formData.health_issues} onChange={(e) => setFormData({ ...formData, health_issues: e.target.value })} placeholder="Enter health issues (comma separated)" />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Allergies</Label>
+                <Input value={formData.allergies} onChange={(e) => setFormData({ ...formData, allergies: e.target.value })} placeholder="Peanuts, milk, gluten" />
+              </div>
+              <div className="space-y-2">
+                <Label>Avoid Foods</Label>
+                <Input value={formData.avoid_foods} onChange={(e) => setFormData({ ...formData, avoid_foods: e.target.value })} placeholder="Sugar, fried foods" />
+              </div>
+              <div className="space-y-2">
+                <Label>Preferred Foods</Label>
+                <Input value={formData.preferred_foods} onChange={(e) => setFormData({ ...formData, preferred_foods: e.target.value })} placeholder="Paneer, sprouts, dal" />
+              </div>
+              <div className="space-y-2">
+                <Label>Disliked Foods</Label>
+                <Input value={formData.disliked_foods} onChange={(e) => setFormData({ ...formData, disliked_foods: e.target.value })} placeholder="Oats, lauki" />
+              </div>
+              <div className="space-y-2 md:col-span-2">
+                <Label>Medical Food Restrictions</Label>
+                <Input value={formData.medical_food_restrictions} onChange={(e) => setFormData({ ...formData, medical_food_restrictions: e.target.value })} placeholder="High sodium foods, lactose, soy" />
+              </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1446,6 +1874,14 @@ export function ClientsPage() {
           </form>
         </DialogContent>
       </Dialog>
+
+      <ClientAiBusinessDialog
+        open={clientAiDialogOpen}
+        onOpenChange={setClientAiDialogOpen}
+        clientsCount={clients.length}
+        statusFilters={statusFilters}
+        search={search}
+      />
 
       <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
         <AlertDialogContent>

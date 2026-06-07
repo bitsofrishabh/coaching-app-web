@@ -1,4 +1,3 @@
-import os
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
@@ -83,7 +82,6 @@ async def generate_health_analysis_handler(
             client=client_record,
             blood_report_text=blood_report_text,
             past_diet_text=past_diet_text,
-            model=os.environ.get("AI_MODEL") or os.environ.get("GEMINI_MODEL") or os.environ.get("OPENAI_MODEL"),
         )
     except OpenAIAPIError as exc:
         detail = str(exc)

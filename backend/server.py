@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional, Dict, Any
 import uuid
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 import io
 import re
 import csv
@@ -75,6 +76,7 @@ from app.schemas.tracking import (
 )
 from services.ai.openai_client import OpenAIAPIError, get_default_model
 from services.ai.diet_plan_ai import generate_diet_plan_analysis, generate_diet_plan_suggestions
+from services.ai.client_business_ai import classify_client_operations_query, generate_client_business_analysis
 
 # Create the main app
 app = FastAPI(title="DietTracker Pro API")
@@ -175,6 +177,11 @@ class ClientCreate(BaseModel):
     sleep_quality: Optional[str] = None
     sleep_hours: Optional[str] = None
     morning_freshness: Optional[str] = None
+    allergies: List[str] = Field(default_factory=list)
+    avoid_foods: List[str] = Field(default_factory=list)
+    preferred_foods: List[str] = Field(default_factory=list)
+    disliked_foods: List[str] = Field(default_factory=list)
+    medical_food_restrictions: List[str] = Field(default_factory=list)
 
 class ClientUpdate(BaseModel):
     name: Optional[str] = None
@@ -208,6 +215,11 @@ class ClientUpdate(BaseModel):
     sleep_quality: Optional[str] = None
     sleep_hours: Optional[str] = None
     morning_freshness: Optional[str] = None
+    allergies: Optional[List[str]] = None
+    avoid_foods: Optional[List[str]] = None
+    preferred_foods: Optional[List[str]] = None
+    disliked_foods: Optional[List[str]] = None
+    medical_food_restrictions: Optional[List[str]] = None
 
 class ClientResponse(BaseModel):
     id: str
@@ -243,6 +255,11 @@ class ClientResponse(BaseModel):
     sleep_quality: Optional[str] = None
     sleep_hours: Optional[str] = None
     morning_freshness: Optional[str] = None
+    allergies: List[str] = Field(default_factory=list)
+    avoid_foods: List[str] = Field(default_factory=list)
+    preferred_foods: List[str] = Field(default_factory=list)
+    disliked_foods: List[str] = Field(default_factory=list)
+    medical_food_restrictions: List[str] = Field(default_factory=list)
     adherence_rate: Optional[float] = None
     created_at: str
     updated_at: str
@@ -250,11 +267,17 @@ class ClientResponse(BaseModel):
 
 LEAD_STATUSES = {
     "new",
-    "contacted",
-    "consultation-booked",
+    "call-booked",
+    "consultation-done",
     "follow-up",
+    "plan-next-month",
     "converted",
     "lost",
+}
+
+LEGACY_LEAD_STATUS_MAP = {
+    "contacted": "call-booked",
+    "consultation-booked": "consultation-done",
 }
 
 
@@ -337,6 +360,91 @@ class ClientAIHealthAnalysisResponse(BaseModel):
     model: str
     generated_at: str
     generated_by_name: Optional[str] = None
+
+
+class ClientAIBusinessAnalysisRequest(BaseModel):
+    prompt: Optional[str] = None
+    status_filters: List[str] = Field(default_factory=list)
+    search: Optional[str] = None
+    limit: int = 100
+
+
+class ClientAIPriorityClientResponse(BaseModel):
+    client_id: str
+    name: str
+    priority: str
+    reason: str
+    next_action: str
+
+
+class ClientAIBusinessAnalysisResponse(BaseModel):
+    analysis_id: str
+    model: str
+    generated_at: str
+    client_count: int
+    executive_summary: str
+    priority_clients: List[ClientAIPriorityClientResponse] = Field(default_factory=list)
+    cohort_observations: List[str] = Field(default_factory=list)
+    retention_risks: List[str] = Field(default_factory=list)
+    growth_opportunities: List[str] = Field(default_factory=list)
+    recommended_operations: List[str] = Field(default_factory=list)
+    follow_up_questions: List[str] = Field(default_factory=list)
+    confidence_notes: List[str] = Field(default_factory=list)
+
+
+class ClientAIQueryRequest(BaseModel):
+    prompt: str
+    status_filters: List[str] = Field(default_factory=list)
+    search: Optional[str] = None
+    limit: int = 200
+
+
+class ClientAIQueryResultBlock(BaseModel):
+    type: str
+    title: str
+    columns: List[str] = Field(default_factory=list)
+    rows: List[List[Any]] = Field(default_factory=list)
+    items: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class ClientAIQueryResponse(BaseModel):
+    query_id: str
+    intent: str
+    answer_text: str
+    result_blocks: List[ClientAIQueryResultBlock] = Field(default_factory=list)
+    recommended_actions: List[str] = Field(default_factory=list)
+    follow_up_questions: List[str] = Field(default_factory=list)
+    confidence_notes: List[str] = Field(default_factory=list)
+
+
+class ClientAIQueryHistoryItemResponse(ClientAIQueryResponse):
+    prompt: str
+    filters: Dict[str, Any] = Field(default_factory=dict)
+    created_at: str
+
+
+class DietPlanAIConflictCheckRequest(BaseModel):
+    client_id: str
+    day_wise_plan: List[Dict[str, Any]] = Field(default_factory=list)
+    summary_slots: Dict[str, str] = Field(default_factory=dict)
+
+
+class DietPlanConflictItemResponse(BaseModel):
+    day: Optional[int] = None
+    slot: str
+    item: str
+    conflict_type: str
+    matched_client_field: str
+    reason: str
+    suggested_replacement: str
+
+
+class DietPlanAIConflictCheckResponse(BaseModel):
+    conflict_id: str
+    summary: str
+    conflicts: List[DietPlanConflictItemResponse] = Field(default_factory=list)
+    safe_notes: List[str] = Field(default_factory=list)
+    confidence_notes: List[str] = Field(default_factory=list)
 
 
 class PendingTaskResponse(BaseModel):
@@ -2132,13 +2240,704 @@ async def get_client_stats(user: dict = Depends(get_current_user)):
     return {"total": total, "active": active, "on_hold": on_hold, "completed": completed}
 
 
+APP_LOCAL_TIMEZONE = ZoneInfo("Asia/Kolkata")
+CLIENT_PROFILE_SEARCH_FIELDS = [
+    "allergies",
+    "avoid_foods",
+    "preferred_foods",
+    "disliked_foods",
+    "medical_food_restrictions",
+    "health_issues",
+    "diet_preference",
+    "status",
+    "location",
+    "primary_coach",
+]
+CLIENT_FOOD_LIST_FIELDS = [
+    "allergies",
+    "avoid_foods",
+    "disliked_foods",
+    "medical_food_restrictions",
+]
+FOOD_REPLACEMENT_SUGGESTIONS = {
+    "peanut": "roasted chana",
+    "peanuts": "roasted chana",
+    "milk": "unsweetened soy milk or lactose-free curd if suitable",
+    "curd": "lactose-free curd or coconut curd if suitable",
+    "paneer": "tofu or boiled chana",
+    "egg": "paneer/tofu bhurji or sprouts",
+    "eggs": "paneer/tofu bhurji or sprouts",
+    "wheat": "jowar roti or rice-based option",
+    "gluten": "rice, jowar, bajra, or quinoa option",
+    "soy": "paneer, chana, dal, or curd if suitable",
+    "almond": "pumpkin seeds or roasted chana",
+    "almonds": "pumpkin seeds or roasted chana",
+}
+
+
+def _today_local_date():
+    return datetime.now(APP_LOCAL_TIMEZONE).date()
+
+
+def _parse_iso_date(value: Any):
+    text = str(value or "").strip()
+    if not re.match(r"^\d{4}-\d{2}-\d{2}$", text):
+        return None
+    try:
+        return datetime.strptime(text, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def _coerce_text_list(value: Any) -> List[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        parts = value
+    else:
+        parts = re.split(r"[,;\n|]+", str(value))
+    cleaned = []
+    for item in parts:
+        text = str(item or "").strip()
+        if text:
+            cleaned.append(text)
+    return cleaned
+
+
+def _normalize_match_text(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
+
+
+def _normalize_food_key(value: Any) -> str:
+    text = _normalize_match_text(value)
+    tokens = []
+    for token in text.split():
+        if len(token) > 3 and token.endswith("s"):
+            token = token[:-1]
+        tokens.append(token)
+    return " ".join(tokens)
+
+
+def _extract_numbers_from_prompt(prompt: str) -> List[float]:
+    return [float(match) for match in re.findall(r"\d+(?:\.\d+)?", prompt or "")]
+
+
+def _fallback_classify_client_query(prompt: str) -> Dict[str, Any]:
+    text = (prompt or "").lower()
+    numbers = _extract_numbers_from_prompt(text)
+    window_days = 7
+    threshold_kg = 1
+    if re.search(r"\d+\s*-\s*(\d+)\s*days?", text):
+        window_days = int(re.search(r"\d+\s*-\s*(\d+)\s*days?", text).group(1))
+    elif re.search(r"last\s+(\d+)\s+days?|next\s+(\d+)\s+days?|in\s+(\d+)\s+days?", text):
+        match = re.search(r"last\s+(\d+)\s+days?|next\s+(\d+)\s+days?|in\s+(\d+)\s+days?", text)
+        window_days = int(next(group for group in match.groups() if group))
+    elif numbers:
+        window_days = int(numbers[-1])
+    if re.search(r"(\d+(?:\.\d+)?)\s*kgs?|\bkg\b", text):
+        threshold_kg = float(re.search(r"(\d+(?:\.\d+)?)\s*kgs?|\bkg\b", text).group(1) or 1)
+
+    if any(term in text for term in ["lost", "loss", "lose", "reduced", "down"]):
+        return {"intent": "weight_change", "direction": "loss", "threshold_kg": threshold_kg, "window_days": window_days, "profile_terms": [], "answer_focus": prompt}
+    if any(term in text for term in ["gained", "gain", "increased", "up "]):
+        return {"intent": "weight_change", "direction": "gain", "threshold_kg": threshold_kg, "window_days": window_days, "profile_terms": [], "answer_focus": prompt}
+    if "program" in text and any(term in text for term in ["end", "ending", "expire", "expiring"]):
+        return {"intent": "program_expiry", "direction": "none", "threshold_kg": 0, "window_days": window_days, "profile_terms": [], "answer_focus": prompt}
+    if "diet" in text and any(term in text for term in ["end", "ending", "expire", "expiring"]):
+        return {"intent": "diet_expiry", "direction": "none", "threshold_kg": 0, "window_days": window_days, "profile_terms": [], "answer_focus": prompt}
+    if any(term in text for term in ["follow up", "follow-up", "followup"]):
+        return {"intent": "follow_up_due", "direction": "none", "threshold_kg": 0, "window_days": window_days, "profile_terms": [], "answer_focus": prompt}
+    if any(term in text for term in ["allergy", "allergic", "avoid", "food", "preference", "health issue", "medical"]):
+        terms = [word for word in re.findall(r"[a-zA-Z][a-zA-Z0-9-]{2,}", prompt or "") if word.lower() not in {"which", "client", "clients", "have", "with", "food", "allergy", "allergic", "avoid"}]
+        return {"intent": "client_profile_search", "direction": "none", "threshold_kg": 0, "window_days": window_days, "profile_terms": terms, "answer_focus": prompt}
+    return {"intent": "business_summary", "direction": "none", "threshold_kg": 0, "window_days": window_days, "profile_terms": [], "answer_focus": prompt}
+
+
+def _classify_client_query(prompt: str) -> Dict[str, Any]:
+    fallback = _fallback_classify_client_query(prompt)
+    try:
+        classified = classify_client_operations_query(prompt=prompt)
+        merged = {**fallback, **{key: value for key, value in classified.items() if value not in [None, "", []]}}
+        if float(merged.get("threshold_kg") or 0) <= 0:
+            merged["threshold_kg"] = fallback.get("threshold_kg") or 1
+        if int(merged.get("window_days") or 0) <= 0:
+            merged["window_days"] = fallback.get("window_days") or 7
+        return merged
+    except Exception as exc:
+        logger.warning("AI query classification fallback used: %s", exc)
+        return fallback
+
+
+async def _load_clients_for_ai_query(data: ClientAIQueryRequest, user: dict) -> List[dict]:
+    limit = max(1, min(int(data.limit or 200), 500))
+    query = _visible_clients_query(user)
+    status_filters = [status for status in (data.status_filters or []) if status]
+    if status_filters:
+        query["status"] = {"$in": status_filters}
+    if data.search:
+        query["$or"] = [
+            {"name": {"$regex": data.search, "$options": "i"}},
+            {"email": {"$regex": data.search, "$options": "i"}},
+            {"phone": {"$regex": data.search, "$options": "i"}},
+        ]
+    return await db.clients.find(query, {"_id": 0}).sort("name", 1).limit(limit).to_list(limit)
+
+
+def _table_block(title: str, columns: List[str], rows: List[List[Any]]) -> Dict[str, Any]:
+    return {"type": "table", "title": title, "columns": columns, "rows": rows, "items": []}
+
+
+async def _resolve_weight_change_query(clients: List[dict], params: Dict[str, Any]) -> Dict[str, Any]:
+    client_ids = [client["id"] for client in clients if client.get("id")]
+    client_by_id = {client["id"]: client for client in clients if client.get("id")}
+    today = _today_local_date()
+    window_days = max(1, int(params.get("window_days") or 10))
+    start_date = today - timedelta(days=window_days)
+    direction = params.get("direction") or "loss"
+    threshold = float(params.get("threshold_kg") or 1)
+    entries = await db.weight_entries.find(
+        {"client_id": {"$in": client_ids}, "recorded_date": {"$gte": start_date.isoformat(), "$lte": today.isoformat()}},
+        {"_id": 0, "client_id": 1, "recorded_date": 1, "weight_kg": 1},
+    ).sort([("client_id", 1), ("recorded_date", 1)]).to_list(5000)
+
+    grouped: Dict[str, List[dict]] = {}
+    for entry in entries:
+        if isinstance(entry.get("weight_kg"), (int, float)):
+            grouped.setdefault(entry["client_id"], []).append(entry)
+
+    rows = []
+    insufficient = 0
+    for client_id, client in client_by_id.items():
+        client_entries = grouped.get(client_id, [])
+        if len(client_entries) < 2:
+            insufficient += 1
+            continue
+        earliest = client_entries[0]
+        latest = client_entries[-1]
+        change = float(latest["weight_kg"]) - float(earliest["weight_kg"])
+        matched = False
+        if direction == "loss":
+            matched = change <= -threshold
+            display_delta = abs(change)
+            title = f"Clients with >={threshold:g} kg loss"
+            delta_label = "Weight Lost"
+        elif direction == "gain":
+            matched = change >= threshold
+            display_delta = change
+            title = f"Clients with >={threshold:g} kg gain"
+            delta_label = "Weight Gained"
+        else:
+            matched = abs(change) >= threshold
+            display_delta = change
+            title = f"Clients with >={threshold:g} kg change"
+            delta_label = "Weight Change"
+        if matched:
+            rows.append([
+                client.get("name"),
+                f"{display_delta:.1f} kg",
+                f"{earliest['weight_kg']} kg",
+                f"{latest['weight_kg']} kg",
+                f"{earliest['recorded_date']} to {latest['recorded_date']}",
+            ])
+
+    answer = f"{len(rows)} client{'s' if len(rows) != 1 else ''} matched the {direction} query in the last {window_days} days."
+    return {
+        "intent": "weight_change",
+        "answer_text": answer,
+        "result_blocks": [_table_block(title, ["Client", delta_label, "From", "To", "Date Range"], rows)],
+        "recommended_actions": ["Review clients with no recent weight logs and ask for updated weight entries."] if insufficient else [],
+        "follow_up_questions": [],
+        "confidence_notes": [f"{insufficient} visible client(s) had fewer than 2 weight logs in the selected window and were excluded."] if insufficient else [],
+    }
+
+
+def _resolve_date_window_query(clients: List[dict], params: Dict[str, Any], *, intent: str, field: str, title: str) -> Dict[str, Any]:
+    today = _today_local_date()
+    window_days = max(0, int(params.get("window_days") or 7))
+    end_date = today + timedelta(days=window_days)
+    rows = []
+    missing = 0
+    for client in clients:
+        target = _parse_iso_date(client.get(field))
+        if not target:
+            missing += 1
+            continue
+        if today <= target <= end_date:
+            rows.append([
+                client.get("name"),
+                target.isoformat(),
+                (target - today).days,
+                client.get("status") or "—",
+            ])
+    rows.sort(key=lambda row: (row[1], row[0] or ""))
+    answer = f"{len(rows)} client{'s' if len(rows) != 1 else ''} found from {today.isoformat()} to {end_date.isoformat()}."
+    return {
+        "intent": intent,
+        "answer_text": answer,
+        "result_blocks": [_table_block(title, ["Client", "Date", "Days Left", "Status"], rows)],
+        "recommended_actions": ["Prepare renewals, plan updates, or follow-up messages for clients closest to expiry."] if rows else [],
+        "follow_up_questions": [],
+        "confidence_notes": [f"{missing} visible client(s) had no {title.lower()} date and were excluded."] if missing else [],
+    }
+
+
+def _resolve_profile_search_query(clients: List[dict], params: Dict[str, Any], prompt: str) -> Dict[str, Any]:
+    terms = [_normalize_match_text(term) for term in (params.get("profile_terms") or []) if _normalize_match_text(term)]
+    if not terms:
+        terms = [word for word in _normalize_match_text(prompt).split() if len(word) >= 4]
+    rows = []
+    for client in clients:
+        matched_fields = []
+        matched_values = []
+        for field in CLIENT_PROFILE_SEARCH_FIELDS:
+            value = client.get(field)
+            values = _coerce_text_list(value) if isinstance(value, list) else [value]
+            haystack = _normalize_match_text(" ".join(str(item or "") for item in values))
+            if not terms or any(term in haystack for term in terms):
+                if haystack:
+                    matched_fields.append(field.replace("_", " ").title())
+                    matched_values.extend([str(item) for item in values if item])
+        if matched_fields:
+            rows.append([client.get("name"), ", ".join(sorted(set(matched_fields))), "; ".join(matched_values[:6])])
+
+    answer = f"{len(rows)} client{'s' if len(rows) != 1 else ''} matched the profile search."
+    return {
+        "intent": "client_profile_search",
+        "answer_text": answer,
+        "result_blocks": [_table_block("Client profile matches", ["Client", "Matched Fields", "Matched Values"], rows)],
+        "recommended_actions": ["Open the client profile before changing diet recommendations."] if rows else [],
+        "follow_up_questions": [],
+        "confidence_notes": [] if terms else ["No specific search terms were detected, so all non-empty profile food/health fields were listed."],
+    }
+
+
+def _resolve_business_summary_query(clients: List[dict], prompt: str) -> Dict[str, Any]:
+    status_counts: Dict[str, int] = {}
+    expiring_soon = 0
+    today = _today_local_date()
+    for client in clients:
+        status = client.get("status") or "unknown"
+        status_counts[status] = status_counts.get(status, 0) + 1
+        diet_end = _parse_iso_date(client.get("diet_end_date"))
+        if diet_end and today <= diet_end <= today + timedelta(days=7):
+            expiring_soon += 1
+    rows = [[status, count] for status, count in sorted(status_counts.items())]
+    return {
+        "intent": "business_summary",
+        "answer_text": f"{len(clients)} visible clients analyzed. {expiring_soon} diet(s) expire in the next 7 days.",
+        "result_blocks": [_table_block("Client count by status", ["Status", "Clients"], rows)],
+        "recommended_actions": [
+            "Use specific prompts for exact reports, such as weight loss in 10 days, diet expiry, or follow-up due.",
+            "Review diet expiries due this week before creating new plans.",
+        ],
+        "follow_up_questions": ["Do you want the exact list of diets expiring this week?"],
+        "confidence_notes": ["This is a deterministic summary. Ask a more specific question for exact client lists."],
+    }
+
+
+async def _resolve_client_ai_query(clients: List[dict], prompt: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    intent = params.get("intent") or "business_summary"
+    if intent == "weight_change":
+        return await _resolve_weight_change_query(clients, params)
+    if intent == "diet_expiry":
+        return _resolve_date_window_query(clients, params, intent="diet_expiry", field="diet_end_date", title="Diet Expiry")
+    if intent == "program_expiry":
+        return _resolve_date_window_query(clients, params, intent="program_expiry", field="program_end_date", title="Program Expiry")
+    if intent == "follow_up_due":
+        return _resolve_date_window_query(clients, params, intent="follow_up_due", field="upcoming_follow_up_date", title="Upcoming Follow-up")
+    if intent in {"client_profile_search", "diet_conflict_check"}:
+        result = _resolve_profile_search_query(clients, params, prompt)
+        result["intent"] = intent
+        if intent == "diet_conflict_check":
+            result["confidence_notes"].append("For exact diet-vs-allergy checks, upload or parse a diet plan for a selected client.")
+        return result
+    return _resolve_business_summary_query(clients, prompt)
+
+
+def _field_conflict_type(field_name: str) -> str:
+    if field_name == "allergies":
+        return "allergy"
+    if field_name == "medical_food_restrictions":
+        return "medical_restriction"
+    if field_name == "disliked_foods":
+        return "disliked_food"
+    return "avoid_food"
+
+
+def _suggest_food_replacement(item: str) -> str:
+    normalized = _normalize_food_key(item)
+    for key, replacement in FOOD_REPLACEMENT_SUGGESTIONS.items():
+        if _normalize_food_key(key) in normalized or normalized in _normalize_food_key(key):
+            return replacement
+    return "Use a suitable Indian replacement that respects the client's preference and restrictions"
+
+
+def _iter_diet_text_slots(day_wise_plan: List[Dict[str, Any]], summary_slots: Dict[str, str]):
+    for key, value in (summary_slots or {}).items():
+        if str(value or "").strip():
+            yield None, key, str(value)
+    for day in day_wise_plan or []:
+        day_number = day.get("day")
+        for key, value in day.items():
+            if key == "day" or not str(value or "").strip():
+                continue
+            yield day_number, key, str(value)
+
+
+def _find_diet_conflicts(client_record: dict, day_wise_plan: List[Dict[str, Any]], summary_slots: Dict[str, str]) -> Dict[str, Any]:
+    conflicts = []
+    seen = set()
+    restriction_items = []
+    for field_name in CLIENT_FOOD_LIST_FIELDS:
+        for value in _coerce_text_list(client_record.get(field_name)):
+            normalized_value = _normalize_food_key(value)
+            if normalized_value:
+                restriction_items.append((field_name, value, normalized_value))
+
+    if not restriction_items:
+        return {
+            "summary": "No structured allergy or avoid-food data is available for this client.",
+            "conflicts": [],
+            "safe_notes": [],
+            "confidence_notes": ["Add structured allergies or avoid-foods to the client profile for reliable safety checks."],
+        }
+
+    for day_number, slot, text in _iter_diet_text_slots(day_wise_plan, summary_slots):
+        normalized_text = f" {_normalize_food_key(text)} "
+        for field_name, item, normalized_item in restriction_items:
+            if not normalized_item:
+                continue
+            pattern = f" {normalized_item} "
+            if pattern not in normalized_text and normalized_item not in normalized_text:
+                continue
+            key = (day_number, slot, field_name, normalized_item)
+            if key in seen:
+                continue
+            seen.add(key)
+            conflicts.append(
+                {
+                    "day": day_number,
+                    "slot": slot,
+                    "item": item,
+                    "conflict_type": _field_conflict_type(field_name),
+                    "matched_client_field": field_name,
+                    "reason": f"Client {field_name.replace('_', ' ')} includes '{item}', and the diet text contains a matching item.",
+                    "suggested_replacement": _suggest_food_replacement(item),
+                }
+            )
+
+    safe_notes = []
+    if not conflicts:
+        safe_notes.append("No exact structured allergy/avoid-food conflicts were found in this draft.")
+
+    return {
+        "summary": f"{len(conflicts)} possible conflict{'s' if len(conflicts) != 1 else ''} found.",
+        "conflicts": conflicts,
+        "safe_notes": safe_notes,
+        "confidence_notes": [
+            "Matching is based on normalized text from structured client food fields and the parsed diet draft.",
+            "Review manually for spelling variants, regional food names, and hidden ingredients.",
+        ],
+    }
+
+
+@api_router.post("/clients/ai/analyze", response_model=ClientAIBusinessAnalysisResponse)
+async def analyze_clients_with_ai(data: ClientAIBusinessAnalysisRequest, user: dict = Depends(get_current_user)):
+    if not is_staff_user(user):
+        raise HTTPException(status_code=403, detail="Staff access required")
+
+    limit = max(1, min(int(data.limit or 100), 200))
+    query = _visible_clients_query(user)
+    status_filters = [status for status in (data.status_filters or []) if status]
+    if status_filters:
+        query["status"] = {"$in": status_filters}
+    if data.search:
+        query["$or"] = [
+            {"name": {"$regex": data.search, "$options": "i"}},
+            {"email": {"$regex": data.search, "$options": "i"}},
+            {"phone": {"$regex": data.search, "$options": "i"}},
+        ]
+
+    client_rows = await db.clients.find(query, {"_id": 0}).sort("name", 1).limit(limit).to_list(limit)
+    if not client_rows:
+        raise HTTPException(status_code=400, detail="No visible clients found for this AI analysis")
+
+    client_ids = [row["id"] for row in client_rows]
+    owner_ids = _visible_client_owner_ids(user)
+
+    file_rows = await db.files.find(
+        {
+            "coach_id": {"$in": owner_ids},
+            "client_id": {"$in": client_ids},
+            "is_deleted": False,
+            "category": {"$in": ["blood-report", "past-diet", "client-picture"]},
+        },
+        {"_id": 0, "client_id": 1, "category": 1, "created_at": 1},
+    ).to_list(1000)
+    meal_rows = await db.meal_uploads.find(
+        {"coach_id": {"$in": owner_ids}, "client_id": {"$in": client_ids}},
+        {"_id": 0, "client_id": 1, "meal_type": 1, "reviewed": 1, "feedback": 1, "uploaded_at": 1},
+    ).sort("uploaded_at", -1).to_list(1000)
+    checkin_rows = await db.daily_checkins.find(
+        {"client_id": {"$in": client_ids}},
+        {"_id": 0, "client_id": 1, "date": 1, "adherence_score": 1, "weight_kg": 1, "meals": 1},
+    ).sort("date", -1).to_list(1000)
+    ai_health_rows = await db.client_ai_analyses.find(
+        {"client_id": {"$in": client_ids}, "analysis_type": "health-analysis"},
+        {"_id": 0, "client_id": 1, "overall_summary": 1, "clinical_risks": 1, "nutrition_gaps": 1, "generated_at": 1},
+    ).to_list(500)
+
+    file_context: Dict[str, Dict[str, int]] = {}
+    for row in file_rows:
+        client_context = file_context.setdefault(row.get("client_id"), {})
+        category = row.get("category") or "unknown"
+        client_context[category] = client_context.get(category, 0) + 1
+
+    meal_context: Dict[str, Dict[str, Any]] = {}
+    for row in meal_rows:
+        client_context = meal_context.setdefault(
+            row.get("client_id"),
+            {"total": 0, "unreviewed": 0, "latest_feedback": None, "latest_upload_at": None},
+        )
+        client_context["total"] += 1
+        if not row.get("reviewed"):
+            client_context["unreviewed"] += 1
+        if not client_context.get("latest_upload_at"):
+            client_context["latest_upload_at"] = row.get("uploaded_at")
+        if row.get("feedback") and not client_context.get("latest_feedback"):
+            client_context["latest_feedback"] = row.get("feedback")
+
+    checkin_context: Dict[str, Dict[str, Any]] = {}
+    for row in checkin_rows:
+        client_context = checkin_context.setdefault(
+            row.get("client_id"),
+            {"checkin_count": 0, "latest_date": None, "latest_adherence_score": None, "avg_recent_adherence_score": None},
+        )
+        client_context["checkin_count"] += 1
+        if not client_context.get("latest_date"):
+            client_context["latest_date"] = row.get("date")
+            client_context["latest_adherence_score"] = row.get("adherence_score")
+    for client_id, client_context in checkin_context.items():
+        scores = [
+            row.get("adherence_score")
+            for row in checkin_rows
+            if row.get("client_id") == client_id and isinstance(row.get("adherence_score"), (int, float))
+        ][:14]
+        if scores:
+            client_context["avg_recent_adherence_score"] = round(sum(scores) / len(scores), 1)
+
+    ai_health_context = {row.get("client_id"): row for row in ai_health_rows}
+    status_counts: Dict[str, int] = {}
+    for row in client_rows:
+        status = row.get("status") or "unknown"
+        status_counts[status] = status_counts.get(status, 0) + 1
+
+    def compact_client(row: dict) -> dict:
+        client_id = row.get("id")
+        health_analysis = ai_health_context.get(client_id) or {}
+        return {
+            "id": client_id,
+            "name": row.get("name"),
+            "status": row.get("status"),
+            "age": row.get("age"),
+            "gender": row.get("gender"),
+            "diet_preference": row.get("diet_preference"),
+            "profession": row.get("profession"),
+            "location": row.get("location"),
+            "health_issues": row.get("health_issues"),
+            "allergies": _coerce_text_list(row.get("allergies")),
+            "avoid_foods": _coerce_text_list(row.get("avoid_foods")),
+            "preferred_foods": _coerce_text_list(row.get("preferred_foods")),
+            "disliked_foods": _coerce_text_list(row.get("disliked_foods")),
+            "medical_food_restrictions": _coerce_text_list(row.get("medical_food_restrictions")),
+            "recent_comment": row.get("recent_comment"),
+            "diet_start_date": row.get("diet_start_date"),
+            "diet_end_date": row.get("diet_end_date"),
+            "program_start_date": row.get("program_start_date"),
+            "program_end_date": row.get("program_end_date"),
+            "last_follow_up_date": row.get("last_follow_up_date"),
+            "upcoming_follow_up_date": row.get("upcoming_follow_up_date"),
+            "initial_weight_kg": row.get("initial_weight_kg"),
+            "current_weight_kg": row.get("current_weight_kg"),
+            "goal_weight_kg": row.get("goal_weight_kg"),
+            "sleep_quality": row.get("sleep_quality"),
+            "sleep_hours": row.get("sleep_hours"),
+            "morning_freshness": row.get("morning_freshness"),
+            "adherence_rate": row.get("adherence_rate"),
+            "about_client": (row.get("about_client") or "")[:500],
+            "notes": (row.get("notes") or "")[:500],
+            "uploaded_file_counts": file_context.get(client_id, {}),
+            "meal_upload_summary": meal_context.get(client_id, {}),
+            "tracker_summary": checkin_context.get(client_id, {}),
+            "latest_ai_health_summary": health_analysis.get("overall_summary"),
+            "latest_ai_clinical_risks": health_analysis.get("clinical_risks") or [],
+            "latest_ai_nutrition_gaps": health_analysis.get("nutrition_gaps") or [],
+        }
+
+    context_summary = {
+        "client_count": len(client_rows),
+        "status_counts": status_counts,
+        "filters": {"status_filters": status_filters, "search": data.search, "limit": limit},
+        "available_context": [
+            "client profile fields",
+            "routine fields from profile",
+            "diet and program dates",
+            "recent team comments",
+            "uploaded blood-report/past-diet/client-picture counts",
+            "meal upload counts and review status",
+            "daily tracker adherence summary when present",
+            "previous per-client AI health summary when present",
+        ],
+    }
+
+    try:
+        analysis_payload = generate_client_business_analysis(
+            clients=[compact_client(row) for row in client_rows],
+            prompt=data.prompt,
+            context_summary=context_summary,
+        )
+    except OpenAIAPIError as exc:
+        detail = str(exc)
+        status_code = 503 if "_API_KEY" in detail else 502
+        raise HTTPException(status_code=status_code, detail=detail)
+
+    analysis_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    response_doc = {
+        "analysis_id": analysis_id,
+        "model": get_default_model(),
+        "generated_at": now,
+        "client_count": len(client_rows),
+        **analysis_payload,
+    }
+
+    await db.client_ai_business_analyses.insert_one(
+        {
+            "id": analysis_id,
+            "coach_id": user["id"],
+            "prompt": data.prompt,
+            "filters": context_summary["filters"],
+            "client_ids": client_ids,
+            "payload": analysis_payload,
+            "model": response_doc["model"],
+            "created_at": now,
+        }
+    )
+    await _write_audit_log(
+        user=user,
+        event_type="client-ai-business-analysis-generated",
+        entity_type="client-ai-analysis",
+        entity_id=analysis_id,
+        summary=f"Generated client AI business analysis for {len(client_rows)} clients",
+        metadata={"model": response_doc["model"], "client_count": len(client_rows)},
+    )
+
+    return ClientAIBusinessAnalysisResponse(**response_doc)
+
+
+@api_router.post("/clients/ai/query", response_model=ClientAIQueryResponse)
+async def query_clients_with_ai(data: ClientAIQueryRequest, user: dict = Depends(get_current_user)):
+    if not is_staff_user(user):
+        raise HTTPException(status_code=403, detail="Staff access required")
+    prompt = (data.prompt or "").strip()
+    if not prompt:
+        raise HTTPException(status_code=400, detail="Prompt is required")
+
+    clients = await _load_clients_for_ai_query(data, user)
+    if not clients:
+        raise HTTPException(status_code=400, detail="No visible clients found for this query")
+
+    params = _classify_client_query(prompt)
+    result = await _resolve_client_ai_query(clients, prompt, params)
+    query_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    response_doc = {
+        "query_id": query_id,
+        "intent": result.get("intent") or params.get("intent") or "business_summary",
+        "answer_text": result.get("answer_text") or "No answer generated.",
+        "result_blocks": result.get("result_blocks") or [],
+        "recommended_actions": result.get("recommended_actions") or [],
+        "follow_up_questions": result.get("follow_up_questions") or [],
+        "confidence_notes": result.get("confidence_notes") or [],
+    }
+
+    await db.client_ai_queries.insert_one(
+        {
+            "id": query_id,
+            "coach_id": user["id"],
+            "prompt": prompt,
+            "classification": params,
+            "filters": {
+                "status_filters": data.status_filters,
+                "search": data.search,
+                "limit": data.limit,
+            },
+            "payload": response_doc,
+            "created_at": now,
+        }
+    )
+
+    await _write_audit_log(
+        user=user,
+        event_type="client-ai-query-generated",
+        entity_type="client-ai-query",
+        entity_id=query_id,
+        summary=f"Generated client AI query for intent {response_doc['intent']}",
+        metadata={"intent": response_doc["intent"], "client_count": len(clients)},
+    )
+
+    return ClientAIQueryResponse(**response_doc)
+
+
+@api_router.get("/clients/ai/query-history", response_model=List[ClientAIQueryHistoryItemResponse])
+async def get_client_ai_query_history(
+    limit: int = 20,
+    user: dict = Depends(get_current_user),
+):
+    if not is_staff_user(user):
+        raise HTTPException(status_code=403, detail="Staff access required")
+
+    safe_limit = max(1, min(int(limit or 20), 100))
+    rows = await db.client_ai_queries.find(
+        {"coach_id": user["id"]},
+        {"_id": 0},
+    ).sort("created_at", -1).limit(safe_limit).to_list(safe_limit)
+
+    history_items = []
+    for row in rows:
+        payload = row.get("payload") or {}
+        history_items.append(
+            ClientAIQueryHistoryItemResponse(
+                prompt=row.get("prompt") or "",
+                filters=row.get("filters") or {},
+                created_at=row.get("created_at") or "",
+                query_id=payload.get("query_id") or row.get("id") or "",
+                intent=payload.get("intent") or "business_summary",
+                answer_text=payload.get("answer_text") or "",
+                result_blocks=payload.get("result_blocks") or [],
+                recommended_actions=payload.get("recommended_actions") or [],
+                follow_up_questions=payload.get("follow_up_questions") or [],
+                confidence_notes=payload.get("confidence_notes") or [],
+            )
+        )
+
+    return history_items
+
+
 # ============ LEAD ROUTES ============
 def _validate_lead_status(status: Optional[str]) -> Optional[str]:
     if status is None:
         return status
     normalized = status.strip().lower()
+    normalized = LEGACY_LEAD_STATUS_MAP.get(normalized, normalized)
     if normalized not in LEAD_STATUSES:
         raise HTTPException(status_code=400, detail="Invalid lead status")
+    return normalized
+
+
+def _normalize_lead_doc(lead: dict) -> dict:
+    normalized = {**lead}
+    normalized["status"] = _validate_lead_status(normalized.get("status") or "new") or "new"
     return normalized
 
 
@@ -2146,13 +2945,20 @@ def _validate_lead_status(status: Optional[str]) -> Optional[str]:
 async def get_leads(
     status: Optional[str] = None,
     search: Optional[str] = None,
+    month: Optional[str] = None,
     skip: int = 0,
     limit: int = 200,
     user: dict = Depends(get_current_user)
 ):
     query = _visible_shared_owner_query(user)
     if status:
-        query["status"] = _validate_lead_status(status)
+        normalized_status = _validate_lead_status(status)
+        legacy_values = [key for key, value in LEGACY_LEAD_STATUS_MAP.items() if value == normalized_status]
+        query["status"] = {"$in": [normalized_status, *legacy_values]}
+    if month:
+        if not re.match(r"^\d{4}-\d{2}$", month):
+            raise HTTPException(status_code=400, detail="month must be in YYYY-MM format")
+        query["created_at"] = {"$regex": f"^{month}"}
     if search:
         query["$or"] = [
             {"name": {"$regex": search, "$options": "i"}},
@@ -2162,7 +2968,7 @@ async def get_leads(
         ]
 
     leads = await db.leads.find(query, {"_id": 0}).sort("updated_at", -1).skip(skip).limit(limit).to_list(limit)
-    return [LeadResponse(**lead) for lead in leads]
+    return [LeadResponse(**_normalize_lead_doc(lead)) for lead in leads]
 
 
 @api_router.post("/leads", response_model=LeadResponse)
@@ -2180,7 +2986,7 @@ async def create_lead(data: LeadCreate, user: dict = Depends(get_current_user)):
     }
     await db.leads.insert_one(lead_doc)
     lead_doc.pop("_id", None)
-    return LeadResponse(**lead_doc)
+    return LeadResponse(**_normalize_lead_doc(lead_doc))
 
 
 @api_router.get("/leads/{lead_id}", response_model=LeadResponse)
@@ -2188,7 +2994,7 @@ async def get_lead(lead_id: str, user: dict = Depends(get_current_user)):
     lead = await db.leads.find_one(_visible_shared_owner_query(user, {"id": lead_id}), {"_id": 0})
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
-    return LeadResponse(**lead)
+    return LeadResponse(**_normalize_lead_doc(lead))
 
 
 @api_router.put("/leads/{lead_id}", response_model=LeadResponse)
@@ -2206,7 +3012,7 @@ async def update_lead(lead_id: str, data: LeadUpdate, user: dict = Depends(get_c
     if not result:
         raise HTTPException(status_code=404, detail="Lead not found")
     result.pop("_id", None)
-    return LeadResponse(**result)
+    return LeadResponse(**_normalize_lead_doc(result))
 
 
 @api_router.delete("/leads/{lead_id}")
@@ -2669,7 +3475,6 @@ async def analyze_diet_plan_with_ai(
             day_wise_plan=normalized_days,
             summary_slots=summary_slots,
             client_context=client_context,
-            model=os.environ.get("AI_MODEL") or os.environ.get("GEMINI_MODEL") or os.environ.get("OPENAI_MODEL"),
         )
     except OpenAIAPIError as exc:
         detail = str(exc)
@@ -2786,7 +3591,6 @@ async def suggest_diet_plan_changes_with_ai(
             custom_prompt=data.custom_prompt,
             day=data.day,
             slot=data.slot,
-            model=os.environ.get("AI_MODEL") or os.environ.get("GEMINI_MODEL") or os.environ.get("OPENAI_MODEL"),
         )
     except OpenAIAPIError as exc:
         detail = str(exc)
@@ -2847,6 +3651,41 @@ async def suggest_diet_plan_changes_with_ai(
         "plan_fingerprint": plan_fingerprint,
         **suggestion_payload,
     }
+
+
+@api_router.post("/diet-plans/ai/conflict-check", response_model=DietPlanAIConflictCheckResponse)
+async def check_diet_plan_conflicts_with_ai(
+    data: DietPlanAIConflictCheckRequest,
+    user: dict = Depends(get_current_user),
+):
+    if not is_staff_user(user):
+        raise HTTPException(status_code=403, detail="Staff access required")
+
+    client_record = await _get_visible_client(data.client_id, user, {"_id": 0})
+    if not client_record:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    normalized_days = _normalize_day_wise_plan(data.day_wise_plan or [], len(data.day_wise_plan or []) or 7)
+    summary_slots = _finalize_summary_slots(data.summary_slots or {}, normalized_days)
+    conflict_payload = _find_diet_conflicts(client_record, normalized_days, summary_slots)
+    conflict_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+
+    await db.diet_ai_conflict_checks.insert_one(
+        {
+            "id": conflict_id,
+            "client_id": data.client_id,
+            "coach_id": user["id"],
+            "summary": conflict_payload["summary"],
+            "conflicts": conflict_payload["conflicts"],
+            "safe_notes": conflict_payload["safe_notes"],
+            "confidence_notes": conflict_payload["confidence_notes"],
+            "created_at": now,
+        }
+    )
+
+    return DietPlanAIConflictCheckResponse(conflict_id=conflict_id, **conflict_payload)
+
 
 @api_router.get("/diet-plans/{plan_id}", response_model=DietPlanResponse)
 async def get_diet_plan(plan_id: str, user: dict = Depends(get_current_user)):
@@ -3719,7 +4558,7 @@ class ClientRegister(BaseModel):
     password: str
     name: str
     phone: Optional[str] = None
-    invite_code: Optional[str] = None  # Coach's invite code
+    invite_code: str  # Dietitian invite code required for mobile registration
 
 class ClientLoginResponse(BaseModel):
     access_token: str
@@ -3786,12 +4625,14 @@ async def client_register(data: ClientRegister):
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
     
-    # Find coach by invite code if provided
-    coach_id = None
-    if data.invite_code:
-        coach = await db.users.find_one({"invite_code": data.invite_code, "role": {"$in": list(STAFF_ROLES)}}, {"_id": 0})
-        if coach:
-            coach_id = coach["id"]
+    invite_code = data.invite_code.strip().upper()
+    if not invite_code:
+        raise HTTPException(status_code=400, detail="Dietitian invite code is required")
+
+    coach = await db.users.find_one({"invite_code": invite_code, "role": {"$in": list(STAFF_ROLES)}}, {"_id": 0})
+    if not coach:
+        raise HTTPException(status_code=400, detail="Invalid dietitian invite code")
+    coach_id = coach["id"]
     
     # Create user account with client role
     user_id = str(uuid.uuid4())
@@ -4601,6 +5442,7 @@ async def startup():
     await db.clients.create_index("user_id", sparse=True)
     await db.leads.create_index([("coach_id", 1), ("status", 1), ("updated_at", -1)])
     await db.leads.create_index([("coach_id", 1), ("next_follow_up_date", 1)])
+    await db.leads.create_index([("coach_id", 1), ("created_at", -1)])
     await db.client_comments.create_index([("client_id", 1), ("created_at", -1)])
     await db.client_comments.create_index([("coach_id", 1), ("created_at", -1)])
     await db.weight_entries.create_index([("client_id", 1), ("recorded_date", -1)])
@@ -4614,8 +5456,11 @@ async def startup():
     await db.audit_logs.create_index([("coach_id", 1), ("created_at", -1)])
     await db.audit_logs.create_index([("entity_type", 1), ("created_at", -1)])
     await db.client_ai_analyses.create_index([("client_id", 1), ("analysis_type", 1)], unique=True)
+    await db.client_ai_business_analyses.create_index([("coach_id", 1), ("created_at", -1)])
+    await db.client_ai_queries.create_index([("coach_id", 1), ("created_at", -1)])
     await db.diet_ai_artifacts.create_index([("coach_id", 1), ("client_id", 1), ("plan_fingerprint", 1)], unique=True)
     await db.diet_ai_artifacts.create_index([("client_id", 1), ("updated_at", -1)])
+    await db.diet_ai_conflict_checks.create_index([("coach_id", 1), ("client_id", 1), ("created_at", -1)])
     # Mobile app indexes
     await db.daily_checkins.create_index([("client_id", 1), ("date", -1)])
     await db.meal_uploads.create_index([("client_id", 1), ("uploaded_at", -1)])

@@ -344,6 +344,8 @@ export function DietPlansPage() {
   const [aiPromptHistory, setAiPromptHistory] = useState([]);
   const [aiAnalysisFingerprint, setAiAnalysisFingerprint] = useState("");
   const [aiAnalysisSourceFilename, setAiAnalysisSourceFilename] = useState("");
+  const [dietConflictCheck, setDietConflictCheck] = useState(null);
+  const [dietConflictChecking, setDietConflictChecking] = useState(false);
   const [orEnabledCells, setOrEnabledCells] = useState({});
   const [activeCellKey, setActiveCellKey] = useState("");
   const [formData, setFormData] = useState(getInitialFormData());
@@ -387,6 +389,7 @@ export function DietPlansPage() {
     setAiPromptHistory([]);
     setAiAnalysisFingerprint("");
     setAiAnalysisSourceFilename("");
+    setDietConflictCheck(null);
   };
 
   const loadData = async () => {
@@ -503,6 +506,7 @@ export function DietPlansPage() {
   const changePlanDays = (value) => {
     const days = parseInt(value, 10);
     if (!Number.isFinite(days)) return;
+    setDietConflictCheck(null);
     setFormData((prev) => ({
       ...prev,
       plan_days: days,
@@ -632,6 +636,7 @@ export function DietPlansPage() {
 
   const updateMealCell = (day, slot, option, value) => {
     const normalizedValue = limitTwoRows(value);
+    setDietConflictCheck(null);
     setFormData((prev) => ({
       ...prev,
       day_wise_plan: prev.day_wise_plan.map((entry) => {
@@ -645,6 +650,7 @@ export function DietPlansPage() {
   };
 
   const updateSummarySlot = (slot, value) => {
+    setDietConflictCheck(null);
     setFormData((prev) => ({
       ...prev,
       summary_slots: { ...prev.summary_slots, [slot]: value }
@@ -665,6 +671,32 @@ export function DietPlansPage() {
   const triggerPdfPicker = () => {
     if (pdfParsing) return;
     pdfInputRef.current?.click();
+  };
+
+  const runDietConflictCheck = async ({
+    clientId = formData.client_id,
+    dayWisePlan = formData.day_wise_plan,
+    summarySlots = formData.summary_slots,
+    planDays = formData.plan_days,
+  } = {}) => {
+    if (!clientId) return null;
+    const normalizedDays = syncDayWisePlanLength(normalizeDayWisePlan(dayWisePlan, planDays), planDays);
+    const normalizedSummary = buildSummarySlots(normalizedDays, summarySlots || {});
+    setDietConflictChecking(true);
+    try {
+      const res = await api.post("/diet-plans/ai/conflict-check", {
+        client_id: clientId,
+        day_wise_plan: normalizedDays,
+        summary_slots: normalizedSummary,
+      });
+      setDietConflictCheck(res.data);
+      return res.data;
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Failed to run diet safety check");
+      return null;
+    } finally {
+      setDietConflictChecking(false);
+    }
   };
 
   const runAIAnalysis = async ({
@@ -794,6 +826,15 @@ export function DietPlansPage() {
         toast.warning(res.data.parse_warnings[0]);
       }
       if (!isTemplateDialog && formData.client_id) {
+        const conflictResult = await runDietConflictCheck({
+          clientId: formData.client_id,
+          dayWisePlan: parsedDays,
+          summarySlots: parsedSummary,
+          planDays: formData.plan_days,
+        });
+        if (conflictResult?.conflicts?.length) {
+          toast.warning("Diet safety conflicts found");
+        }
         const analysisResult = await runAIAnalysis({
           clientId: formData.client_id,
           dayWisePlan: parsedDays,
@@ -1478,20 +1519,73 @@ export function DietPlansPage() {
                         Analyze parsed diets, estimate calories and protein, and apply targeted Indian-diet suggestions.
                       </CardDescription>
                     </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => void runAIAnalysis()}
-                      disabled={aiAnalyzing || !formData.client_id}
-                      className="border-white/20 bg-white/10 text-white hover:bg-white/20 hover:text-white"
-                    >
-                      {aiAnalyzing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCcw className="w-4 h-4 mr-2" />}
-                      {aiAnalysis ? "Re-run" : "Analyze"}
-                    </Button>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void runDietConflictCheck()}
+                        disabled={dietConflictChecking || !formData.client_id}
+                        className="border-white/20 bg-white/10 text-white hover:bg-white/20 hover:text-white"
+                      >
+                        {dietConflictChecking ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCcw className="w-4 h-4 mr-2" />}
+                        Safety Check
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void runAIAnalysis()}
+                        disabled={aiAnalyzing || !formData.client_id}
+                        className="border-white/20 bg-white/10 text-white hover:bg-white/20 hover:text-white"
+                      >
+                        {aiAnalyzing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCcw className="w-4 h-4 mr-2" />}
+                        {aiAnalysis ? "Re-run" : "Analyze"}
+                      </Button>
+                    </div>
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
+                  {dietConflictCheck ? (
+                    <div className={`rounded-3xl border px-4 py-4 text-sm ${
+                      (dietConflictCheck.conflicts || []).length
+                        ? "border-red-200 bg-red-50 text-red-950"
+                        : "border-emerald-200 bg-emerald-50 text-emerald-950"
+                    }`}>
+                      <div className="flex items-center justify-between gap-3">
+                        <h3 className="font-semibold">Diet Safety Check</h3>
+                        <Badge variant="outline">{(dietConflictCheck.conflicts || []).length} conflict(s)</Badge>
+                      </div>
+                      <p className="mt-2">{dietConflictCheck.summary}</p>
+                      {(dietConflictCheck.conflicts || []).length ? (
+                        <div className="mt-3 space-y-2">
+                          {dietConflictCheck.conflicts.map((conflict, index) => (
+                            <div key={`${conflict.slot}-${conflict.item}-${index}`} className="rounded-xl border border-red-200 bg-white/70 p-3">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <span className="font-medium">
+                                  {conflict.day ? `Day ${conflict.day} • ` : ""}{SLOT_LABELS[conflict.slot] || conflict.slot}
+                                </span>
+                                <Badge variant="outline" className="capitalize">{String(conflict.conflict_type || "").replace(/_/g, " ")}</Badge>
+                              </div>
+                              <p className="mt-1 text-sm">{conflict.reason}</p>
+                              <p className="mt-1 text-xs">Suggested replacement: {conflict.suggested_replacement}</p>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                      {(dietConflictCheck.safe_notes || []).length ? (
+                        <ul className="mt-3 space-y-1">
+                          {dietConflictCheck.safe_notes.map((note, index) => <li key={`safe-${index}`}>• {note}</li>)}
+                        </ul>
+                      ) : null}
+                      {(dietConflictCheck.confidence_notes || []).length ? (
+                        <ul className="mt-3 space-y-1 text-xs opacity-80">
+                          {dietConflictCheck.confidence_notes.map((note, index) => <li key={`conflict-note-${index}`}>• {note}</li>)}
+                        </ul>
+                      ) : null}
+                    </div>
+                  ) : null}
+
                   {isTemplateDialog ? (
                     <div className="rounded-3xl border border-dashed border-[#DED8FF] bg-[#F7F4FF] px-4 py-6 text-sm text-[#6C6680]">
                       AI analysis is available for client-specific diet plans after you select a client.

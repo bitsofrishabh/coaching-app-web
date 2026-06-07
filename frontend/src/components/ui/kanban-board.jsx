@@ -20,6 +20,12 @@ const KANBAN_TONES = {
     dot: "bg-violet-500",
     active: "ring-violet-300/80 dark:ring-violet-700/70",
   },
+  indigo: {
+    column: "bg-indigo-50/75 dark:bg-indigo-950/25",
+    pill: "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-200",
+    dot: "bg-indigo-500",
+    active: "ring-indigo-300/80 dark:ring-indigo-700/70",
+  },
   amber: {
     column: "bg-amber-50/75 dark:bg-amber-950/20",
     pill: "bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-200",
