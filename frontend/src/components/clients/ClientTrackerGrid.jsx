@@ -1,7 +1,6 @@
 import { Link } from "react-router-dom";
 import { AgGridReact } from "ag-grid-react";
 import { AllCommunityModule, ModuleRegistry, themeQuartz } from "ag-grid-community";
-import { useTheme } from "next-themes";
 import { CalendarDays, Edit, Eye, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -71,8 +70,6 @@ export function ClientTrackerGrid({
   onEditClient,
   onDeleteClient,
 }) {
-  const { resolvedTheme } = useTheme();
-
   const columnDefs = [
     {
       field: "name",
@@ -333,7 +330,7 @@ export function ClientTrackerGrid({
           </div>
         </div>
 
-        <div className="border-l border-t border-slate-300/70 dark:border-white/15" data-ag-theme-mode={resolvedTheme === "dark" ? "dark" : "light"}>
+        <div className="border-l border-t border-slate-300/70 dark:border-white/15" data-ag-theme-mode="light">
           <AgGridReact
             theme={clientTrackerGridTheme}
             rowData={rowData}

@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
   Copy,
-  Moon,
   RefreshCw,
   Sun,
   UserPlus,
@@ -11,7 +10,6 @@ import {
   Trash2,
   UserCheck,
 } from "lucide-react";
-import { useTheme } from "next-themes";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -22,7 +20,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import {
   Table,
   TableBody,
@@ -64,12 +61,10 @@ const STAFF_FORM_DEFAULTS = {
 
 export function SettingsPage() {
   const { user } = useAuth();
-  const { theme, setTheme } = useTheme();
   const isSuperAdmin = hasAnyRole(user, ["super_admin"]);
 
   const [inviteCode, setInviteCode] = useState("");
   const [generating, setGenerating] = useState(false);
-  const [mounted, setMounted] = useState(false);
 
   const [staffMembers, setStaffMembers] = useState([]);
   const [clients, setClients] = useState([]);
@@ -85,7 +80,6 @@ export function SettingsPage() {
   const [savingAssignments, setSavingAssignments] = useState(false);
 
   useEffect(() => {
-    setMounted(true);
     loadInviteCode();
   }, []);
 
@@ -230,8 +224,6 @@ export function SettingsPage() {
     return String(client.name || "").toLowerCase().includes(query);
   });
 
-  const isDarkMode = mounted ? theme !== "light" : true;
-
   return (
     <div className="space-y-7 animate-fade-in" data-testid="settings-page">
       <div className="rounded-[2rem] border border-[#E3E0D8] bg-white/90 p-5 shadow-sm">
@@ -269,31 +261,17 @@ export function SettingsPage() {
       <Card className="border-[#E3E0D8] bg-white shadow-sm">
         <CardHeader>
           <CardTitle className="font-['Sora'] text-[#18115E]">Appearance</CardTitle>
-          <CardDescription>Choose how the dashboard looks while you work</CardDescription>
+          <CardDescription>The dashboard uses a consistent light appearance for all users.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
           <div className="flex items-center justify-between gap-4 rounded-2xl border border-[#E3E0D8] bg-[#F8F7F4] px-4 py-4">
             <div className="space-y-1">
-              <Label htmlFor="theme-switch" className="text-sm font-medium">
-                Theme Mode
-              </Label>
-              <p className="text-sm text-muted-foreground">Switch between light and dark mode.</p>
+              <p className="text-sm font-medium">Theme Mode</p>
+              <p className="text-sm text-muted-foreground">Dark mode has been disabled for a cleaner, fixed dashboard experience.</p>
             </div>
-            <div className="flex items-center gap-3">
-              <div className={`flex items-center gap-2 rounded-full px-3 py-1.5 text-sm ${!isDarkMode ? "bg-primary/10 text-primary" : "text-muted-foreground"}`}>
-                <Sun className="h-4 w-4" />
-                <span>Light</span>
-              </div>
-              <Switch
-                id="theme-switch"
-                checked={isDarkMode}
-                onCheckedChange={(checked) => setTheme(checked ? "dark" : "light")}
-                aria-label="Toggle dark mode"
-              />
-              <div className={`flex items-center gap-2 rounded-full px-3 py-1.5 text-sm ${isDarkMode ? "bg-primary/10 text-primary" : "text-muted-foreground"}`}>
-                <Moon className="h-4 w-4" />
-                <span>Dark</span>
-              </div>
+            <div className="flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1.5 text-sm text-primary">
+              <Sun className="h-4 w-4" />
+              <span>Light mode only</span>
             </div>
           </div>
         </CardContent>
