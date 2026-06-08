@@ -70,7 +70,7 @@ export function PendingTasksBell() {
 
   const loadClients = async () => {
     try {
-      const res = await api.get("/clients", { params: { limit: 500 } });
+      const res = await api.get("/clients", { params: { limit: 5000 } });
       setClients(res.data || []);
     } catch (error) {
       toast.error(error.response?.data?.detail || "Failed to load clients");

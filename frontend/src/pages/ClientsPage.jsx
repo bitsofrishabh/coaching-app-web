@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Columns3, Plus, Search, Upload, Sparkles, ArrowDown, Loader2, Table2, X, Download } from "lucide-react";
+import { Plus, Search, Upload, Sparkles, ArrowDown, Loader2, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -25,10 +25,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { ClientTrackerGrid } from "@/components/clients/ClientTrackerGrid";
-import { KanbanBoard } from "@/components/ui/kanban-board";
 import { api } from "@/lib/api";
 import { hasAnyRole, useAuth } from "@/context/auth-context";
 
@@ -97,8 +95,6 @@ const CLIENT_AI_PRESET_PROMPTS = [
   "Which clients need follow-up today?",
   "Find allergy/diet risk clients"
 ];
-
-const CLIENT_KANBAN_COLUMNS = CLIENT_STATUS_OPTIONS;
 
 const TRACKER_COLUMN_OPTIONS = [
   { key: "diet_start_date", label: "Diet Start" },
@@ -960,9 +956,8 @@ export function ClientsPage() {
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [statusFilters, setStatusFilters] = useState(["active"]);
+  const [clientListTab, setClientListTab] = useState("active");
   const [visibleTrackerColumns, setVisibleTrackerColumns] = useState(DEFAULT_VISIBLE_TRACKER_COLUMNS);
-  const [clientViewMode, setClientViewMode] = useState("table");
   const [sortBy, setSortBy] = useState("client-asc");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingClient, setEditingClient] = useState(null);
@@ -971,9 +966,6 @@ export function ClientsPage() {
   const [rowDrafts, setRowDrafts] = useState({});
   const [editingCommentClientId, setEditingCommentClientId] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
-  const [quickViewOpen, setQuickViewOpen] = useState(false);
-  const [quickViewLoading, setQuickViewLoading] = useState(false);
-  const [quickViewClient, setQuickViewClient] = useState(null);
   const [clientAiDialogOpen, setClientAiDialogOpen] = useState(false);
   const csvInputRef = useRef(null);
   const csvImportModeRef = useRef("bulk");
@@ -982,7 +974,7 @@ export function ClientsPage() {
   const fetchClients = async () => {
     setLoading(true);
     try {
-      const clientRes = await api.get("/clients");
+      const clientRes = await api.get("/clients", { params: { limit: 5000 } });
       setClients(clientRes.data);
       const drafts = {};
       clientRes.data.forEach((client) => {
@@ -1157,20 +1149,6 @@ export function ClientsPage() {
     }
   };
 
-  const openQuickView = async (client) => {
-    setQuickViewOpen(true);
-    setQuickViewLoading(true);
-    setQuickViewClient(client);
-    try {
-      const response = await api.get(`/clients/${client.id}`);
-      setQuickViewClient(response.data);
-    } catch (err) {
-      toast.error("Failed to load client details");
-    } finally {
-      setQuickViewLoading(false);
-    }
-  };
-
   const triggerCsvPicker = (mode = "bulk") => {
     if (csvImporting) return;
     csvImportModeRef.current = mode;
@@ -1336,36 +1314,12 @@ export function ClientsPage() {
     const daysLeft = getDaysUntilIsoDate(client.diet_end_date);
     return daysLeft !== null && daysLeft >= 2 && daysLeft <= 7;
   }).length;
-  const statusCounts = clients.reduce((accumulator, client) => {
-    const key = normalizeClientStatus(client.status);
-    accumulator[key] = (accumulator[key] || 0) + 1;
-    return accumulator;
-  }, {});
-  const statusFilterOptions = CLIENT_STATUS_OPTIONS.map((option) => ({
-    value: option.value,
-    label: `${option.label} (${statusCounts[option.value] || 0})`,
-  }));
-  const selectedStatusLabel = (() => {
-    if (!statusFilters.length || statusFilters.length === CLIENT_STATUS_OPTIONS.length) {
-      return `All Clients (${totalCount})`;
-    }
-    if (statusFilters.length === 1) {
-      const match = CLIENT_STATUS_OPTIONS.find((option) => option.value === statusFilters[0]);
-      return match ? `${match.label} (${statusCounts[match.value] || 0})` : "Filter status";
-    }
-    return `${statusFilters.length} statuses selected`;
-  })();
+  const activeListCount = clients.filter((client) => normalizeClientStatus(client.status) !== "completed").length;
   const activeSort = getSortState(sortBy);
   const canDeleteClient = hasAnyRole(user, ["super_admin", "admin"]);
-
-  const toggleStatusFilter = (statusValue, checked) => {
-    setStatusFilters((current) => {
-      if (checked) {
-        return current.includes(statusValue) ? current : [...current, statusValue];
-      }
-      return current.filter((value) => value !== statusValue);
-    });
-  };
+  const visibleAiStatusFilters = clientListTab === "active"
+    ? CLIENT_STATUS_OPTIONS.filter((option) => option.value !== "completed").map((option) => option.value)
+    : [];
 
   const toggleTrackerColumn = (columnKey, checked) => {
     setVisibleTrackerColumns((current) => {
@@ -1382,7 +1336,7 @@ export function ClientsPage() {
   const visibleClients = clients
     .filter((client) => {
       const normalizedStatus = normalizeClientStatus(client.status);
-      if (clientViewMode === "table" && statusFilters.length && !statusFilters.includes(normalizedStatus)) return false;
+      if (clientListTab === "active" && normalizedStatus === "completed") return false;
       if (!search.trim()) return true;
       const q = search.toLowerCase();
       return [client.name, client.email, client.phone].some((field) => (field || "").toLowerCase().includes(q));
@@ -1445,28 +1399,6 @@ export function ClientsPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex rounded-lg border border-border bg-muted/45 p-1">
-            <Button
-              type="button"
-              variant={clientViewMode === "table" ? "secondary" : "ghost"}
-              size="sm"
-              className="h-8 px-3"
-              onClick={() => setClientViewMode("table")}
-            >
-              <Table2 className="mr-2 h-4 w-4" />
-              Table
-            </Button>
-            <Button
-              type="button"
-              variant={clientViewMode === "kanban" ? "secondary" : "ghost"}
-              size="sm"
-              className="h-8 px-3"
-              onClick={() => setClientViewMode("kanban")}
-            >
-              <Columns3 className="mr-2 h-4 w-4" />
-              Kanban
-            </Button>
-          </div>
           <Button variant="outline" onClick={() => triggerCsvPicker("bulk")} disabled={csvImporting} className="h-10 rounded-lg bg-card">
             <Upload className="w-4 h-4 mr-2" />
             {csvImporting ? "Importing CSV..." : "Import Client CSV"}
@@ -1485,6 +1417,25 @@ export function ClientsPage() {
       </div>
       </div>
 
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          type="button"
+          variant={clientListTab === "active" ? "secondary" : "outline"}
+          className="h-10 rounded-full px-4"
+          onClick={() => setClientListTab("active")}
+        >
+          Active Clients ({activeListCount})
+        </Button>
+        <Button
+          type="button"
+          variant={clientListTab === "all" ? "secondary" : "outline"}
+          className="h-10 rounded-full px-4"
+          onClick={() => setClientListTab("all")}
+        >
+          All Clients ({totalCount})
+        </Button>
+      </div>
+
       <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
         <div className="flex items-center gap-2">
           <span className="h-2.5 w-2.5 rounded-sm bg-red-500" />
@@ -1501,40 +1452,6 @@ export function ClientsPage() {
       </div>
 
       <div className="flex flex-col gap-3 xl:flex-row">
-        {clientViewMode === "table" ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="outline"
-                className="h-10 w-full justify-between rounded-lg bg-card xl:w-72"
-                data-testid="client-status-filter"
-              >
-                <span className="truncate">{selectedStatusLabel}</span>
-                <ArrowDown className="h-4 w-4 text-muted-foreground" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-72">
-              <DropdownMenuLabel>Filter by status</DropdownMenuLabel>
-              <DropdownMenuCheckboxItem
-                checked={!statusFilters.length || statusFilters.length === CLIENT_STATUS_OPTIONS.length}
-                onCheckedChange={() => setStatusFilters([])}
-              >
-                All Clients ({totalCount})
-              </DropdownMenuCheckboxItem>
-              <DropdownMenuSeparator />
-              {statusFilterOptions.map((option) => (
-                <DropdownMenuCheckboxItem
-                  key={option.value}
-                  checked={statusFilters.includes(option.value)}
-                  onCheckedChange={(checked) => toggleStatusFilter(option.value, checked === true)}
-                >
-                  {option.label}
-                </DropdownMenuCheckboxItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ) : null}
-
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
@@ -1558,105 +1475,49 @@ export function ClientsPage() {
           </SelectContent>
         </Select>
 
-        {clientViewMode === "table" ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" className="h-10 w-full justify-between rounded-lg bg-card xl:w-60">
-                <span className="truncate">Columns</span>
-                <ArrowDown className="h-4 w-4 text-muted-foreground" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-64">
-              <DropdownMenuLabel>Show table columns</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              {TRACKER_COLUMN_OPTIONS.map((option) => (
-                <DropdownMenuCheckboxItem
-                  key={option.key}
-                  checked={visibleTrackerColumns.includes(option.key)}
-                  onCheckedChange={(checked) => toggleTrackerColumn(option.key, checked === true)}
-                >
-                  {option.label}
-                </DropdownMenuCheckboxItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ) : null}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" className="h-10 w-full justify-between rounded-lg bg-card xl:w-60">
+              <span className="truncate">Columns</span>
+              <ArrowDown className="h-4 w-4 text-muted-foreground" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-64">
+            <DropdownMenuLabel>Show table columns</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {TRACKER_COLUMN_OPTIONS.map((option) => (
+              <DropdownMenuCheckboxItem
+                key={option.key}
+                checked={visibleTrackerColumns.includes(option.key)}
+                onCheckedChange={(checked) => toggleTrackerColumn(option.key, checked === true)}
+              >
+                {option.label}
+              </DropdownMenuCheckboxItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
-      {clientViewMode === "table" && statusFilters.length > 0 && statusFilters.length < CLIENT_STATUS_OPTIONS.length ? (
-        <div className="flex flex-wrap items-center gap-2">
-          {statusFilters.map((statusValue) => {
-            const statusMeta = getClientStatusMeta(statusValue);
-            return (
-              <button
-                key={statusValue}
-                type="button"
-                className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm font-medium transition-colors hover:bg-muted/60 ${statusMeta.badgeClassName}`}
-                onClick={() => toggleStatusFilter(statusValue, false)}
-              >
-                <span>{statusMeta.label}</span>
-                <X className="h-3.5 w-3.5" />
-              </button>
-            );
-          })}
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-8 rounded-full px-3 text-muted-foreground"
-            onClick={() => setStatusFilters([])}
-          >
-            Clear filters
-          </Button>
-        </div>
-      ) : null}
-
-      {clientViewMode === "table" ? (
-        <ClientTrackerGrid
-          rowData={gridRows}
-          loading={loading}
-          rowDrafts={rowDrafts}
-          visibleColumns={visibleTrackerColumns}
-          statusOptions={CLIENT_STATUS_OPTIONS}
-          editingCommentClientId={editingCommentClientId}
-          commentInputRefs={commentInputRefs}
-          canDeleteClient={canDeleteClient}
-          getClientStatusMeta={getClientStatusMeta}
-          getDateUrgencyMeta={getDateUrgencyMeta}
-          onOpenQuickView={openQuickView}
-          onStartInlineCommentEdit={startInlineCommentEdit}
-          onCancelInlineCommentEdit={cancelInlineCommentEdit}
-          onCommentDraftChange={(clientId, value) => setRowDrafts((prev) => ({ ...prev, [clientId]: { ...prev[clientId], recent_comment: value } }))}
-          onSubmitInlineComment={submitInlineComment}
-          onInlineDateChange={handleInlineDateChange}
-          onStatusChange={handleClientStatusMove}
-          onEditClient={openEditDialog}
-          onDeleteClient={setDeleteTarget}
-        />
-      ) : (
-        <KanbanBoard
-          columns={CLIENT_KANBAN_COLUMNS}
-          items={gridRows}
-          getItemId={(client) => client.id}
-          getItemStatus={(client) => client.status || "active"}
-          onItemStatusChange={handleClientStatusMove}
-          emptyLabel="No clients"
-          renderCard={(client) => {
-            return (
-              <div className="rounded-xl border border-border/70 bg-background px-3.5 py-2.5 shadow-[0_1px_2px_rgba(15,23,42,0.05),0_6px_14px_rgba(15,23,42,0.035)] transition-all hover:border-primary/25 hover:shadow-[0_2px_6px_rgba(15,23,42,0.08),0_10px_22px_rgba(15,23,42,0.055)]">
-                <button
-                  type="button"
-                  onClick={() => openQuickView(client)}
-                  className="block w-full truncate text-left text-sm font-semibold leading-6 text-foreground hover:text-primary"
-                  title={client.name}
-                >
-                  {client.name}
-                </button>
-              </div>
-            );
-          }}
-        />
-      )}
+      <ClientTrackerGrid
+        rowData={gridRows}
+        loading={loading}
+        rowDrafts={rowDrafts}
+        visibleColumns={visibleTrackerColumns}
+        statusOptions={CLIENT_STATUS_OPTIONS}
+        editingCommentClientId={editingCommentClientId}
+        commentInputRefs={commentInputRefs}
+        canDeleteClient={canDeleteClient}
+        getClientStatusMeta={getClientStatusMeta}
+        getDateUrgencyMeta={getDateUrgencyMeta}
+        onStartInlineCommentEdit={startInlineCommentEdit}
+        onCancelInlineCommentEdit={cancelInlineCommentEdit}
+        onCommentDraftChange={(clientId, value) => setRowDrafts((prev) => ({ ...prev, [clientId]: { ...prev[clientId], recent_comment: value } }))}
+        onSubmitInlineComment={submitInlineComment}
+        onInlineDateChange={handleInlineDateChange}
+        onStatusChange={handleClientStatusMove}
+        onEditClient={openEditDialog}
+        onDeleteClient={setDeleteTarget}
+      />
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-6xl max-h-[92vh] overflow-y-auto">
@@ -1879,7 +1740,7 @@ export function ClientsPage() {
         open={clientAiDialogOpen}
         onOpenChange={setClientAiDialogOpen}
         clientsCount={clients.length}
-        statusFilters={statusFilters}
+        statusFilters={visibleAiStatusFilters}
         search={search}
       />
 
@@ -1908,106 +1769,6 @@ export function ClientsPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <Sheet open={quickViewOpen} onOpenChange={setQuickViewOpen}>
-        <SheetContent side="right" className="w-[92vw] sm:max-w-xl p-0">
-          <SheetHeader className="border-b border-border/50 px-6 py-5 pr-12">
-            <SheetTitle className="truncate pr-4">{quickViewClient?.name || "Client quick view"}</SheetTitle>
-            <SheetDescription>
-              Key client details from the profile page.
-            </SheetDescription>
-          </SheetHeader>
-          <div className="h-full overflow-y-auto px-6 py-5">
-            {quickViewLoading ? (
-              <div className="flex items-center gap-3 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Loading client details...
-              </div>
-            ) : quickViewClient ? (
-              <div className="space-y-6">
-                <div className="rounded-xl border border-border/50 bg-muted/[0.08] p-4">
-                  <div className="flex items-center gap-2">
-                    <span className={`h-3 w-3 rounded-full ${getClientStatusMeta(quickViewClient.status).dotClassName}`} />
-                    <span className="text-sm font-semibold text-foreground">{getClientStatusMeta(quickViewClient.status).label}</span>
-                  </div>
-                  <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
-                    <div>
-                      <p className="text-xs uppercase tracking-wide text-muted-foreground">Age</p>
-                      <p className="mt-1 font-medium">{quickViewClient.age || "—"}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs uppercase tracking-wide text-muted-foreground">Gender</p>
-                      <p className="mt-1 font-medium">{quickViewClient.gender || "—"}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs uppercase tracking-wide text-muted-foreground">Height</p>
-                      <p className="mt-1 font-medium">{quickViewClient.height_cm ? `${quickViewClient.height_cm} cm` : "—"}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs uppercase tracking-wide text-muted-foreground">Primary Coach</p>
-                      <p className="mt-1 font-medium truncate">{quickViewClient.primary_coach || "—"}</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="rounded-xl border border-border/50 p-4">
-                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Start Weight</p>
-                    <p className="mt-2 text-base font-semibold">{formatWeight(quickViewClient.initial_weight_kg)}</p>
-                  </div>
-                  <div className="rounded-xl border border-border/50 p-4">
-                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Current Weight</p>
-                    <p className="mt-2 text-base font-semibold">{formatWeight(quickViewClient.current_weight_kg)}</p>
-                  </div>
-                  <div className="rounded-xl border border-border/50 p-4">
-                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Target Weight</p>
-                    <p className="mt-2 text-base font-semibold">{formatWeight(quickViewClient.goal_weight_kg)}</p>
-                  </div>
-                </div>
-
-                <div className="rounded-xl border border-border/50">
-                  <div className="grid grid-cols-2">
-                    {[
-                      ["Email", quickViewClient.email || "—"],
-                      ["Phone", quickViewClient.phone || "—"],
-                      ["Location", quickViewClient.location || "—"],
-                      ["Profession", quickViewClient.profession || "—"],
-                      ["Diet Start", formatDisplayDate(quickViewClient.diet_start_date)],
-                      ["Diet Expire", formatDisplayDate(quickViewClient.diet_end_date)],
-                      ["Last Follow-up", formatDisplayDate(quickViewClient.last_follow_up_date)],
-                      ["Next Follow-up", formatDisplayDate(quickViewClient.upcoming_follow_up_date)],
-                    ].map(([label, value], index) => (
-                      <div
-                        key={label}
-                        className={`px-4 py-3 ${index % 2 === 0 ? "border-r" : ""} ${index < 6 ? "border-b" : ""} border-border/50`}
-                      >
-                        <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
-                        <p className="mt-1 text-sm font-medium break-words">{value}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="space-y-4">
-                  <div className="rounded-xl border border-border/50 p-4">
-                    <p className="text-xs uppercase tracking-wide text-muted-foreground">About Client</p>
-                    <p className="mt-2 text-sm leading-6 text-foreground">{quickViewClient.about_client || "—"}</p>
-                  </div>
-                  <div className="rounded-xl border border-border/50 p-4">
-                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Health Issues</p>
-                    <p className="mt-2 text-sm leading-6 text-foreground">{quickViewClient.health_issues || "—"}</p>
-                  </div>
-                  <div className="rounded-xl border border-border/50 p-4">
-                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Notes</p>
-                    <p className="mt-2 text-sm leading-6 text-foreground">{quickViewClient.notes || "—"}</p>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">No client selected.</p>
-            )}
-          </div>
-        </SheetContent>
-      </Sheet>
     </div>
   );
 }

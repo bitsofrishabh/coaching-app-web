@@ -142,7 +142,7 @@ export function FollowUpsPage() {
     try {
       const [followUpsRes, clientsRes] = await Promise.all([
       api.get("/follow-ups"),
-      api.get("/clients")
+      api.get("/clients", { params: { limit: 5000 } })
     ]);
       setFollowUps(followUpsRes.data);
       setClients(clientsRes.data);

@@ -113,7 +113,7 @@ export function SettingsPage() {
   const loadClients = async () => {
     setLoadingClients(true);
     try {
-      const res = await api.get("/clients", { params: { limit: 500 } });
+      const res = await api.get("/clients", { params: { limit: 5000 } });
       const sortedClients = [...(res.data || [])].sort((left, right) =>
         String(left.name || "").localeCompare(String(right.name || ""))
       );

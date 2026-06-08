@@ -101,6 +101,13 @@ const formatDisplayDateTime = (value) => {
   });
 };
 
+const formatListValue = (value) => {
+  if (Array.isArray(value)) {
+    return value.filter(Boolean).join(", ") || "—";
+  }
+  return value || "—";
+};
+
 const formatFollowUpSchedule = (followUp, dateOptions = {}) => {
   if (!followUp?.scheduled_date) return "—";
   const dateLabel = formatDisplayDate(followUp.scheduled_date, dateOptions);
@@ -948,6 +955,50 @@ export function ClientDetailPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Card className="border-[#E3E0D8] bg-white shadow-sm">
+        <CardHeader>
+          <CardTitle className="font-['Sora'] text-[#18115E]">Imported Profile Details</CardTitle>
+          <CardDescription>Additional context captured from the uploaded client form and manual profile fields.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+            {[
+              ["Profession", client.profession || "—"],
+              ["Diet Preference", client.diet_preference || "—"],
+              ["Primary Coach", client.primary_coach || user?.name || "—"],
+              ["Sleep", `${client.sleep_hours || "—"} · ${client.sleep_quality || "—"}`],
+              ["Morning Freshness", client.morning_freshness || "—"],
+              ["Diet Period", `${formatDisplayDate(client.diet_start_date, { day: "2-digit", month: "short", year: "numeric" })} → ${formatDisplayDate(client.diet_end_date, { day: "2-digit", month: "short", year: "numeric" })}`],
+              ["Program Period", `${formatDisplayDate(client.program_start_date, { day: "2-digit", month: "short", year: "numeric" })} → ${formatDisplayDate(client.program_end_date, { day: "2-digit", month: "short", year: "numeric" })}`],
+              ["Location", client.location || "—"],
+            ].map(([label, value]) => (
+              <div key={label} className="rounded-xl border border-border/50 bg-[#F8F7F4] p-4">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">{label}</p>
+                <p className="mt-2 text-sm font-medium leading-5 text-foreground">{value}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            {[
+              ["About Client", client.about_client],
+              ["Health Issues", client.health_issues],
+              ["Allergies", formatListValue(client.allergies)],
+              ["Avoid Foods", formatListValue(client.avoid_foods)],
+              ["Preferred Foods", formatListValue(client.preferred_foods)],
+              ["Disliked Foods", formatListValue(client.disliked_foods)],
+              ["Medical Food Restrictions", formatListValue(client.medical_food_restrictions)],
+              ["Notes", client.notes],
+            ].map(([label, value]) => (
+              <div key={label} className="rounded-xl border border-border/50 p-4">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">{label}</p>
+                <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-foreground">{value || "—"}</p>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
         <Card className="overflow-hidden border-[#E3E0D8] bg-white shadow-sm">

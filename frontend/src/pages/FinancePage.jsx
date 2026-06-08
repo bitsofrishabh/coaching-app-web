@@ -45,6 +45,7 @@ const formatDisplayDate = (value) => {
 
 const getMonthKey = (value) => String(value || "").slice(0, 7);
 const getCurrentMonthKey = () => getMonthKey(getTodayIso());
+const normalizeClientStatus = (value) => String(value || "active").toLowerCase().trim();
 
 const formatMonthLabel = (monthKey) => {
   if (!monthKey || !/^\d{4}-\d{2}$/.test(monthKey)) return "Unknown Month";
@@ -167,7 +168,7 @@ export function FinancePage() {
     try {
       const [transactionsRes, clientsRes] = await Promise.all([
         api.get("/transactions", { params: { limit: 2000 } }),
-        api.get("/clients")
+        api.get("/clients", { params: { limit: 5000 } })
       ]);
       setTransactions(transactionsRes.data || []);
       setClients(clientsRes.data || []);
@@ -184,6 +185,10 @@ export function FinancePage() {
 
   const clientsById = useMemo(
     () => Object.fromEntries(clients.map((client) => [client.id, client])),
+    [clients]
+  );
+  const linkableClients = useMemo(
+    () => clients.filter((client) => ["active", "on-hold"].includes(normalizeClientStatus(client.status))),
     [clients]
   );
 
@@ -619,7 +624,7 @@ export function FinancePage() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value={UNLINKED_CLIENT_VALUE}>No linked client</SelectItem>
-                        {clients.map((client) => (
+                        {linkableClients.map((client) => (
                           <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>
                         ))}
                       </SelectContent>

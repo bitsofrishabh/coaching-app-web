@@ -395,7 +395,7 @@ export function DietPlansPage() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [plansRes, clientsRes] = await Promise.all([api.get("/diet-plans"), api.get("/clients")]);
+      const [plansRes, clientsRes] = await Promise.all([api.get("/diet-plans"), api.get("/clients", { params: { limit: 5000 } })]);
       setPlans(plansRes.data);
       setClients(clientsRes.data);
     } catch (err) {

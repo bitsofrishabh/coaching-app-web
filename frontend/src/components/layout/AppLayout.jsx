@@ -18,7 +18,6 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { hasAnyRole, useAuth } from "@/context/auth-context";
 import { PendingTasksBell } from "@/components/layout/PendingTasksBell";
 
@@ -53,53 +52,61 @@ function IconSidebar() {
   const navItems = getNavItems(user);
 
   return (
-    <aside className="sticky top-0 flex h-screen w-14 flex-col items-center border-r border-[#241A78] bg-[#18115E] py-3">
-      <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-[10px] bg-primary">
-        <Activity className="h-5 w-5 text-primary-foreground" />
+    <aside className="group/sidebar sticky top-0 z-50 flex h-screen w-14 flex-col overflow-hidden border-r border-[#241A78] bg-[#18115E] py-3 transition-[width] duration-200 ease-out hover:w-64">
+      <div className="mb-3 flex h-9 items-center gap-3 px-2.5">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-primary">
+          <Activity className="h-5 w-5 text-primary-foreground" />
+        </div>
+        <span className="whitespace-nowrap font-['Sora'] text-sm font-semibold text-violet-100 opacity-0 transition-opacity duration-150 group-hover/sidebar:opacity-100">
+          NutriTrack Pro
+        </span>
       </div>
 
-      <TooltipProvider delayDuration={120}>
-        <nav className="flex flex-1 flex-col items-center gap-1">
-          {navItems.map((item) => {
-            const isActive = location.pathname === item.path || (item.path !== "/" && location.pathname.startsWith(item.path));
-            return (
-              <Tooltip key={item.path}>
-                <TooltipTrigger asChild>
-                  <Link
-                    to={item.path}
-                    data-testid={`nav-${item.label.toLowerCase().replace(" ", "-")}`}
-                    className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${
-                      isActive
-                        ? "bg-primary/45 text-violet-100"
-                        : "text-violet-300 hover:bg-primary/25 hover:text-violet-100"
-                    }`}
-                    aria-label={item.label}
-                  >
-                    <item.icon className="h-[17px] w-[17px]" />
-                  </Link>
-                </TooltipTrigger>
-                <TooltipContent side="right">{item.label}</TooltipContent>
-              </Tooltip>
-            );
-          })}
-        </nav>
-      </TooltipProvider>
+      <nav className="flex flex-1 flex-col gap-1 px-2.5">
+        {navItems.map((item) => {
+          const isActive = location.pathname === item.path || (item.path !== "/" && location.pathname.startsWith(item.path));
+          return (
+            <Link
+              key={item.path}
+              to={item.path}
+              data-testid={`nav-${item.label.toLowerCase().replace(" ", "-")}`}
+              className={`flex h-9 items-center gap-3 rounded-lg px-2.5 transition-colors ${
+                isActive
+                  ? "bg-primary/45 text-violet-100"
+                  : "text-violet-300 hover:bg-primary/25 hover:text-violet-100"
+              }`}
+              aria-label={item.label}
+              title={item.label}
+            >
+              <item.icon className="h-[17px] w-[17px] shrink-0" />
+              <span className="whitespace-nowrap text-sm font-medium opacity-0 transition-opacity duration-150 group-hover/sidebar:opacity-100">
+                {item.label}
+              </span>
+            </Link>
+          );
+        })}
+      </nav>
 
-      <div className="flex flex-col items-center gap-2">
-        <Avatar className="h-8 w-8">
-          <AvatarFallback className="bg-primary text-xs font-semibold text-primary-foreground">
-            {user?.name?.charAt(0) || "U"}
-          </AvatarFallback>
-        </Avatar>
+      <div className="flex flex-col gap-2 px-2.5">
+        <div className="flex h-9 items-center gap-3 px-0.5">
+          <Avatar className="h-8 w-8 shrink-0">
+            <AvatarFallback className="bg-primary text-xs font-semibold text-primary-foreground">
+              {user?.name?.charAt(0) || "U"}
+            </AvatarFallback>
+          </Avatar>
+          <span className="min-w-0 truncate text-sm font-medium text-violet-100 opacity-0 transition-opacity duration-150 group-hover/sidebar:opacity-100">
+            {user?.name || "User"}
+          </span>
+        </div>
         <Button
           variant="ghost"
-          size="icon"
           data-testid="logout-btn"
           onClick={handleLogout}
-          className="h-9 w-9 text-violet-300 hover:bg-red-500/15 hover:text-red-100"
+          className="h-9 justify-start gap-3 px-2.5 text-violet-300 hover:bg-red-500/15 hover:text-red-100"
           aria-label="Logout"
         >
-          <LogOut className="h-4 w-4" />
+          <LogOut className="h-4 w-4 shrink-0" />
+          <span className="whitespace-nowrap opacity-0 transition-opacity duration-150 group-hover/sidebar:opacity-100">Logout</span>
         </Button>
       </div>
     </aside>

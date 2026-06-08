@@ -1,12 +1,11 @@
 import { Link } from "react-router-dom";
 import { AgGridReact } from "ag-grid-react";
 import { AllCommunityModule, ModuleRegistry, themeQuartz } from "ag-grid-community";
-import { CalendarDays, Edit, Eye, Trash2 } from "lucide-react";
+import { CalendarDays, Edit, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { Input } from "@/components/ui/input";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -60,7 +59,6 @@ export function ClientTrackerGrid({
   canDeleteClient,
   getClientStatusMeta,
   getDateUrgencyMeta,
-  onOpenQuickView,
   onStartInlineCommentEdit,
   onCancelInlineCommentEdit,
   onCommentDraftChange,
@@ -80,30 +78,13 @@ export function ClientTrackerGrid({
       minWidth: 185,
       sortable: true,
       cellRenderer: (params) => (
-        <div className="flex min-w-0 items-center gap-2">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 shrink-0 rounded-md text-muted-foreground hover:text-foreground"
-                onClick={() => void onOpenQuickView(params.data)}
-                aria-label={`Open ${params.data.name} quick view`}
-              >
-                <Eye className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Quick view</TooltipContent>
-          </Tooltip>
-          <Link
-            to={`/clients/${params.data.id}`}
-            className="block min-w-0 flex-1 truncate whitespace-nowrap font-bold text-foreground transition-colors hover:text-primary"
-            title={params.data.name}
-          >
-            {params.data.name}
-          </Link>
-        </div>
+        <Link
+          to={`/clients/${params.data.id}`}
+          className="block min-w-0 truncate whitespace-nowrap font-bold text-foreground transition-colors hover:text-primary"
+          title={params.data.name}
+        >
+          {params.data.name}
+        </Link>
       ),
     },
     {
@@ -318,49 +299,47 @@ export function ClientTrackerGrid({
   const filteredColumnDefs = columnDefs.filter((column) => !TOGGLEABLE_COLUMN_FIELDS.has(column.field) || visibleColumnSet.has(column.field));
 
   return (
-    <TooltipProvider delayDuration={120}>
-      <Card className="overflow-hidden rounded-2xl border border-border/50 bg-background shadow-[0_1px_0_rgba(15,23,42,0.02),0_8px_30px_rgba(15,23,42,0.04)]">
-        <div className="border-b border-border/50 bg-background px-4 py-3">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-              <CalendarDays className="h-4 w-4" />
-              Client database view
-            </div>
-            <p className="text-xs text-muted-foreground">Drag a column edge to resize for this session.</p>
+    <Card className="overflow-hidden rounded-2xl border border-border/50 bg-background shadow-[0_1px_0_rgba(15,23,42,0.02),0_8px_30px_rgba(15,23,42,0.04)]">
+      <div className="border-b border-border/50 bg-background px-4 py-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+            <CalendarDays className="h-4 w-4" />
+            Client database view
           </div>
+          <p className="text-xs text-muted-foreground">Drag a column edge to resize for this session.</p>
         </div>
+      </div>
 
-        <div className="border-l border-t border-slate-300/70 dark:border-white/15" data-ag-theme-mode="light">
-          <AgGridReact
-            theme={clientTrackerGridTheme}
-            rowData={rowData}
-            columnDefs={filteredColumnDefs}
-            getRowId={(params) => params.data.id}
-            domLayout="autoHeight"
-            rowHeight={54}
-            headerHeight={52}
-            loading={loading}
-            getRowClass={(params) => {
-              const daysLeft = getDaysUntilDate(params.data?.diet_end_date);
-              if (daysLeft !== null && daysLeft >= 0 && daysLeft <= 1) return "client-tracker-row-urgent";
-              if (daysLeft !== null && daysLeft >= 2 && daysLeft <= 7) return "client-tracker-row-warn";
-              return "";
-            }}
-            suppressCellFocus
-            ensureDomOrder
-            tooltipShowDelay={120}
-            tooltipHideDelay={100}
-            defaultColDef={{
-              resizable: true,
-              sortable: true,
-              suppressMovable: true,
-              wrapHeaderText: false,
-            }}
-            overlayLoadingTemplate={'<span class="ag-overlay-loading-center">Loading clients...</span>'}
-            overlayNoRowsTemplate={'<span class="ag-overlay-loading-center">No clients found for this filter.</span>'}
-          />
-        </div>
-      </Card>
-    </TooltipProvider>
+      <div className="border-l border-t border-slate-300/70 dark:border-white/15" data-ag-theme-mode="light">
+        <AgGridReact
+          theme={clientTrackerGridTheme}
+          rowData={rowData}
+          columnDefs={filteredColumnDefs}
+          getRowId={(params) => params.data.id}
+          domLayout="autoHeight"
+          rowHeight={54}
+          headerHeight={52}
+          loading={loading}
+          getRowClass={(params) => {
+            const daysLeft = getDaysUntilDate(params.data?.diet_end_date);
+            if (daysLeft !== null && daysLeft >= 0 && daysLeft <= 1) return "client-tracker-row-urgent";
+            if (daysLeft !== null && daysLeft >= 2 && daysLeft <= 7) return "client-tracker-row-warn";
+            return "";
+          }}
+          suppressCellFocus
+          ensureDomOrder
+          tooltipShowDelay={120}
+          tooltipHideDelay={100}
+          defaultColDef={{
+            resizable: true,
+            sortable: true,
+            suppressMovable: true,
+            wrapHeaderText: false,
+          }}
+          overlayLoadingTemplate={'<span class="ag-overlay-loading-center">Loading clients...</span>'}
+          overlayNoRowsTemplate={'<span class="ag-overlay-loading-center">No clients found for this filter.</span>'}
+        />
+      </div>
+    </Card>
   );
 }
