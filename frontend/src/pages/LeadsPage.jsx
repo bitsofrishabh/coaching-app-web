@@ -1,419 +1,279 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { CalendarClock, Mail, MapPin, Phone, Plus, Search, Trash2, UserRound } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { Plus, Search, Phone, MapPin, Trash2, Pencil } from "lucide-react";
+import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
-import { KanbanBoard } from "@/components/ui/kanban-board";
+import { StatusBadge } from "@/components/ui/status-badge";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter
+} from "@/components/ui/dialog";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue
+} from "@/components/ui/select";
 import { api } from "@/lib/api";
+import { LoadingScreen } from "@/components/app/LoadingScreen";
 
-const LEAD_STATUSES = [
-  { key: "new", label: "New", tone: "gray" },
-  { key: "call-booked", label: "Call Booked", tone: "blue" },
-  { key: "consultation-done", label: "Consultation Done", tone: "violet" },
-  { key: "follow-up", label: "Follow-up", tone: "amber" },
-  { key: "plan-next-month", label: "Plan For Next Month", tone: "indigo" },
-  { key: "converted", label: "Converted", tone: "green" },
-  { key: "lost", label: "Lost", tone: "red" },
+// Pipeline stages, in board order. `key` is what we expect the API to store.
+const STAGES = [
+  { key: "new", label: "New" },
+  { key: "call-booked", label: "Call Booked" },
+  { key: "consultation-done", label: "Consultation Done" },
+  { key: "follow-up", label: "Follow-up" },
+  { key: "plan-next-month", label: "Plan For Next Month" },
+  { key: "converted", label: "Converted" },
 ];
 
-const LEAD_STATUS_META = {
-  new: "text-sky-600 dark:text-sky-300",
-  "call-booked": "text-violet-600 dark:text-violet-300",
-  "consultation-done": "text-emerald-600 dark:text-emerald-300",
-  "follow-up": "text-amber-600 dark:text-amber-300",
-  "plan-next-month": "text-indigo-600 dark:text-indigo-300",
-  converted: "text-green-600 dark:text-green-300",
-  lost: "text-red-500 dark:text-red-300",
-};
+const STAGE_LABELS = STAGES.map((s) => s.label);
 
-const LEGACY_LEAD_STATUS_MAP = {
-  contacted: "call-booked",
-  "consultation-booked": "consultation-done",
-};
+const LEAD_FORM_DEFAULTS = { name: "", phone: "", location: "", source: "", stage: "new" };
 
-const normalizeLeadStatus = (status) => LEGACY_LEAD_STATUS_MAP[status] || status || "new";
+function currentMonthKey() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
 
-const getCurrentLeadMonth = () => {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  return `${year}-${month}`;
-};
-
-const formatLeadMonth = (value) => {
-  if (!/^\d{4}-\d{2}$/.test(value || "")) return "Selected Month";
-  const [year, month] = value.split("-").map((part) => parseInt(part, 10));
-  return new Date(year, month - 1, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
-};
-
-const getLeadMonth = (lead) => String(lead?.created_at || "").slice(0, 7);
-
-const LEAD_FORM_DEFAULTS = {
-  name: "",
-  phone: "",
-  email: "",
-  age: "",
-  gender: "",
-  location: "",
-  source: "",
-  status: "new",
-  notes: "",
-  last_contacted_date: "",
-  next_follow_up_date: "",
-  assigned_to: "",
-};
-
-const formatDisplayDate = (value) => {
-  if (!value) return "";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
-  return parsed.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-};
-
-const buildLeadPayload = (source) => ({
-  name: source.name.trim(),
-  phone: source.phone.trim() || null,
-  email: source.email.trim() || null,
-  age: source.age ? Number(source.age) : null,
-  gender: source.gender || null,
-  location: source.location.trim() || null,
-  source: source.source.trim() || null,
-  status: normalizeLeadStatus(source.status),
-  notes: source.notes.trim() || null,
-  last_contacted_date: source.last_contacted_date || null,
-  next_follow_up_date: source.next_follow_up_date || null,
-  assigned_to: source.assigned_to.trim() || null,
-});
-
-const leadToFormData = (lead = {}) => ({
-  ...LEAD_FORM_DEFAULTS,
-  ...Object.fromEntries(Object.entries(lead).map(([key, value]) => [key, value ?? ""])),
-  status: normalizeLeadStatus(lead.status),
-  age: lead.age?.toString() || "",
-});
+function monthLabel(monthKey) {
+  const [y, m] = (monthKey || "").split("-").map(Number);
+  if (!y || !m) return "";
+  return new Date(y, m - 1, 1).toLocaleString("en-US", { month: "long", year: "numeric" });
+}
 
 export function LeadsPage() {
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [month, setMonth] = useState(currentMonthKey());
   const [search, setSearch] = useState("");
-  const [selectedMonth, setSelectedMonth] = useState(getCurrentLeadMonth());
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingLead, setEditingLead] = useState(null);
-  const [formData, setFormData] = useState(LEAD_FORM_DEFAULTS);
+  const [form, setForm] = useState(LEAD_FORM_DEFAULTS);
+  const [editingId, setEditingId] = useState(null);
+  const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    const fetchLeads = async () => {
-      setLoading(true);
-      try {
-        const response = await api.get("/leads", { params: { month: selectedMonth } });
-        setLeads((response.data || []).map((lead) => ({ ...lead, status: normalizeLeadStatus(lead.status) })));
-      } catch (error) {
-        toast.error(error.response?.data?.detail || "Failed to load leads");
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchLeads();
-  }, [selectedMonth]);
-
-  const openCreateDialog = () => {
-    setEditingLead(null);
-    setFormData(LEAD_FORM_DEFAULTS);
-    setDialogOpen(true);
+  const loadLeads = () => {
+    setLoading(true);
+    // ASSUMED ENDPOINT: GET /leads?month=YYYY-MM  -> array of leads.
+    // Fails soft: an empty board renders instead of an error screen.
+    api.get(`/leads?month=${month}`)
+      .then((res) => setLeads(Array.isArray(res.data) ? res.data : res.data?.leads || []))
+      .catch(() => setLeads([]))
+      .finally(() => setLoading(false));
   };
 
-  const openEditDialog = (lead) => {
-    setEditingLead(lead);
-    setFormData(leadToFormData(lead));
-    setDialogOpen(true);
-  };
+  useEffect(loadLeads, [month]);
 
-  const syncLeadIntoState = (savedLead) => {
-    setLeads((current) => {
-      const exists = current.some((lead) => lead.id === savedLead.id);
-      const normalizedLead = { ...savedLead, status: normalizeLeadStatus(savedLead.status) };
-      if (!exists && getLeadMonth(normalizedLead) !== selectedMonth) return current;
-      if (!exists) return [normalizedLead, ...current];
-      return current.map((lead) => (lead.id === normalizedLead.id ? normalizedLead : lead));
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return leads;
+    return leads.filter((l) =>
+      [l.name, l.phone, l.source, l.location].filter(Boolean).some((v) => v.toLowerCase().includes(q))
+    );
+  }, [leads, search]);
+
+  const byStage = useMemo(() => {
+    const map = Object.fromEntries(STAGES.map((s) => [s.key, []]));
+    filtered.forEach((lead) => {
+      const key = (lead.stage || "new").toLowerCase();
+      (map[key] || map.new).push(lead);
     });
+    return map;
+  }, [filtered]);
+
+  const stats = useMemo(() => {
+    const total = leads.length;
+    const converted = leads.filter((l) => (l.stage || "").toLowerCase() === "converted").length;
+    const followUp = leads.filter((l) => (l.stage || "").toLowerCase() === "follow-up").length;
+    const nextMonth = leads.filter((l) => (l.stage || "").toLowerCase() === "plan-next-month").length;
+    const active = total - converted;
+    return { total, active, followUp, nextMonth, converted };
+  }, [leads]);
+
+  const openCreate = () => { setForm(LEAD_FORM_DEFAULTS); setEditingId(null); setDialogOpen(true); };
+  const openEdit = (lead) => {
+    setForm({
+      name: lead.name || "", phone: lead.phone || "", location: lead.location || "",
+      source: lead.source || "", stage: (lead.stage || "new").toLowerCase(),
+    });
+    setEditingId(lead.id);
+    setDialogOpen(true);
   };
 
-  const handleSubmit = async (event) => {
-    event.preventDefault();
-    const payload = buildLeadPayload(formData);
-    if (!payload.name) {
-      toast.error("Lead name is required");
-      return;
-    }
-    if (Number.isNaN(payload.age)) {
-      toast.error("Age must be a valid number");
-      return;
-    }
-
+  const saveLead = async () => {
+    if (!form.name.trim()) { toast.error("Lead name is required"); return; }
+    setSaving(true);
     try {
-      const response = editingLead
-        ? await api.put(`/leads/${editingLead.id}`, payload)
-        : await api.post("/leads", payload);
-      syncLeadIntoState(response.data);
+      const payload = { ...form, month };
+      if (editingId) {
+        await api.put(`/leads/${editingId}`, payload); // ASSUMED: PUT /leads/:id
+        toast.success("Lead updated");
+      } else {
+        await api.post("/leads", payload); // ASSUMED: POST /leads
+        toast.success("Lead added");
+      }
       setDialogOpen(false);
-      setEditingLead(null);
-      setFormData(LEAD_FORM_DEFAULTS);
-      toast.success(editingLead ? "Lead updated" : "Lead added");
-    } catch (error) {
-      toast.error(error.response?.data?.detail || "Failed to save lead");
+      loadLeads();
+    } catch (err) {
+      toast.error("Couldn't save the lead");
     }
+    setSaving(false);
   };
 
-  const handleDeleteLead = async (lead) => {
+  const deleteLead = async (id) => {
     try {
-      await api.delete(`/leads/${lead.id}`);
-      setLeads((current) => current.filter((item) => item.id !== lead.id));
-      toast.success("Lead deleted");
-    } catch (error) {
-      toast.error(error.response?.data?.detail || "Failed to delete lead");
+      await api.delete(`/leads/${id}`); // ASSUMED: DELETE /leads/:id
+      setLeads((prev) => prev.filter((l) => l.id !== id));
+      toast.success("Lead removed");
+    } catch (err) {
+      toast.error("Couldn't remove the lead");
     }
   };
 
-  const handleLeadStatusMove = async (lead, nextStatus) => {
-    const previousStatus = lead.status || "new";
-    const normalizedNextStatus = normalizeLeadStatus(nextStatus);
-    setLeads((current) => current.map((item) => (item.id === lead.id ? { ...item, status: normalizedNextStatus } : item)));
-    try {
-      await api.put(`/leads/${lead.id}`, { status: normalizedNextStatus });
-      toast.success(`${lead.name} moved`);
-    } catch (error) {
-      setLeads((current) => current.map((item) => (item.id === lead.id ? { ...item, status: previousStatus } : item)));
-      toast.error(error.response?.data?.detail || "Failed to update lead");
-    }
-  };
+  if (loading) return <LoadingScreen />;
 
-  const filteredLeads = leads.filter((lead) => {
-    if (!search.trim()) return true;
-    const query = search.toLowerCase();
-    return [lead.name, lead.phone, lead.email, lead.source, lead.location]
-      .some((field) => (field || "").toLowerCase().includes(query));
-  });
-  const totalLeads = leads.length;
-  const activeLeads = leads.filter((lead) => !["converted", "lost"].includes(lead.status)).length;
-  const convertedLeads = leads.filter((lead) => lead.status === "converted").length;
-  const followUpLeads = leads.filter((lead) => lead.status === "follow-up").length;
-  const planNextMonthLeads = leads.filter((lead) => lead.status === "plan-next-month").length;
-  const monthLabel = formatLeadMonth(selectedMonth);
+  const statPills = [
+    { label: "Monthly Leads", value: stats.total },
+    { label: "Active", value: stats.active },
+    { label: "Follow-up", value: stats.followUp },
+    { label: "Next Month", value: stats.nextMonth },
+    { label: "Converted", value: stats.converted },
+  ];
 
   return (
-    <div className="space-y-7 animate-fade-in" data-testid="leads-page">
-      <div className="overflow-hidden rounded-[2rem] border border-[#E3E0D8] bg-white/90 p-5 shadow-sm">
-      <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#8A7BC8]">Pipeline</p>
-          <h1 className="mt-1 font-['Sora'] text-3xl font-semibold text-[#18115E]">{monthLabel} Leads</h1>
-          <p className="mt-2 text-[#5F6472]">Manage this month&apos;s enquiries from first contact to conversion.</p>
-          <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-5">
-            {[
-              ["Monthly Leads", totalLeads],
-              ["Active", activeLeads],
-              ["Follow-up", followUpLeads],
-              ["Next Month", planNextMonthLeads],
-              ["Converted", convertedLeads]
-            ].map(([label, value]) => (
-              <div key={label} className="rounded-2xl border border-[#ECE8FF] bg-[#F7F4FF] px-4 py-3">
-                <div className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A7BC8]">{label}</div>
-                <div className="mt-1 font-['Sora'] text-2xl font-semibold text-[#18115E]">{value}</div>
-              </div>
-            ))}
+    <div className="space-y-6 animate-fade-in" data-testid="leads-page">
+      <Card className="p-6 shadow-sm">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Pipeline</p>
+            <h1 className="mt-1 text-3xl font-bold tracking-tight">{monthLabel(month)} Leads</h1>
+            <p className="mt-1 text-muted-foreground">Manage this month's enquiries from first contact to conversion.</p>
+          </div>
+          <div className="flex items-end gap-3">
+            <div className="space-y-1">
+              <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Lead Month</Label>
+              <Input type="month" value={month} onChange={(e) => setMonth(e.target.value)} className="h-11 w-44" />
+            </div>
+            <Button onClick={openCreate} data-testid="add-lead-btn" className="h-11">
+              <Plus className="mr-2 h-4 w-4" /> Add Lead
+            </Button>
           </div>
         </div>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-          <div className="space-y-2">
-            <Label htmlFor="lead-month" className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8A7BC8]">
-              Lead Month
-            </Label>
-            <Input
-              id="lead-month"
-              type="month"
-              value={selectedMonth}
-              onChange={(event) => setSelectedMonth(event.target.value || getCurrentLeadMonth())}
-              className="h-11 min-w-[170px] rounded-2xl border-[#E3E0D8] bg-white shadow-sm"
-            />
-          </div>
-          <Button onClick={openCreateDialog} className="h-11 rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-violet-500/20">
-            <Plus className="mr-2 h-4 w-4" />
-            Add Lead
-          </Button>
-        </div>
-      </div>
-      </div>
 
-      <div className="relative max-w-2xl">
+        <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          {statPills.map((pill) => (
+            <div key={pill.label} className="rounded-lg bg-accent/60 px-4 py-3">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{pill.label}</p>
+              <p className="mt-1 font-display text-2xl font-bold text-foreground">{pill.value}</p>
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      <div className="relative">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
+          placeholder={`Search ${monthLabel(month)} leads by name, source, phone`}
           value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder={`Search ${monthLabel} leads by name, source, phone`}
-          className="h-12 rounded-2xl border-[#E3E0D8] bg-white pl-10 shadow-sm"
+          onChange={(e) => setSearch(e.target.value)}
+          className="h-11 pl-10"
         />
       </div>
 
-      {loading ? (
-        <div className="rounded-[2rem] border border-[#E3E0D8] bg-white p-8 text-center text-sm text-muted-foreground shadow-sm">Loading leads...</div>
-      ) : (
-        <KanbanBoard
-          columns={LEAD_STATUSES}
-          items={filteredLeads}
-          getItemId={(lead) => lead.id}
-          getItemStatus={(lead) => lead.status || "new"}
-          onItemStatusChange={handleLeadStatusMove}
-          emptyLabel="No leads"
-          renderCard={(lead) => (
-            <div className="rounded-2xl border border-[#E3E0D8] bg-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg">
-              <div className="flex items-start justify-between gap-2">
-                <button type="button" onClick={() => openEditDialog(lead)} className="min-w-0 text-left font-['Sora'] text-sm font-semibold text-[#18115E] hover:text-primary">
-                  <span className="block truncate">{lead.name}</span>
-                </button>
-                <Badge variant="outline" className={`shrink-0 border-border/70 ${LEAD_STATUS_META[lead.status] || ""}`}>
-                  {LEAD_STATUSES.find((status) => status.key === lead.status)?.label || lead.status}
-                </Badge>
-              </div>
-
-              <div className="mt-3 space-y-1.5 text-xs text-[#6C6680]">
-                {lead.phone ? (
-                  <p className="flex items-center gap-2 truncate">
-                    <Phone className="h-3.5 w-3.5" />
-                    <span className="truncate">{lead.phone}</span>
-                  </p>
-                ) : null}
-                {lead.email ? (
-                  <p className="flex items-center gap-2 truncate">
-                    <Mail className="h-3.5 w-3.5" />
-                    <span className="truncate">{lead.email}</span>
-                  </p>
-                ) : null}
-                {lead.location ? (
-                  <p className="flex items-center gap-2 truncate">
-                    <MapPin className="h-3.5 w-3.5" />
-                    <span className="truncate">{lead.location}</span>
-                  </p>
-                ) : null}
-                {lead.next_follow_up_date ? (
-                  <p className="flex items-center gap-2 truncate">
-                    <CalendarClock className="h-3.5 w-3.5" />
-                    <span className="truncate">Next: {formatDisplayDate(lead.next_follow_up_date)}</span>
-                  </p>
-                ) : null}
-              </div>
-
-              <div className="mt-3 flex items-center justify-between gap-2">
-                <span className="min-w-0 truncate text-xs text-[#6C6680]">{lead.source || "No source"}</span>
-                <div className="flex items-center gap-1">
-                  <Button type="button" variant="ghost" size="sm" className="h-8 rounded-xl px-2" onClick={() => openEditDialog(lead)}>
-                    Edit
-                  </Button>
-                  <Button type="button" variant="ghost" size="icon" className="h-8 w-8 rounded-xl text-destructive" onClick={() => handleDeleteLead(lead)}>
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+      <div className="flex gap-4 overflow-x-auto pb-2">
+        {STAGES.map((stage) => {
+          const items = byStage[stage.key] || [];
+          return (
+            <div key={stage.key} className="flex w-72 shrink-0 flex-col rounded-xl border border-border bg-muted/30 p-3">
+              <div className="mb-3 flex items-center justify-between px-1">
+                <div className="flex items-center gap-2">
+                  <StatusBadge status={stage.label} label={stage.label} dot />
                 </div>
+                <span className="text-sm font-semibold text-muted-foreground">{items.length}</span>
+              </div>
+              <div className="space-y-2">
+                {items.length === 0 ? (
+                  <p className="py-8 text-center text-sm text-muted-foreground">No leads</p>
+                ) : (
+                  items.map((lead) => (
+                    <Card key={lead.id} className="p-3 shadow-xs" data-testid={`lead-card-${lead.id}`}>
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="font-semibold text-foreground">{lead.name}</p>
+                        <StatusBadge status={stage.label} label={stage.label} className="shrink-0" />
+                      </div>
+                      {lead.phone && (
+                        <p className="mt-2 flex items-center gap-1.5 text-sm text-muted-foreground">
+                          <Phone className="h-3.5 w-3.5" /> {lead.phone}
+                        </p>
+                      )}
+                      {lead.location && (
+                        <p className="mt-1 flex items-center gap-1.5 text-sm text-muted-foreground">
+                          <MapPin className="h-3.5 w-3.5" /> {lead.location}
+                        </p>
+                      )}
+                      <div className="mt-3 flex items-center justify-between border-t border-border pt-2">
+                        <span className="text-xs text-muted-foreground">{lead.source || "No source"}</span>
+                        <div className="flex items-center gap-1">
+                          <button onClick={() => openEdit(lead)} className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-primary" aria-label="Edit lead">
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                          <button onClick={() => deleteLead(lead.id)} className="rounded p-1 text-muted-foreground hover:bg-danger-bg hover:text-danger" aria-label="Delete lead">
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    </Card>
+                  ))
+                )}
               </div>
             </div>
-          )}
-        />
-      )}
+          );
+        })}
+      </div>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-3xl overflow-hidden border-0 bg-[#F5F4F0] p-0 shadow-2xl">
-          <div className="border-b border-[#E3E0D8] bg-white/90 px-6 py-5">
+        <DialogContent>
           <DialogHeader>
-            <DialogTitle className="font-['Sora'] text-2xl text-[#18115E]">{editingLead ? "Edit Lead" : "Add Lead"}</DialogTitle>
-            <DialogDescription className="text-[#5F6472]">Capture the basics and move the lead through the pipeline.</DialogDescription>
+            <DialogTitle className="text-xl font-bold tracking-tight">{editingId ? "Edit Lead" : "Add Lead"}</DialogTitle>
+            <DialogDescription>Capture an enquiry and place it on the pipeline.</DialogDescription>
           </DialogHeader>
-          </div>
-
-          <form onSubmit={handleSubmit} className="space-y-5 px-6 py-5">
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label>Name *</Label>
-                <Input value={formData.name} onChange={(event) => setFormData({ ...formData, name: event.target.value })} required />
-              </div>
-              <div className="space-y-2">
-                <Label>Status</Label>
-                <Select value={formData.status} onValueChange={(value) => setFormData({ ...formData, status: value })}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {LEAD_STATUSES.map((status) => (
-                      <SelectItem key={status.key} value={status.key}>{status.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Name *</Label>
+              <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Lead name" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label>Phone</Label>
-                <Input value={formData.phone} onChange={(event) => setFormData({ ...formData, phone: event.target.value })} />
-              </div>
-              <div className="space-y-2">
-                <Label>Email</Label>
-                <Input type="email" value={formData.email} onChange={(event) => setFormData({ ...formData, email: event.target.value })} />
-              </div>
-              <div className="space-y-2">
-                <Label>Age</Label>
-                <Input type="number" value={formData.age} onChange={(event) => setFormData({ ...formData, age: event.target.value })} />
-              </div>
-              <div className="space-y-2">
-                <Label>Gender</Label>
-                <Select value={formData.gender || "none"} onValueChange={(value) => setFormData({ ...formData, gender: value === "none" ? "" : value })}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Not set</SelectItem>
-                    <SelectItem value="male">Male</SelectItem>
-                    <SelectItem value="female">Female</SelectItem>
-                    <SelectItem value="other">Other</SelectItem>
-                  </SelectContent>
-                </Select>
+                <Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="+91 ..." />
               </div>
               <div className="space-y-2">
                 <Label>Location</Label>
-                <Input value={formData.location} onChange={(event) => setFormData({ ...formData, location: event.target.value })} />
-              </div>
-              <div className="space-y-2">
-                <Label>Lead Source</Label>
-                <Input value={formData.source} onChange={(event) => setFormData({ ...formData, source: event.target.value })} placeholder="Instagram, referral, website" />
-              </div>
-              <div className="space-y-2">
-                <Label>Last Contacted</Label>
-                <Input type="date" value={formData.last_contacted_date} onChange={(event) => setFormData({ ...formData, last_contacted_date: event.target.value })} />
-              </div>
-              <div className="space-y-2">
-                <Label>Next Follow-up</Label>
-                <Input type="date" value={formData.next_follow_up_date} onChange={(event) => setFormData({ ...formData, next_follow_up_date: event.target.value })} />
-              </div>
-              <div className="space-y-2 md:col-span-2">
-                <Label>Assigned To</Label>
-                <Input value={formData.assigned_to} onChange={(event) => setFormData({ ...formData, assigned_to: event.target.value })} />
-              </div>
-              <div className="space-y-2 md:col-span-2">
-                <Label>Notes</Label>
-                <Textarea rows={4} value={formData.notes} onChange={(event) => setFormData({ ...formData, notes: event.target.value })} />
+                <Input value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} placeholder="City" />
               </div>
             </div>
-
-            <DialogFooter className="border-t border-[#E3E0D8] pt-4">
-              <Button type="button" variant="outline" className="rounded-2xl bg-white" onClick={() => setDialogOpen(false)}>Cancel</Button>
-              <Button type="submit" className="rounded-2xl">
-                <UserRound className="mr-2 h-4 w-4" />
-                {editingLead ? "Save Lead" : "Create Lead"}
-              </Button>
-            </DialogFooter>
-          </form>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>Source</Label>
+                <Input value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value })} placeholder="Instagram, referral…" />
+              </div>
+              <div className="space-y-2">
+                <Label>Stage</Label>
+                <Select value={form.stage} onValueChange={(v) => setForm({ ...form, stage: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {STAGES.map((s) => <SelectItem key={s.key} value={s.key}>{s.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
+            <Button onClick={saveLead} disabled={saving}>{saving ? "Saving…" : editingId ? "Save" : "Add Lead"}</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
   );
 }
+
+export { STAGE_LABELS };

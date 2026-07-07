@@ -20,11 +20,9 @@ import {
   FileText,
   Trash2,
   CalendarCheck,
-  ClipboardPenLine,
-  Sparkles
+  ClipboardPenLine
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -47,7 +45,6 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Progress } from "@/components/ui/progress";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api } from "@/lib/api";
 import { calculateBMI, calculateMaintenanceCalories, getHealthyWeightDelta, getHealthyWeightRange } from "@/lib/health-metrics";
 import { useAuth } from "@/context/auth-context";
@@ -70,15 +67,9 @@ const FOLLOW_UP_TYPE_OPTIONS = [
   { value: "progress-review", label: "Progress Review" },
 ];
 const FOLLOW_UP_STATUS_STYLES = {
-  scheduled: "bg-blue-500/10 text-blue-500 border-blue-500/20",
-  completed: "bg-violet-500/10 text-violet-500 border-violet-500/20",
-  missed: "bg-red-500/10 text-red-500 border-red-500/20",
-};
-const HISTORY_EVENT_TYPES = new Set(["client-date-updated", "follow-up-created", "follow-up-updated", "follow-up-deleted"]);
-const AI_SEVERITY_TONE = {
-  low: "bg-sky-500/10 text-sky-600 border-sky-500/20",
-  medium: "bg-amber-500/10 text-amber-600 border-amber-500/20",
-  high: "bg-red-500/10 text-red-600 border-red-500/20",
+  scheduled: "bg-info-bg text-info border-info-border",
+  completed: "bg-success-bg text-success border-success-border",
+  missed: "bg-danger-bg text-danger border-danger-border",
 };
 
 const formatDisplayDate = (value, options = {}) => {
@@ -101,45 +92,9 @@ const formatDisplayDateTime = (value) => {
   });
 };
 
-const formatListValue = (value) => {
-  if (Array.isArray(value)) {
-    return value.filter(Boolean).join(", ") || "—";
-  }
-  return value || "—";
-};
-
-const formatFollowUpSchedule = (followUp, dateOptions = {}) => {
-  if (!followUp?.scheduled_date) return "—";
-  const dateLabel = formatDisplayDate(followUp.scheduled_date, dateOptions);
-  return followUp.scheduled_time ? `${dateLabel} • ${followUp.scheduled_time}` : dateLabel;
-};
-
-const getDaysUntilDate = (value) => {
-  if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  const today = new Date();
-  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  const targetStart = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  return Math.round((targetStart.getTime() - todayStart.getTime()) / (1000 * 60 * 60 * 24));
-};
-
-const getInitials = (name = "") =>
-  name
-    .split(/[,\s]+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
-    .join("") || "C";
-
-const profileMetricClassName = "rounded-2xl border border-[#E3E0D8] bg-white px-3.5 py-3 shadow-sm";
-const profileMetricLabelClassName = "text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground";
-const profileMetricValueClassName = "mt-1 font-['Sora'] text-xl font-semibold text-[#18115E] dark:text-violet-100";
-
 const createEmptyFollowUpForm = (clientId) => ({
   client_id: clientId,
   scheduled_date: "",
-  scheduled_time: "",
   type: "check-in",
   notes: "",
 });
@@ -216,9 +171,6 @@ export function ClientDetailPage() {
   const [mealUploads, setMealUploads] = useState([]);
   const [followUps, setFollowUps] = useState([]);
   const [teamComments, setTeamComments] = useState([]);
-  const [historyLogs, setHistoryLogs] = useState([]);
-  const [aiHealthAnalysis, setAiHealthAnalysis] = useState(null);
-  const [aiAnalysisLoading, setAiAnalysisLoading] = useState(false);
   const [clientFiles, setClientFiles] = useState([]);
   const [filesLoading, setFilesLoading] = useState(false);
   const [uploadingCategory, setUploadingCategory] = useState("");
@@ -289,8 +241,6 @@ export function ClientDetailPage() {
         plansRes,
         uploadsRes,
         followUpsRes,
-        auditLogsRes,
-        aiHealthAnalysisRes,
       ] = await Promise.all([
         api.get(`/clients/${clientId}`),
         api.get(`/clients/${clientId}/comments`).catch(() => ({ data: [] })),
@@ -298,8 +248,6 @@ export function ClientDetailPage() {
         api.get("/diet-plans", { params: { client_id: clientId } }),
         api.get("/coach/meal-uploads", { params: { client_id: clientId } }).catch(() => ({ data: { uploads: [] } })),
         api.get("/follow-ups", { params: { client_id: clientId } }).catch(() => ({ data: [] })),
-        api.get("/audit-logs", { params: { client_id: clientId, limit: 30 } }).catch(() => ({ data: [] })),
-        api.get(`/clients/${clientId}/ai/health-analysis`).catch(() => ({ data: null })),
       ]);
 
       setClient(clientRes.data);
@@ -307,8 +255,6 @@ export function ClientDetailPage() {
       setDietPlans(plansRes.data || []);
       setMealUploads(uploadsRes.data.uploads || []);
       setFollowUps(followUpsRes.data || []);
-      setHistoryLogs((auditLogsRes.data || []).filter((log) => HISTORY_EVENT_TYPES.has(log.event_type)));
-      setAiHealthAnalysis(aiHealthAnalysisRes.data || null);
 
       const seededComments = commentsRes.data?.length
         ? commentsRes.data
@@ -543,13 +489,6 @@ export function ClientDetailPage() {
     : 0;
   const latestFollowUp = followUpsByDateDesc[0]?.scheduled_date || client.last_follow_up_date || "—";
   const upcomingFollowUp = nextScheduledFollowUp?.scheduled_date || client.upcoming_follow_up_date || "—";
-  const programEndDaysLeft = getDaysUntilDate(client.program_end_date);
-  const isProgramEndingSoon = typeof programEndDaysLeft === "number" && programEndDaysLeft >= 0 && programEndDaysLeft <= 7;
-  const programEndingLabel = isProgramEndingSoon
-    ? programEndDaysLeft === 0
-      ? "Ends today"
-      : `Ends in ${programEndDaysLeft} day${programEndDaysLeft === 1 ? "" : "s"}`
-    : "";
   const currentWeightForMetrics = client.current_weight_kg || client.initial_weight_kg;
   const bmi = calculateBMI(currentWeightForMetrics, client.height_cm);
   const healthyWeightRange = getHealthyWeightRange(client.height_cm);
@@ -558,22 +497,6 @@ export function ClientDetailPage() {
   const bloodReportFiles = clientFiles.filter((file) => file.category === "blood-report");
   const pastDietFiles = clientFiles.filter((file) => file.category === "past-diet");
   const clientPictureFiles = clientFiles.filter((file) => file.category === "client-picture");
-  const canGenerateAiAnalysis = bloodReportFiles.length > 0 || pastDietFiles.length > 0;
-  const clientInitials = getInitials(client.name);
-  const statusLabel = client.status || "active";
-  const statusBadgeClassName = statusLabel === "active"
-    ? "border-green-500/20 bg-green-500/10 text-green-700"
-    : "border-border bg-muted text-muted-foreground";
-
-  const getHistoryTone = (eventLabel) => {
-    const normalized = String(eventLabel || "").toLowerCase();
-    if (normalized === "follow-up") return "bg-orange-400/10 text-orange-500 border-orange-400/20";
-    if (normalized === "diet") return "bg-rose-500/10 text-rose-500 border-rose-500/20";
-    if (normalized === "program") return "bg-sky-500/10 text-sky-500 border-sky-500/20";
-    return "bg-primary/10 text-primary border-primary/20";
-  };
-
-  const getAiSeverityTone = (severity) => AI_SEVERITY_TONE[String(severity || "").toLowerCase()] || "bg-primary/10 text-primary border-primary/20";
 
   const addTeamComment = async () => {
     const comment = commentInput.trim();
@@ -598,7 +521,7 @@ export function ClientDetailPage() {
     return (
       <div className="space-y-2 mt-4">
         {files.map((file) => (
-          <div key={file.id} className="flex items-center justify-between gap-3 rounded-lg border border-border/40 p-3">
+          <div key={file.id} className="flex items-center justify-between gap-3 rounded-lg border border-border p-3">
             <div className="min-w-0">
               <p className="truncate text-sm font-medium">{file.original_filename}</p>
               <p className="text-xs text-muted-foreground">{formatDisplayDateTime(file.created_at)}</p>
@@ -742,21 +665,8 @@ export function ClientDetailPage() {
     }
   };
 
-  const generateAiHealthAnalysis = async () => {
-    setAiAnalysisLoading(true);
-    try {
-      const res = await api.post(`/clients/${clientId}/ai/health-analysis/generate`);
-      setAiHealthAnalysis(res.data);
-      toast.success("AI health analysis generated");
-    } catch (error) {
-      toast.error(error.response?.data?.detail || "Failed to generate AI health analysis");
-    } finally {
-      setAiAnalysisLoading(false);
-    }
-  };
-
   return (
-    <div className="space-y-7 animate-fade-in" data-testid="client-detail-page">
+    <div className="space-y-6 animate-fade-in" data-testid="client-detail-page">
       <input
         ref={bloodReportInputRef}
         type="file"
@@ -789,221 +699,226 @@ export function ClientDetailPage() {
         }}
       />
 
-      <div className="flex flex-col gap-4 rounded-[2rem] border border-[#E3E0D8] bg-white/90 px-4 py-4 shadow-sm md:px-5">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+        <div className="flex items-center gap-4">
           <Link to="/clients">
-            <Button variant="ghost" size="icon" className="rounded-lg">
+            <Button variant="ghost" size="icon">
               <ChevronRight className="w-5 h-5 rotate-180" />
             </Button>
           </Link>
-            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-violet-100 font-['Sora'] text-base font-semibold text-violet-900">
-              {clientInitials}
-            </div>
           <div>
-              <div className="mb-1 flex flex-wrap items-center gap-2">
-                <h1 className="font-['Sora'] text-xl font-semibold text-[#18115E] md:text-2xl dark:text-violet-100">{client.name}</h1>
-                <Badge variant="outline" className={statusBadgeClassName}>{statusLabel}</Badge>
-                {client.diet_preference ? <Badge variant="outline" className="bg-muted text-muted-foreground">{client.diet_preference}</Badge> : null}
-                {client.location ? <Badge variant="outline" className="bg-muted text-muted-foreground">{client.location}</Badge> : null}
-              </div>
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
-                {client.email ? <span className="flex items-center gap-1"><Mail className="w-4 h-4" /> {client.email}</span> : null}
-                {client.phone ? <span className="flex items-center gap-1"><Phone className="w-4 h-4" /> {client.phone}</span> : null}
-                <span>Primary: {client.primary_coach || user?.name || "—"}</span>
-              </div>
+            <h1 className="text-2xl font-bold">{client.name}</h1>
+            <div className="flex items-center gap-3 text-sm text-muted-foreground mt-1">
+              {client.email && <span className="flex items-center gap-1"><Mail className="w-4 h-4" /> {client.email}</span>}
+              {client.phone && <span className="flex items-center gap-1"><Phone className="w-4 h-4" /> {client.phone}</span>}
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Link to="/chat">
-              <Button variant="outline" size="sm" className="rounded-lg bg-card">
-                <MessageCircle className="w-4 h-4 mr-1" /> Chat
-              </Button>
-            </Link>
+        </div>
+        <div className="flex items-center gap-2">
           <Link to={`/diet-plans?client_id=${clientId}`}>
-              <Button size="sm" className="rounded-lg bg-primary text-primary-foreground">
+            <Button size="sm" className="bg-primary text-primary-foreground">
               <Utensils className="w-4 h-4 mr-1" /> Create Diet Plan
             </Button>
           </Link>
-        </div>
-      </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-        <div className={profileMetricClassName}>
-          <p className={profileMetricLabelClassName}>Weight</p>
-          <p className={profileMetricValueClassName}>{client.current_weight_kg || client.initial_weight_kg || "—"} kg</p>
-        </div>
-        <div className={profileMetricClassName}>
-          <p className={profileMetricLabelClassName}>Goal</p>
-          <p className={profileMetricValueClassName}>{client.goal_weight_kg || "—"} kg</p>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            {client.goal_weight_kg && currentWeightForMetrics ? `${Math.abs(currentWeightForMetrics - client.goal_weight_kg).toFixed(1)} kg gap` : "Target pending"}
-          </p>
-        </div>
-        <div className={profileMetricClassName}>
-          <p className={profileMetricLabelClassName}>BMI</p>
-          <p className={`${profileMetricValueClassName} ${bmi && bmi >= 25 ? "text-red-600 dark:text-red-300" : ""}`}>{bmi ? bmi.toFixed(1) : "—"}</p>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            {healthyWeightDelta
-              ? healthyWeightDelta.direction === "lose"
-                ? `Need -${healthyWeightDelta.kg.toFixed(1)} kg`
-                : healthyWeightDelta.direction === "gain"
-                  ? `Need +${healthyWeightDelta.kg.toFixed(1)} kg`
-                  : "Healthy range"
-              : "Add height & weight"}
-          </p>
-        </div>
-        <div className={profileMetricClassName}>
-          <p className={profileMetricLabelClassName}>Maint. Cals</p>
-          <p className={profileMetricValueClassName}>{maintenanceCalories || "—"}</p>
-          <p className="mt-0.5 text-xs text-muted-foreground">kcal/day</p>
-        </div>
-        <div className={profileMetricClassName}>
-          <p className={profileMetricLabelClassName}>Adherence</p>
-          <p className={`${profileMetricValueClassName} ${adherenceRate < 50 ? "text-red-600 dark:text-red-300" : "text-green-700 dark:text-green-300"}`}>{adherenceRate.toFixed(0)}%</p>
-          <p className="mt-0.5 text-xs text-muted-foreground">This cycle</p>
-        </div>
-        <div className={profileMetricClassName}>
-          <p className={profileMetricLabelClassName}>Progress</p>
-          <p className={`${profileMetricValueClassName} ${weightProgress > 0 ? "text-green-700 dark:text-green-300" : weightProgress < 0 ? "text-red-600 dark:text-red-300" : ""}`}>
-            {weightProgress > 0 ? "-" : "+"}{Math.abs(weightProgress).toFixed(1)}
-          </p>
-          <p className="mt-0.5 text-xs text-muted-foreground">{goalProgress.toFixed(0)}% to goal</p>
+          <Link to="/chat">
+            <Button variant="outline" size="sm">
+              <MessageCircle className="w-4 h-4 mr-1" /> Chat
+            </Button>
+          </Link>
+          <Badge variant="outline" className={`${client.status === "active" ? "bg-success-bg text-success border-success-border" : "bg-muted text-muted-foreground"}`}>
+            {client.status}
+          </Badge>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <Card className="border-[#E3E0D8] bg-white shadow-sm">
-          <CardHeader>
-            <CardTitle className="text-xs font-semibold uppercase tracking-[0.06em] text-[#18115E] dark:text-violet-100">Lifestyle</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 gap-x-8 gap-y-4 text-sm md:grid-cols-2">
+      <Card className="border-border bg-card">
+        <CardContent className="p-6">
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant={client.status === "active" ? "default" : "secondary"}>{client.status || "active"}</Badge>
+                {client.diet_preference && <Badge variant="outline">{client.diet_preference}</Badge>}
+                {client.location && <Badge variant="outline">{client.location}</Badge>}
+              </div>
+
+              <div className="flex items-center gap-3 text-sm">
+                <Badge variant="outline">{client.initial_weight_kg || "—"} kg → {client.current_weight_kg || client.initial_weight_kg || "—"} kg</Badge>
+                {weightProgress !== 0 && (
+                  <Badge variant="outline" className={weightProgress > 0 ? "text-success border-success-border" : "text-danger border-danger-border"}>
+                    {weightProgress > 0 ? "-" : "+"}{Math.abs(weightProgress).toFixed(1)} kg
+                  </Badge>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 text-sm">
                 <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">Age / Gender</p>
-                  <p className="mt-1 font-medium">{client.age || "—"} yrs · <span className="capitalize">{client.gender || "—"}</span></p>
+                  <p className="text-muted-foreground">Age</p>
+                  <p className="font-medium">{client.age || "—"} yrs</p>
                 </div>
                 <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">Profession</p>
-                  <p className="mt-1 font-medium">{client.profession || "—"}</p>
+                  <p className="text-muted-foreground">Gender</p>
+                  <p className="font-medium capitalize">{client.gender || "—"}</p>
                 </div>
                 <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">Height</p>
-                  <p className="mt-1 font-medium">{client.height_cm || "—"} cm</p>
+                  <p className="text-muted-foreground">Start Weight</p>
+                  <p className="font-medium">{client.initial_weight_kg || "—"} kg</p>
                 </div>
                 <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">Sleep</p>
-                  <p className="mt-1 font-medium">{client.sleep_hours || "—"} · {client.sleep_quality || "—"}</p>
+                  <p className="text-muted-foreground">Target Weight</p>
+                  <p className="font-medium">{client.goal_weight_kg || "—"} kg</p>
+                </div>
+                <div className="col-span-2">
+                  <p className="text-muted-foreground">Primary Coach</p>
+                  <p className="font-medium">{client.primary_coach || user?.name || "—"}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-border bg-muted/20 p-4">
+              <h3 className="text-lg font-semibold mb-3">Lifestyle Snapshot</h3>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <p className="text-muted-foreground">Profession</p>
+                  <p className="font-medium">{client.profession || "—"}</p>
                 </div>
                 <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">Diet Prefs</p>
-                  <p className="mt-1 font-medium">{client.diet_preference || "—"}</p>
+                  <p className="text-muted-foreground">Location</p>
+                  <p className="font-medium">{client.location || "—"}</p>
                 </div>
                 <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">Morning Freshness</p>
-                  <p className="mt-1 font-medium">{client.morning_freshness || "—"}</p>
+                  <p className="text-muted-foreground">Height</p>
+                  <p className="font-medium">{client.height_cm || "—"} cm</p>
                 </div>
                 <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">Start Weight</p>
-                  <p className="mt-1 font-medium">{client.initial_weight_kg || "—"} kg</p>
+                  <p className="text-muted-foreground">Sleep Quality</p>
+                  <p className="font-medium">{client.sleep_quality || "—"}</p>
                 </div>
                 <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">Healthy Range</p>
-                  <p className="mt-1 font-medium">
+                  <p className="text-muted-foreground">Sleeping Hours</p>
+                  <p className="font-medium">{client.sleep_hours || "—"}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Morning Freshness</p>
+                  <p className="font-medium">{client.morning_freshness || "—"}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">BMI</p>
+                  <p className="font-medium">{bmi ? bmi.toFixed(1) : "—"}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Healthy Range</p>
+                  <p className="font-medium">
                     {healthyWeightRange ? `${healthyWeightRange.minKg.toFixed(1)} - ${healthyWeightRange.maxKg.toFixed(1)} kg` : "—"}
                   </p>
                 </div>
               </div>
-              <div className="mt-4 flex flex-wrap gap-2">
-                {client.health_issues ? <Badge variant="outline" className="border-amber-500/20 bg-amber-500/10 text-amber-700">{client.health_issues}</Badge> : null}
-                {client.about_client ? <Badge variant="outline" className="bg-muted text-muted-foreground">{client.about_client}</Badge> : null}
+              <div className="flex flex-wrap gap-2 mt-4">
+                {client.health_issues && <Badge variant="outline" className="bg-warning-bg text-warning">{client.health_issues}</Badge>}
+                {client.diet_preference && <Badge variant="outline" className="bg-accent text-primary">{client.diet_preference}</Badge>}
               </div>
+            </div>
+
+            <div className="space-y-4">
+              <h3 className="text-lg font-semibold">Key Dates & Milestones</h3>
+              <div className="space-y-3 text-sm">
+                <div className="flex items-start gap-2">
+                  <Calendar className="w-4 h-4 text-primary mt-0.5" />
+                  <div>
+                    <p className="text-muted-foreground">Diet Period</p>
+                    <p className="font-medium">{client.diet_start_date || "—"} to {client.diet_end_date || "—"}</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <Calendar className="w-4 h-4 text-primary mt-0.5" />
+                  <div>
+                    <p className="text-muted-foreground">Program Period</p>
+                    <p className="font-medium">{client.program_start_date || "—"} to {client.program_end_date || "—"}</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <Calendar className="w-4 h-4 text-primary mt-0.5" />
+                  <div>
+                    <p className="text-muted-foreground">Last Follow-up</p>
+                    <p className="font-medium">{formatDisplayDate(latestFollowUp, { day: "2-digit", month: "short", year: "numeric" })}</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <Calendar className="w-4 h-4 text-primary mt-0.5" />
+                  <div>
+                    <p className="text-muted-foreground">Upcoming Follow-up</p>
+                    <p className="font-medium">{formatDisplayDate(upcomingFollowUp, { day: "2-digit", month: "short", year: "numeric" })}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-7 gap-4">
+        <Card className="border-border bg-card">
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground uppercase tracking-wider">Current Weight</p>
+            <p className="text-2xl font-bold mt-1">{client.current_weight_kg || "—"} kg</p>
           </CardContent>
         </Card>
-
-        <Card className="border-[#E3E0D8] bg-white shadow-sm">
-          <CardHeader>
-            <CardTitle className="text-xs font-semibold uppercase tracking-[0.06em] text-[#18115E] dark:text-violet-100">Key Dates</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3 text-sm">
-              <div className="flex items-center justify-between gap-4 border-b border-border/70 pb-3">
-                <span className="text-muted-foreground">Diet period</span>
-                <span className="text-right font-medium">{formatDisplayDate(client.diet_start_date, { day: "2-digit", month: "short" })} → {formatDisplayDate(client.diet_end_date, { day: "2-digit", month: "short", year: "numeric" })}</span>
-              </div>
-              <div className="flex items-center justify-between gap-4 border-b border-border/70 pb-3">
-                <span className="text-muted-foreground">Program</span>
-                <span className="text-right font-medium">{formatDisplayDate(client.program_start_date, { day: "2-digit", month: "short" })} → {formatDisplayDate(client.program_end_date, { day: "2-digit", month: "short", year: "numeric" })}</span>
-              </div>
-              {isProgramEndingSoon ? (
-                <div className="flex justify-end">
-                  <Badge variant="outline" className="border-red-500/20 bg-red-500/10 text-red-600">{programEndingLabel}</Badge>
-                </div>
-              ) : null}
-              <div className="flex items-center justify-between gap-4 border-b border-border/70 pb-3">
-                <span className="text-muted-foreground">Last follow-up</span>
-                <span className="text-right font-medium">{formatDisplayDate(latestFollowUp, { day: "2-digit", month: "short", year: "numeric" })}</span>
-              </div>
-              <div className="flex items-center justify-between gap-4">
-                <span className="text-muted-foreground">Next follow-up</span>
-                <Badge variant="outline" className="border-amber-500/20 bg-amber-500/10 text-amber-700">
-                  {formatDisplayDate(upcomingFollowUp, { day: "2-digit", month: "short", year: "numeric" })}
-                </Badge>
-              </div>
+        <Card className="border-border bg-card">
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground uppercase tracking-wider">Goal Weight</p>
+            <p className="text-2xl font-bold mt-1">{client.goal_weight_kg || "—"} kg</p>
+          </CardContent>
+        </Card>
+        <Card className="border-border bg-card">
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground uppercase tracking-wider">Progress</p>
+            <p className={`text-2xl font-bold mt-1 ${weightProgress > 0 ? "text-success" : weightProgress < 0 ? "text-danger" : ""}`}>
+              {weightProgress > 0 ? "-" : "+"}{Math.abs(weightProgress).toFixed(1)} kg
+            </p>
+          </CardContent>
+        </Card>
+        <Card className="border-border bg-card">
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground uppercase tracking-wider">Adherence</p>
+            <p className="text-2xl font-bold mt-1 text-primary">{adherenceRate.toFixed(0)}%</p>
+          </CardContent>
+        </Card>
+        <Card className="border-border bg-card">
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground uppercase tracking-wider">BMI</p>
+            <p className="text-2xl font-bold mt-1">{bmi ? bmi.toFixed(1) : "—"}</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {healthyWeightDelta
+                ? healthyWeightDelta.direction === "lose"
+                  ? `Need to lose ${healthyWeightDelta.kg.toFixed(1)} kg`
+                  : healthyWeightDelta.direction === "gain"
+                    ? `Need to gain ${healthyWeightDelta.kg.toFixed(1)} kg`
+                    : "Within healthy BMI range"
+                : "Add height & weight"}
+            </p>
+          </CardContent>
+        </Card>
+        <Card className="border-border bg-card">
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground uppercase tracking-wider">Maintenance Cals</p>
+            <p className="text-2xl font-bold mt-1 text-primary">{maintenanceCalories || "—"}</p>
+            <p className="text-xs text-muted-foreground mt-1">kcal/day estimate</p>
+          </CardContent>
+        </Card>
+        <Card className="border-border bg-card">
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground uppercase tracking-wider">Goal Progress</p>
+            <div className="mt-2">
+              <Progress value={goalProgress} className="h-2" />
+              <p className="text-xs text-muted-foreground mt-1">{goalProgress.toFixed(0)}% to goal</p>
             </div>
           </CardContent>
         </Card>
       </div>
 
-      <Card className="border-[#E3E0D8] bg-white shadow-sm">
-        <CardHeader>
-          <CardTitle className="font-['Sora'] text-[#18115E]">Imported Profile Details</CardTitle>
-          <CardDescription>Additional context captured from the uploaded client form and manual profile fields.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-5">
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-            {[
-              ["Profession", client.profession || "—"],
-              ["Diet Preference", client.diet_preference || "—"],
-              ["Primary Coach", client.primary_coach || user?.name || "—"],
-              ["Sleep", `${client.sleep_hours || "—"} · ${client.sleep_quality || "—"}`],
-              ["Morning Freshness", client.morning_freshness || "—"],
-              ["Diet Period", `${formatDisplayDate(client.diet_start_date, { day: "2-digit", month: "short", year: "numeric" })} → ${formatDisplayDate(client.diet_end_date, { day: "2-digit", month: "short", year: "numeric" })}`],
-              ["Program Period", `${formatDisplayDate(client.program_start_date, { day: "2-digit", month: "short", year: "numeric" })} → ${formatDisplayDate(client.program_end_date, { day: "2-digit", month: "short", year: "numeric" })}`],
-              ["Location", client.location || "—"],
-            ].map(([label, value]) => (
-              <div key={label} className="rounded-xl border border-border/50 bg-[#F8F7F4] p-4">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">{label}</p>
-                <p className="mt-2 text-sm font-medium leading-5 text-foreground">{value}</p>
-              </div>
-            ))}
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            {[
-              ["About Client", client.about_client],
-              ["Health Issues", client.health_issues],
-              ["Allergies", formatListValue(client.allergies)],
-              ["Avoid Foods", formatListValue(client.avoid_foods)],
-              ["Preferred Foods", formatListValue(client.preferred_foods)],
-              ["Disliked Foods", formatListValue(client.disliked_foods)],
-              ["Medical Food Restrictions", formatListValue(client.medical_food_restrictions)],
-              ["Notes", client.notes],
-            ].map(([label, value]) => (
-              <div key={label} className="rounded-xl border border-border/50 p-4">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">{label}</p>
-                <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-foreground">{value || "—"}</p>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-        <Card className="overflow-hidden border-[#E3E0D8] bg-white shadow-sm">
+        <Card className="border-border bg-card">
           <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="font-['Sora'] text-[#18115E]">Weight Progress</CardTitle>
+            <CardTitle className="">Weight Progress</CardTitle>
             <div className="flex items-center gap-2">
               <Button
                 variant="outline"
@@ -1023,19 +938,19 @@ export function ClientDetailPage() {
                   <AreaChart data={recentWeightsForOverview}>
                     <defs>
                       <linearGradient id="detailWeightGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.34} />
-                        <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} />
+                        <stop offset="5%" stopColor="#1F6B45" stopOpacity={0.34} />
+                        <stop offset="95%" stopColor="#1F6B45" stopOpacity={0} />
                       </linearGradient>
                     </defs>
-                    <CartesianGrid stroke="#27272a" strokeDasharray="3 3" />
-                    <XAxis dataKey="date" stroke="#a1a1aa" fontSize={12} />
-                    <YAxis stroke="#a1a1aa" fontSize={12} />
+                    <CartesianGrid stroke="#E7E7E1" strokeDasharray="3 3" />
+                    <XAxis dataKey="date" stroke="#A6A69C" fontSize={12} />
+                    <YAxis stroke="#A6A69C" fontSize={12} />
                     <Tooltip
                       labelFormatter={(_, payload) => payload?.[0]?.payload?.fullDate || "—"}
                       formatter={(value) => [`${value} kg`, "Weight"]}
-                      contentStyle={{ backgroundColor: "#09090b", borderColor: "#27272a", borderRadius: "8px", color: "#fafafa" }}
+                      contentStyle={{ backgroundColor: "#FFFFFF", borderColor: "#E7E7E1", borderRadius: "8px", color: "#16201A" }}
                     />
-                    <Area type="monotone" dataKey="weight" stroke="#8b5cf6" strokeWidth={2} fill="url(#detailWeightGradient)" dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                    <Area type="monotone" dataKey="weight" stroke="#1F6B45" strokeWidth={2} fill="url(#detailWeightGradient)" dot={{ r: 3 }} activeDot={{ r: 5 }} />
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
@@ -1045,9 +960,9 @@ export function ClientDetailPage() {
           </CardContent>
         </Card>
 
-        <Card className="overflow-hidden border-[#E3E0D8] bg-white shadow-sm">
+        <Card className="border-border bg-card">
           <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="font-['Sora'] text-[#18115E]">Follow-up Records</CardTitle>
+            <CardTitle className="">Follow-up Records</CardTitle>
             <Button size="icon" className="bg-primary text-primary-foreground" onClick={() => setFollowUpDialogOpen(true)}>
               <Plus className="w-4 h-4" />
             </Button>
@@ -1062,15 +977,13 @@ export function ClientDetailPage() {
                     <button
                       key={followUp.id}
                       type="button"
-                      className="w-full p-3 rounded-lg border border-border/40 text-left hover:border-primary/30 hover:bg-muted/30 transition-colors"
+                      className="w-full p-3 rounded-lg border border-border text-left hover:border-primary/30 hover:bg-muted/30 transition-colors"
                       onClick={() => openFollowUpDetail(followUp)}
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div>
                           <p className="font-medium text-sm capitalize">{followUp.type.replace(/-/g, " ")}</p>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {formatFollowUpSchedule(followUp, { day: "2-digit", month: "short", year: "numeric" })}
-                          </p>
+                          <p className="text-xs text-muted-foreground mt-1">{formatDisplayDate(followUp.scheduled_date, { day: "2-digit", month: "short", year: "numeric" })}</p>
                         </div>
                         <Badge variant="outline" className={FOLLOW_UP_STATUS_STYLES[followUp.status] || ""}>
                           {followUp.status}
@@ -1085,9 +998,9 @@ export function ClientDetailPage() {
           </CardContent>
         </Card>
 
-        <Card className="overflow-hidden border-[#E3E0D8] bg-white shadow-sm">
+        <Card className="border-border bg-card">
           <CardHeader>
-            <CardTitle className="font-['Sora'] text-[#18115E]">Team Comments</CardTitle>
+            <CardTitle className="">Team Comments</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <ScrollArea className="h-[190px] pr-3">
@@ -1098,7 +1011,7 @@ export function ClientDetailPage() {
                 teamComments.map((comment) => (
                   <div
                     key={comment.id}
-                    className={`p-3 rounded-lg border ${comment.author_id === user?.id ? "border-primary/30 bg-primary/5" : "border-border/40 bg-muted/10"}`}
+                    className={`p-3 rounded-lg border ${comment.author_id === user?.id ? "border-primary/30 bg-primary/5" : "border-border bg-muted/10"}`}
                   >
                     <div className="flex items-center justify-between gap-2">
                       <div>
@@ -1126,60 +1039,10 @@ export function ClientDetailPage() {
         </Card>
       </div>
 
-      <Card className="overflow-hidden border-[#E3E0D8] bg-white shadow-sm">
-        <CardHeader>
-          <CardTitle className="font-['Sora'] text-[#18115E]">History</CardTitle>
-          <CardDescription>Recent diet date and follow-up changes for this client.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {historyLogs.length === 0 ? (
-            <p className="py-6 text-sm text-muted-foreground">No history entries yet.</p>
-          ) : (
-            <div className="overflow-x-auto rounded-xl border border-border/40">
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-muted/20">
-                    <TableHead className="min-w-[120px]">Event</TableHead>
-                    <TableHead className="min-w-[220px]">Previous Value</TableHead>
-                    <TableHead className="min-w-[220px]">New Value</TableHead>
-                    <TableHead className="min-w-[150px]">Updated By</TableHead>
-                    <TableHead className="min-w-[180px]">Time</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {historyLogs.map((log) => (
-                    <TableRow key={log.id} className="align-top">
-                      <TableCell>
-                        <div className="space-y-2">
-                          <Badge variant="outline" className={getHistoryTone(log.event_label)}>
-                            {log.event_label || "History"}
-                          </Badge>
-                          <p className="text-xs text-muted-foreground">{log.summary}</p>
-                        </div>
-                      </TableCell>
-                      <TableCell className="whitespace-pre-wrap text-sm text-muted-foreground">
-                        {log.old_value || "—"}
-                      </TableCell>
-                      <TableCell className="whitespace-pre-wrap text-sm">
-                        {log.new_value || "—"}
-                      </TableCell>
-                      <TableCell className="text-sm">{log.actor_name || "—"}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {formatDisplayDateTime(log.created_at)}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card className="overflow-hidden border-[#E3E0D8] bg-white shadow-sm">
+      <Card className="border-border bg-card">
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
-            <CardTitle className="font-['Sora'] text-[#18115E]">Monthly Progress Tracking</CardTitle>
+            <CardTitle className="">Monthly Progress Tracking</CardTitle>
             <CardDescription>Log daily weights and meal adherence to keep trendline updated.</CardDescription>
           </div>
           <Select value={selectedMonth} onValueChange={setSelectedMonth}>
@@ -1197,26 +1060,26 @@ export function ClientDetailPage() {
           </Select>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto rounded-3xl border border-[#E3E0D8] bg-[#F8F7F4]">
+          <div className="overflow-x-auto">
             <table className="min-w-[1700px] w-full">
-              <thead className="bg-[#EFEDE7]">
-                <tr className="border-b border-[#E3E0D8]">
-                  <th className="text-left py-3 pl-4 pr-3 text-sm font-semibold text-[#18115E]">Activity</th>
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="text-left py-2 pr-3 text-sm font-semibold">Activity</th>
                   {trackerDays.map((day) => (
-                    <th key={day} className="py-3 px-2 text-xs font-semibold text-[#6C6680]">{String(day).padStart(2, "0")}</th>
+                    <th key={day} className="py-2 px-2 text-xs text-muted-foreground font-medium">{String(day).padStart(2, "0")}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                <tr className="border-b border-[#E8E4DC] bg-white/70">
-                  <td className="py-3 pl-4 pr-3 text-sm font-semibold text-[#18115E]">Daily Weight (kg)</td>
+                <tr className="border-b border-border/30">
+                  <td className="py-3 pr-3 text-sm font-medium">Daily Weight (kg)</td>
                   {trackerDays.map((day) => (
                     <td key={`weight-${day}`} className="py-2 px-1">
                       <Input
                         value={monthlyTracker.weights[day] || ""}
                         onChange={(e) => updateTrackerWeight(day, e.target.value)}
                         onBlur={() => saveTrackerWeight(day)}
-                        className="h-8 rounded-xl border-[#E3E0D8] bg-white text-center"
+                        className="h-8 text-center"
                       />
                       {trackerWeightSavingCell === `weight-${day}` && (
                         <div className="mt-1 flex justify-center">
@@ -1227,15 +1090,15 @@ export function ClientDetailPage() {
                   ))}
                 </tr>
                 {MONTHLY_TRACKER_ROWS.map((rowName) => (
-                  <tr key={rowName} className="border-b border-[#E8E4DC] bg-white/40 last:border-0">
-                    <td className="py-3 pl-4 pr-3 text-sm font-medium text-[#18115E]">{rowName}</td>
+                  <tr key={rowName} className="border-b border-border/20">
+                    <td className="py-3 pr-3 text-sm">{rowName}</td>
                     {trackerDays.map((day) => (
                       <td key={`${rowName}-${day}`} className="py-2 px-1 text-center">
                         <input
                           type="checkbox"
                           checked={!!monthlyTracker.checks[rowName]?.[day]}
                           onChange={() => toggleTrackerCheck(rowName, day)}
-                          className="h-4 w-4 accent-violet-500"
+                          className="h-4 w-4 accent-primary"
                         />
                         {trackerActivitySavingCell === `${rowName}-${day}` && (
                           <div className="mt-1 flex justify-center">
@@ -1252,10 +1115,10 @@ export function ClientDetailPage() {
         </CardContent>
       </Card>
 
-      <Card className="overflow-hidden border-[#E3E0D8] bg-white shadow-sm">
+      <Card className="border-border bg-card">
         <CardContent className="pt-6">
           <Tabs defaultValue="reports">
-            <TabsList className="rounded-2xl bg-[#F0EEE8] p-1">
+            <TabsList className="bg-muted/50 p-1">
               <TabsTrigger value="reports">Diet & Reports</TabsTrigger>
               <TabsTrigger value="ai">AI Health Analysis</TabsTrigger>
               <TabsTrigger value="pictures">Client Pictures</TabsTrigger>
@@ -1263,7 +1126,7 @@ export function ClientDetailPage() {
 
             <TabsContent value="reports" className="space-y-6 pt-4">
               <div>
-                <h3 className="text-xl font-semibold font-['Sora'] text-[#18115E]">Blood Report Insights</h3>
+                <h3 className="text-xl font-semibold">Blood Report Insights</h3>
                 <p className="text-muted-foreground text-sm mt-1">Upload the latest blood report PDF to let AI highlight metabolic risks and nutritional gaps.</p>
                 <Button variant="outline" className="mt-3" onClick={() => bloodReportInputRef.current?.click()} disabled={uploadingCategory === "blood-report"}>
                   {uploadingCategory === "blood-report" ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
@@ -1275,7 +1138,7 @@ export function ClientDetailPage() {
               <Separator />
 
               <div>
-                <h3 className="text-xl font-semibold font-['Sora'] text-[#18115E]">Diet History & New Plan</h3>
+                <h3 className="text-xl font-semibold">Diet History & New Plan</h3>
                 <p className="text-muted-foreground text-sm mt-1">Upload the client's past diet chart PDF for AI-based summary and new plan suggestions.</p>
                 <Button variant="outline" className="mt-3" onClick={() => pastDietInputRef.current?.click()} disabled={uploadingCategory === "past-diet"}>
                   {uploadingCategory === "past-diet" ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
@@ -1286,149 +1149,15 @@ export function ClientDetailPage() {
             </TabsContent>
 
             <TabsContent value="ai" className="space-y-4 pt-4">
-              <Card className="overflow-hidden border-[#241A78]/20 bg-white">
-                <CardHeader className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                  <div className="space-y-1">
-                    <CardTitle className="flex items-center gap-2 text-lg font-['Sora'] text-[#18115E]">
-                      <Sparkles className="h-5 w-5 text-primary" />
-                      AI Health Snapshot
-                    </CardTitle>
-                    <CardDescription>Generate a coach-facing summary from the latest blood report and past diet PDFs.</CardDescription>
-                  </div>
-                  <Button onClick={() => void generateAiHealthAnalysis()} disabled={!canGenerateAiAnalysis || aiAnalysisLoading}>
-                    {aiAnalysisLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
-                    {aiHealthAnalysis ? "Regenerate Analysis" : "Generate Analysis"}
-                  </Button>
+              <Card className="border-border bg-muted/20">
+                <CardHeader>
+                  <CardTitle className="text-lg">AI Health Snapshot</CardTitle>
+                  <CardDescription>Auto-generated summary based on profile, progress and latest reports.</CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-4">
-                  {!canGenerateAiAnalysis ? (
-                    <div className="rounded-xl border border-dashed border-border/60 bg-background/70 p-4 text-sm text-muted-foreground">
-                      Upload at least one blood report or past diet PDF in the `Diet & Reports` tab before running AI analysis.
-                    </div>
-                  ) : null}
-
-                  {aiHealthAnalysis ? (
-                    <div className="space-y-4">
-                      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                        <Badge variant="outline">{aiHealthAnalysis.model}</Badge>
-                        <span>Generated {formatDisplayDateTime(aiHealthAnalysis.generated_at)}</span>
-                        {aiHealthAnalysis.generated_by_name ? <span>by {aiHealthAnalysis.generated_by_name}</span> : null}
-                      </div>
-
-                      {aiHealthAnalysis.source_files?.length ? (
-                        <div className="flex flex-wrap gap-2">
-                          {aiHealthAnalysis.source_files.map((file) => (
-                            <Badge key={file.id} variant="outline" className="max-w-full truncate">
-                              {file.original_filename}
-                            </Badge>
-                          ))}
-                        </div>
-                      ) : null}
-
-                      <Card className="border-border/40 bg-background/80">
-                        <CardHeader className="pb-3">
-                          <CardTitle className="text-base">Overall Summary</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <p className="text-sm leading-6 text-foreground">{aiHealthAnalysis.overall_summary || "No summary available."}</p>
-                        </CardContent>
-                      </Card>
-
-                      <div className="grid gap-4 xl:grid-cols-2">
-                        <Card className="border-border/40 bg-background/80">
-                          <CardHeader className="pb-3">
-                            <CardTitle className="text-base">Clinical Risks</CardTitle>
-                          </CardHeader>
-                          <CardContent className="space-y-3">
-                            {aiHealthAnalysis.clinical_risks?.length ? aiHealthAnalysis.clinical_risks.map((item, index) => (
-                              <div key={`${item.label}-${index}`} className="rounded-lg border border-border/40 p-3">
-                                <div className="flex items-center justify-between gap-3">
-                                  <p className="text-sm font-semibold">{item.label}</p>
-                                  <Badge variant="outline" className={getAiSeverityTone(item.severity)}>{item.severity}</Badge>
-                                </div>
-                                <p className="mt-2 text-sm text-muted-foreground">{item.reason}</p>
-                              </div>
-                            )) : <p className="text-sm text-muted-foreground">No explicit clinical risk flags extracted.</p>}
-                          </CardContent>
-                        </Card>
-
-                        <Card className="border-border/40 bg-background/80">
-                          <CardHeader className="pb-3">
-                            <CardTitle className="text-base">Nutrition Gaps</CardTitle>
-                          </CardHeader>
-                          <CardContent className="space-y-3">
-                            {aiHealthAnalysis.nutrition_gaps?.length ? aiHealthAnalysis.nutrition_gaps.map((item, index) => (
-                              <div key={`${item.label}-${index}`} className="rounded-lg border border-border/40 p-3">
-                                <div className="flex items-center justify-between gap-3">
-                                  <p className="text-sm font-semibold">{item.label}</p>
-                                  <Badge variant="outline" className={getAiSeverityTone(item.severity)}>{item.severity}</Badge>
-                                </div>
-                                <p className="mt-2 text-sm text-muted-foreground">{item.reason}</p>
-                              </div>
-                            )) : <p className="text-sm text-muted-foreground">No clear nutrition gaps extracted.</p>}
-                          </CardContent>
-                        </Card>
-                      </div>
-
-                      <div className="grid gap-4 xl:grid-cols-3">
-                        <Card className="border-border/40 bg-background/80">
-                          <CardHeader className="pb-3">
-                            <CardTitle className="text-base">Diet Pattern Observations</CardTitle>
-                          </CardHeader>
-                          <CardContent>
-                            {aiHealthAnalysis.diet_pattern_observations?.length ? (
-                              <ul className="space-y-2 text-sm text-muted-foreground">
-                                {aiHealthAnalysis.diet_pattern_observations.map((item, index) => <li key={index}>• {item}</li>)}
-                              </ul>
-                            ) : <p className="text-sm text-muted-foreground">No diet pattern observations yet.</p>}
-                          </CardContent>
-                        </Card>
-
-                        <Card className="border-border/40 bg-background/80">
-                          <CardHeader className="pb-3">
-                            <CardTitle className="text-base">Recommended Adjustments</CardTitle>
-                          </CardHeader>
-                          <CardContent>
-                            {aiHealthAnalysis.recommended_adjustments?.length ? (
-                              <ul className="space-y-2 text-sm text-muted-foreground">
-                                {aiHealthAnalysis.recommended_adjustments.map((item, index) => <li key={index}>• {item}</li>)}
-                              </ul>
-                            ) : <p className="text-sm text-muted-foreground">No adjustments suggested yet.</p>}
-                          </CardContent>
-                        </Card>
-
-                        <Card className="border-border/40 bg-background/80">
-                          <CardHeader className="pb-3">
-                            <CardTitle className="text-base">Follow-up Questions</CardTitle>
-                          </CardHeader>
-                          <CardContent>
-                            {aiHealthAnalysis.follow_up_questions?.length ? (
-                              <ul className="space-y-2 text-sm text-muted-foreground">
-                                {aiHealthAnalysis.follow_up_questions.map((item, index) => <li key={index}>• {item}</li>)}
-                              </ul>
-                            ) : <p className="text-sm text-muted-foreground">No follow-up questions suggested yet.</p>}
-                          </CardContent>
-                        </Card>
-                      </div>
-
-                      {aiHealthAnalysis.confidence_notes?.length ? (
-                        <Card className="border-border/40 bg-background/80">
-                          <CardHeader className="pb-3">
-                            <CardTitle className="text-base">Confidence Notes</CardTitle>
-                          </CardHeader>
-                          <CardContent>
-                            <ul className="space-y-2 text-sm text-muted-foreground">
-                              {aiHealthAnalysis.confidence_notes.map((item, index) => <li key={index}>• {item}</li>)}
-                            </ul>
-                          </CardContent>
-                        </Card>
-                      ) : null}
-                    </div>
-                  ) : (
-                    <div className="rounded-xl border border-dashed border-border/60 bg-background/70 p-4 text-sm text-muted-foreground">
-                      No AI health analysis has been generated for this client yet.
-                    </div>
-                  )}
+                <CardContent className="space-y-2 text-sm">
+                  <p>• Metabolic risk analysis will appear after blood report upload.</p>
+                  <p>• Meal adherence insights are generated from progress tracker entries.</p>
+                  <p>• Recommended diet adjustments are tailored to the current weight trend.</p>
                 </CardContent>
               </Card>
             </TabsContent>
@@ -1436,7 +1165,7 @@ export function ClientDetailPage() {
             <TabsContent value="pictures" className="space-y-4 pt-4">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <h3 className="text-xl font-semibold font-['Sora'] text-[#18115E]">Client Pictures</h3>
+                  <h3 className="text-xl font-semibold">Client Pictures</h3>
                   <p className="text-muted-foreground text-sm mt-1">Upload and review progress pictures for this client.</p>
                 </div>
                 <Button variant="outline" onClick={() => clientPicturesInputRef.current?.click()} disabled={uploadingCategory === "client-picture"}>
@@ -1447,7 +1176,7 @@ export function ClientDetailPage() {
               {clientPictureFiles.length ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   {clientPictureFiles.map((file) => (
-                    <div key={file.id} className="rounded-lg border border-border/40 p-4">
+                    <div key={file.id} className="rounded-lg border border-border p-4">
                       <div className="flex items-center gap-3">
                         <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-primary/10">
                           <Image className="h-5 w-5 text-primary" />
@@ -1464,7 +1193,7 @@ export function ClientDetailPage() {
                   ))}
                 </div>
               ) : (
-                <Card className="border-border/40 bg-muted/20">
+                <Card className="border-border bg-muted/20">
                   <CardContent className="flex flex-col items-center justify-center py-10 text-center">
                     <Image className="h-10 w-10 text-muted-foreground/60" />
                     <p className="mt-3 text-sm text-muted-foreground">No client pictures uploaded yet.</p>
@@ -1477,7 +1206,7 @@ export function ClientDetailPage() {
       </Card>
 
       <Tabs defaultValue="progress" className="space-y-6">
-        <TabsList className="rounded-2xl bg-[#F0EEE8] p-1">
+        <TabsList className="bg-muted/50 p-1">
           <TabsTrigger value="progress" data-testid="tab-progress">Progress</TabsTrigger>
           <TabsTrigger value="meals" data-testid="tab-meals">Meal Photos</TabsTrigger>
           <TabsTrigger value="diet-plans" data-testid="tab-diet-plans">Diet Plans</TabsTrigger>
@@ -1485,9 +1214,9 @@ export function ClientDetailPage() {
         </TabsList>
 
         <TabsContent value="progress" className="space-y-6">
-          <Card className="overflow-hidden border-[#E3E0D8] bg-white shadow-sm">
+          <Card className="border-border bg-card">
             <CardHeader>
-              <CardTitle className="font-['Sora'] text-[#18115E]">Weight History</CardTitle>
+              <CardTitle className="">Weight History</CardTitle>
             </CardHeader>
             <CardContent>
               <ScrollArea className="h-[250px]">
@@ -1499,7 +1228,7 @@ export function ClientDetailPage() {
                       const prevWeight = weights[idx + 1]?.weight_kg;
                       const diff = prevWeight ? entry.weight_kg - prevWeight : 0;
                       return (
-                        <div key={entry.id} className="flex items-center justify-between p-3 rounded-lg border border-border/40">
+                        <div key={entry.id} className="flex items-center justify-between p-3 rounded-lg border border-border">
                           <div className="flex items-center gap-3">
                             <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
                               <Scale className="w-5 h-5 text-primary" />
@@ -1511,7 +1240,7 @@ export function ClientDetailPage() {
                           </div>
                           <div className="flex items-center gap-2">
                             {diff !== 0 && (
-                              <Badge variant="outline" className={diff < 0 ? "text-violet-500" : "text-red-500"}>
+                              <Badge variant="outline" className={diff < 0 ? "text-success" : "text-danger"}>
                                 {diff > 0 ? "+" : ""}{diff.toFixed(1)} kg
                               </Badge>
                             )}
@@ -1533,9 +1262,9 @@ export function ClientDetailPage() {
         </TabsContent>
 
         <TabsContent value="meals" className="space-y-6">
-          <Card className="overflow-hidden border-[#E3E0D8] bg-white shadow-sm">
+          <Card className="border-border bg-card">
             <CardHeader>
-              <CardTitle className="font-['Sora'] text-[#18115E]">Meal Photo Uploads</CardTitle>
+              <CardTitle className="">Meal Photo Uploads</CardTitle>
               <CardDescription>Photos uploaded by this client</CardDescription>
             </CardHeader>
             <CardContent>
@@ -1547,7 +1276,7 @@ export function ClientDetailPage() {
               ) : (
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                   {mealUploads.map((upload) => (
-                    <div key={upload.id} className="rounded-lg border border-border/40 overflow-hidden">
+                    <div key={upload.id} className="rounded-lg border border-border overflow-hidden">
                       <div className="aspect-video bg-muted flex items-center justify-center relative">
                         <Image className="w-8 h-8 text-muted-foreground/50" />
                         <Badge className="absolute top-2 left-2 text-xs" variant="outline">
@@ -1573,10 +1302,10 @@ export function ClientDetailPage() {
         </TabsContent>
 
         <TabsContent value="diet-plans" className="space-y-6">
-          <Card className="overflow-hidden border-[#E3E0D8] bg-white shadow-sm">
+          <Card className="border-border bg-card">
             <CardHeader className="flex flex-row items-center justify-between">
               <div>
-                <CardTitle className="font-['Sora'] text-[#18115E]">Diet Plans</CardTitle>
+                <CardTitle className="">Diet Plans</CardTitle>
                 <CardDescription>Assigned diet plans for this client</CardDescription>
               </div>
               <Link to={`/diet-plans?client_id=${clientId}`}>
@@ -1589,7 +1318,7 @@ export function ClientDetailPage() {
               {dietPlans.length > 0 ? (
                 <div className="space-y-4">
                   {dietPlans.map((plan) => (
-                    <div key={plan.id} className="p-4 rounded-lg border border-border/40 hover:border-primary/30 transition-colors">
+                    <div key={plan.id} className="p-4 rounded-lg border border-border hover:border-primary/30 transition-colors">
                       <div className="flex items-start justify-between">
                         <div>
                           <h3 className="font-medium">{plan.name}</h3>
@@ -1615,9 +1344,9 @@ export function ClientDetailPage() {
         </TabsContent>
 
         <TabsContent value="info">
-          <Card className="overflow-hidden border-[#E3E0D8] bg-white shadow-sm">
+          <Card className="border-border bg-card">
             <CardHeader>
-              <CardTitle className="font-['Sora'] text-[#18115E]">Client Information</CardTitle>
+              <CardTitle className="">Client Information</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
@@ -1635,14 +1364,7 @@ export function ClientDetailPage() {
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Program End</p>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="font-medium">{client.program_end_date || "—"}</p>
-                    {isProgramEndingSoon ? (
-                      <Badge variant="outline" className="border-red-500/20 bg-red-500/10 text-red-600">
-                        {programEndingLabel}
-                      </Badge>
-                    ) : null}
-                  </div>
+                  <p className="font-medium">{client.program_end_date || "—"}</p>
                 </div>
               </div>
               {client.notes && (
@@ -1658,7 +1380,7 @@ export function ClientDetailPage() {
 
       <Sheet open={fileViewerOpen} onOpenChange={handleFileViewerChange}>
         <SheetContent side="right" className="w-[92vw] sm:max-w-3xl p-0">
-          <SheetHeader className="border-b border-border/40 p-6 pr-12">
+          <SheetHeader className="border-b border-border p-6 pr-12">
             <SheetTitle>{fileViewerFile?.original_filename || "File Viewer"}</SheetTitle>
             <SheetDescription>{fileViewerFile?.category || "uploaded file"}</SheetDescription>
           </SheetHeader>
@@ -1669,9 +1391,9 @@ export function ClientDetailPage() {
               </div>
             ) : fileViewerUrl ? (
               fileViewerFile?.content_type?.includes("pdf") || fileViewerFile?.original_filename?.toLowerCase().endsWith(".pdf") ? (
-                <iframe title={fileViewerFile?.original_filename || "PDF"} src={fileViewerUrl} className="h-full w-full rounded-lg border border-border/40 bg-white" />
+                <iframe title={fileViewerFile?.original_filename || "PDF"} src={fileViewerUrl} className="h-full w-full rounded-lg border border-border bg-white" />
               ) : (
-                <div className="flex h-full items-center justify-center rounded-lg border border-border/40 bg-muted/20">
+                <div className="flex h-full items-center justify-center rounded-lg border border-border bg-muted/20">
                   <img src={fileViewerUrl} alt={fileViewerFile?.original_filename || "Uploaded file"} className="max-h-full max-w-full rounded-lg object-contain" />
                 </div>
               )
@@ -1707,11 +1429,11 @@ export function ClientDetailPage() {
             </div>
             <div className="space-y-2">
               <Label>Date</Label>
-              <DatePickerInput
+              <Input
+                type="date"
                 data-testid="weight-date-input"
                 value={newWeight.recorded_date}
-                onChange={(value) => setNewWeight({ ...newWeight, recorded_date: value })}
-                placeholder="Select weight date"
+                onChange={(e) => setNewWeight({ ...newWeight, recorded_date: e.target.value })}
               />
             </div>
             <div className="space-y-2">
@@ -1776,7 +1498,7 @@ export function ClientDetailPage() {
             </div>
 
             {weightImportWarnings.length > 0 && (
-              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-600 dark:text-amber-300">
+              <div className="rounded-lg border border-warning-border bg-warning-bg p-3 text-sm text-warning">
                 {weightImportWarnings.map((warning, index) => (
                   <p key={`${warning}-${index}`}>• {warning}</p>
                 ))}
@@ -1791,10 +1513,10 @@ export function ClientDetailPage() {
                     <Plus className="w-4 h-4 mr-2" /> Add Row
                   </Button>
                 </div>
-                <ScrollArea className="h-[360px] rounded-lg border border-border/40">
+                <ScrollArea className="h-[360px] rounded-lg border border-border">
                   <table className="min-w-full text-sm">
                     <thead className="sticky top-0 bg-background">
-                      <tr className="border-b border-border/40">
+                      <tr className="border-b border-border">
                         <th className="px-3 py-2 text-left">Date</th>
                         <th className="px-3 py-2 text-left">Weight (kg)</th>
                         <th className="px-3 py-2 text-left">Notes</th>
@@ -1806,11 +1528,10 @@ export function ClientDetailPage() {
                       {weightImportPreview.map((entry, index) => (
                         <tr key={`${entry.recorded_date}-${index}`} className="border-b border-border/20 align-top">
                           <td className="px-3 py-3">
-                            <DatePickerInput
+                            <Input
+                              type="date"
                               value={entry.recorded_date}
-                              onChange={(value) => updateWeightImportEntry(index, "recorded_date", value)}
-                              placeholder="Select date"
-                              buttonClassName="h-10"
+                              onChange={(event) => updateWeightImportEntry(index, "recorded_date", event.target.value)}
                             />
                           </td>
                           <td className="px-3 py-3">
@@ -1844,7 +1565,7 @@ export function ClientDetailPage() {
                 </ScrollArea>
               </div>
             ) : (
-              <div className="rounded-lg border border-border/40 p-6 text-center text-sm text-muted-foreground">
+              <div className="rounded-lg border border-border p-6 text-center text-sm text-muted-foreground">
                 Paste the bulk weight data above and click `Parse Data` to preview the mapped rows.
               </div>
             )}
@@ -1872,24 +1593,14 @@ export function ClientDetailPage() {
             <DialogDescription>Create a new follow-up record for this client.</DialogDescription>
           </DialogHeader>
           <form onSubmit={createFollowUp} className="space-y-4">
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label>Date *</Label>
-                <DatePickerInput
-                  value={followUpForm.scheduled_date}
-                  onChange={(value) => setFollowUpForm((prev) => ({ ...prev, scheduled_date: value }))}
-                  placeholder="Select follow-up date"
-                  clearable={false}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Time</Label>
-                <Input
-                  type="time"
-                  value={followUpForm.scheduled_time}
-                  onChange={(event) => setFollowUpForm((prev) => ({ ...prev, scheduled_time: event.target.value }))}
-                />
-              </div>
+            <div className="space-y-2">
+              <Label>Date *</Label>
+              <Input
+                type="date"
+                value={followUpForm.scheduled_date}
+                onChange={(event) => setFollowUpForm((prev) => ({ ...prev, scheduled_date: event.target.value }))}
+                required
+              />
             </div>
             <div className="space-y-2">
               <Label>Type</Label>
@@ -1943,9 +1654,7 @@ export function ClientDetailPage() {
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <p className="text-lg font-semibold capitalize">{selectedFollowUp.type.replace(/-/g, " ")}</p>
-                  <p className="text-sm text-muted-foreground">
-                    {formatFollowUpSchedule(selectedFollowUp, { day: "2-digit", month: "short", year: "numeric" })}
-                  </p>
+                  <p className="text-sm text-muted-foreground">{formatDisplayDate(selectedFollowUp.scheduled_date, { day: "2-digit", month: "short", year: "numeric" })}</p>
                 </div>
                 <Badge variant="outline" className={FOLLOW_UP_STATUS_STYLES[selectedFollowUp.status] || ""}>
                   {selectedFollowUp.status}
@@ -1962,10 +1671,6 @@ export function ClientDetailPage() {
                   <p className="font-medium">{formatDisplayDateTime(selectedFollowUp.created_at)}</p>
                 </div>
                 <div>
-                  <p className="text-muted-foreground">Scheduled time</p>
-                  <p className="font-medium">{selectedFollowUp.scheduled_time || "—"}</p>
-                </div>
-                <div>
                   <p className="text-muted-foreground">Completed on</p>
                   <p className="font-medium">{selectedFollowUp.completed_at ? formatDisplayDateTime(selectedFollowUp.completed_at) : "—"}</p>
                 </div>
@@ -1975,7 +1680,7 @@ export function ClientDetailPage() {
                 </div>
               </div>
 
-              <div className="rounded-lg border border-border/40 p-4">
+              <div className="rounded-lg border border-border p-4">
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-sm font-medium">Notes</p>
                   <Button variant="outline" size="sm" onClick={saveFollowUpNotes} disabled={followUpNoteSaving}>

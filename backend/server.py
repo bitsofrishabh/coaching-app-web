@@ -3696,7 +3696,7 @@ async def get_diet_plan(plan_id: str, user: dict = Depends(get_current_user)):
 
 @api_router.put("/diet-plans/{plan_id}", response_model=DietPlanResponse)
 async def update_diet_plan(plan_id: str, data: DietPlanUpdate, user: dict = Depends(get_current_user)):
-    update_data = {k: v for k, v in data.model_dump().items() if v is not None}
+    update_data = data.model_dump(exclude_unset=True)
     if "plan_type" in update_data and update_data["plan_type"] not in DIET_PLAN_TYPES:
         raise HTTPException(status_code=400, detail="Invalid plan_type")
     if "export_layout" in update_data and update_data["export_layout"] not in DIET_EXPORT_LAYOUTS:
@@ -3791,7 +3791,7 @@ async def update_follow_up(follow_up_id: str, data: FollowUpUpdate, user: dict =
     if not existing:
         raise HTTPException(status_code=404, detail="Follow-up not found")
 
-    update_data = {k: v for k, v in data.model_dump().items() if v is not None}
+    update_data = data.model_dump(exclude_unset=True)
     if "scheduled_time" in update_data:
         update_data["scheduled_time"] = _normalize_follow_up_time(update_data["scheduled_time"])
     result = await db.follow_ups.find_one_and_update(
@@ -4029,6 +4029,26 @@ def _parse_transaction_import_rows(csv_text: str, filename: str, client_lookup: 
     return parsed_docs
 
 
+def _validate_transaction_month(month: str) -> str:
+    month_key = str(month or "").strip()
+    if not re.fullmatch(r"\d{4}-\d{2}", month_key):
+        raise HTTPException(status_code=400, detail="Month must be in YYYY-MM format")
+    year, month_number = month_key.split("-")
+    if int(month_number) < 1 or int(month_number) > 12:
+        raise HTTPException(status_code=400, detail="Month must be in YYYY-MM format")
+    return f"{year}-{month_number}"
+
+
+def _csv_safe_cell(value: Any) -> Any:
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        return value
+    if value[:1] in {"=", "+", "-", "@"}:
+        return f"'{value}"
+    return value
+
+
 @api_router.get("/transactions", response_model=List[TransactionResponse])
 async def get_transactions(
     type: Optional[str] = None,
@@ -4054,6 +4074,57 @@ async def get_transactions(
     
     transactions = await db.transactions.find(query, {"_id": 0}).sort("transaction_date", -1).skip(skip).limit(limit).to_list(limit)
     return [TransactionResponse(**t) for t in transactions]
+
+
+@api_router.get("/transactions/export-csv")
+async def export_transactions_csv(
+    month: str = Query(..., description="Month to export in YYYY-MM format"),
+    user: dict = Depends(get_current_user)
+):
+    ensure_admin_user(user)
+    month_key = _validate_transaction_month(month)
+    query = _visible_shared_owner_query(user, {"transaction_date": {"$regex": f"^{month_key}"}})
+    transactions = await db.transactions.find(query, {"_id": 0}).sort("transaction_date", 1).to_list(None)
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "Date",
+        "Type",
+        "Category",
+        "Amount",
+        "Client",
+        "Client ID",
+        "Program Duration",
+        "Source",
+        "Payment Method",
+        "Comment",
+        "Imported From",
+        "Created At",
+    ])
+    for transaction in transactions:
+        writer.writerow([
+            transaction.get("transaction_date") or "",
+            transaction.get("type") or "",
+            _csv_safe_cell(transaction.get("category")),
+            transaction.get("amount") or 0,
+            _csv_safe_cell(transaction.get("client_name")),
+            _csv_safe_cell(transaction.get("client_id")),
+            _csv_safe_cell(transaction.get("program_duration")),
+            _csv_safe_cell(transaction.get("source")),
+            _csv_safe_cell(transaction.get("payment_method")),
+            _csv_safe_cell(transaction.get("description")),
+            _csv_safe_cell(transaction.get("imported_from")),
+            transaction.get("created_at") or "",
+        ])
+
+    filename = f"transactions_{month_key}.csv"
+    return Response(
+        content="\ufeff" + output.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
 
 @api_router.get("/transactions/summary")
 async def get_transaction_summary(

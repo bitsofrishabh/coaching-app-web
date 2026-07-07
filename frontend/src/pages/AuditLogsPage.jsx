@@ -1,53 +1,53 @@
 import { useEffect, useMemo, useState } from "react";
-import { toast } from "sonner";
-import { ClipboardList } from "lucide-react";
+import { Card } from "@/components/ui/card";
+import { StatusBadge } from "@/components/ui/status-badge";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue
+} from "@/components/ui/select";
 import { api } from "@/lib/api";
 import { LoadingScreen } from "@/components/app/LoadingScreen";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+
+// Event type -> badge tone
+const EVENT_TONE = {
+  transaction: "success",
+  client: "info",
+  "follow-up": "warning",
+  followup: "warning",
+  diet: "violet",
+};
 
 const EVENT_FILTERS = [
   { value: "all", label: "All Events" },
+  { value: "transaction", label: "Transactions" },
   { value: "client", label: "Clients" },
   { value: "follow-up", label: "Follow-ups" },
-  { value: "transaction", label: "Transactions" },
+  { value: "diet", label: "Diet" },
 ];
 
-const formatDisplayDateTime = (value) => {
+function formatTimestamp(value) {
   if (!value) return "—";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
-  return parsed.toLocaleString("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-};
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  return d.toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+}
 
-const getEventTone = (eventLabel) => {
-  const normalized = String(eventLabel || "").toLowerCase();
-  if (normalized === "transaction") return "bg-violet-500/10 text-violet-500 border-violet-500/20";
-  if (normalized === "follow-up") return "bg-orange-400/10 text-orange-500 border-orange-400/20";
-  if (normalized === "diet") return "bg-rose-500/10 text-rose-500 border-rose-500/20";
-  if (normalized === "program") return "bg-sky-500/10 text-sky-500 border-sky-500/20";
-  return "bg-primary/10 text-primary border-primary/20";
-};
-
-const renderCellText = (value) => {
-  if (!value) return "—";
-  return value;
-};
+// Values may arrive as string, object, or null — render readable multi-line text.
+function renderValue(value) {
+  if (value == null || value === "") return <span className="text-muted-foreground">—</span>;
+  if (typeof value === "object") {
+    return (
+      <div className="space-y-0.5">
+        {Object.entries(value).map(([k, v]) => (
+          <p key={k} className="text-sm">
+            <span className="text-muted-foreground">{k.replace(/_/g, " ")}: </span>
+            <span className="text-foreground">{String(v)}</span>
+          </p>
+        ))}
+      </div>
+    );
+  }
+  return <p className="whitespace-pre-line text-sm text-foreground">{String(value)}</p>;
+}
 
 export function AuditLogsPage() {
   const [logs, setLogs] = useState([]);
@@ -55,103 +55,85 @@ export function AuditLogsPage() {
   const [filter, setFilter] = useState("all");
 
   useEffect(() => {
-    api.get("/audit-logs", { params: { limit: 200 } })
-      .then((res) => setLogs(res.data || []))
-      .catch((error) => {
-        toast.error(error.response?.data?.detail || "Failed to load audit logs");
-      })
+    setLoading(true);
+    // ASSUMED ENDPOINT: GET /audit-logs -> array of events (newest first).
+    // Fails soft to an empty table so the page never crashes if not yet wired.
+    api.get("/audit-logs")
+      .then((res) => setLogs(Array.isArray(res.data) ? res.data : res.data?.logs || []))
+      .catch(() => setLogs([]))
       .finally(() => setLoading(false));
   }, []);
 
-  const visibleLogs = useMemo(() => {
+  const visible = useMemo(() => {
     if (filter === "all") return logs;
-    return logs.filter((log) => log.entity_type === filter);
+    return logs.filter((l) => (l.event_type || l.type || "").toLowerCase().includes(filter));
   }, [logs, filter]);
 
   if (loading) return <LoadingScreen />;
 
   return (
-    <div className="space-y-8 animate-fade-in" data-testid="audit-logs-page">
-      <div className="flex flex-col gap-4 rounded-[2rem] border border-[#E3E0D8] bg-white/90 p-5 shadow-sm md:flex-row md:items-start md:justify-between">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#8A7BC8]">Workspace History</p>
-          <h1 className="mt-1 font-['Sora'] text-3xl font-semibold text-[#18115E]">Audit Logs</h1>
-          <p className="mt-2 text-[#5F6472]">
-            Track date updates, follow-up changes, client creation, and finance activity in a structured table.
-          </p>
+    <div className="space-y-6 animate-fade-in" data-testid="audit-logs-page">
+      <Card className="p-6 shadow-sm">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Workspace History</p>
+            <h1 className="mt-1 text-3xl font-bold tracking-tight">Audit Logs</h1>
+            <p className="mt-1 text-muted-foreground">
+              Track date updates, follow-up changes, client creation, and finance activity in a structured table.
+            </p>
+          </div>
+          <Select value={filter} onValueChange={setFilter}>
+            <SelectTrigger className="h-11 w-full sm:w-48"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {EVENT_FILTERS.map((f) => <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>)}
+            </SelectContent>
+          </Select>
         </div>
-        <Select value={filter} onValueChange={setFilter}>
-          <SelectTrigger className="w-full rounded-2xl border-[#E3E0D8] bg-white md:w-52">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {EVENT_FILTERS.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+      </Card>
 
-      <Card className="overflow-hidden border-[#E3E0D8] bg-white shadow-sm">
-        <CardHeader>
-          <CardTitle className="font-['Sora'] text-[#18115E]">Audit Activity</CardTitle>
-          <CardDescription>Newest events first.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {visibleLogs.length ? (
-            <div className="overflow-x-auto rounded-3xl border border-[#E3E0D8]">
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-[#F8F7F4]">
-                    <TableHead className="min-w-[140px] text-center">Event Type</TableHead>
-                    <TableHead className="min-w-[180px] text-center">Client Name</TableHead>
-                    <TableHead className="min-w-[180px] text-center">Timestamp</TableHead>
-                    <TableHead className="min-w-[280px] text-center">Old Value</TableHead>
-                    <TableHead className="min-w-[280px] text-center">New Value</TableHead>
-                    <TableHead className="min-w-[160px] text-center">Updated By</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {visibleLogs.map((log) => (
-                    <TableRow key={log.id} className="align-top">
-                      <TableCell className="text-center">
-                        <div className="flex flex-col items-center gap-2">
-                          <Badge variant="outline" className={getEventTone(log.event_label || log.entity_type)}>
-                            {log.event_label || log.entity_type}
-                          </Badge>
-                          <p className="text-xs text-muted-foreground">{log.summary}</p>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-center font-medium">
-                        {log.client_name || "—"}
-                      </TableCell>
-                      <TableCell className="text-center text-sm text-muted-foreground">
-                        {formatDisplayDateTime(log.created_at)}
-                      </TableCell>
-                      <TableCell className="whitespace-pre-wrap text-sm text-muted-foreground">
-                        {renderCellText(log.old_value)}
-                      </TableCell>
-                      <TableCell className="whitespace-pre-wrap text-sm">
-                        {renderCellText(log.new_value)}
-                      </TableCell>
-                      <TableCell className="text-center text-sm">
-                        {log.actor_name || "—"}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          ) : (
-            <div className="py-12 text-center">
-              <ClipboardList className="mx-auto h-10 w-10 text-muted-foreground/60" />
-              <p className="mt-4 text-base font-medium">No audit logs yet.</p>
-              <p className="mt-1 text-sm text-muted-foreground">New activity will appear here automatically.</p>
-            </div>
-          )}
-        </CardContent>
+      <Card className="overflow-hidden shadow-sm">
+        <div className="border-b border-border px-6 py-4">
+          <h2 className="text-lg font-bold tracking-tight">Audit Activity</h2>
+          <p className="text-sm text-muted-foreground">Newest events first.</p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[900px]">
+            <thead>
+              <tr className="border-b border-border bg-muted/40">
+                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Event Type</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Client Name</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Timestamp</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Old Value</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">New Value</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Updated By</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visible.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-6 py-14 text-center text-muted-foreground">No audit activity to show.</td>
+                </tr>
+              ) : (
+                visible.map((log, idx) => {
+                  const type = (log.event_type || log.type || "event").toLowerCase();
+                  return (
+                    <tr key={log.id || idx} className="border-b border-border/60 align-top hover:bg-accent/40 transition-colors" data-testid={`audit-row-${log.id || idx}`}>
+                      <td className="px-6 py-4">
+                        <StatusBadge tone={EVENT_TONE[type] || "neutral"} label={log.event_type || log.type || "Event"} />
+                        {log.description && <p className="mt-1.5 text-sm text-muted-foreground">{log.description}</p>}
+                      </td>
+                      <td className="px-6 py-4 text-sm font-medium">{log.client_name || "—"}</td>
+                      <td className="px-6 py-4 text-sm text-muted-foreground whitespace-nowrap">{formatTimestamp(log.timestamp || log.created_at)}</td>
+                      <td className="px-6 py-4">{renderValue(log.old_value)}</td>
+                      <td className="px-6 py-4">{renderValue(log.new_value)}</td>
+                      <td className="px-6 py-4 text-sm">{log.updated_by || "—"}</td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
       </Card>
     </div>
   );

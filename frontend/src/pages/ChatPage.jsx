@@ -69,11 +69,11 @@ export function ChatPage() {
   const totalUnread = conversations.reduce((sum, c) => sum + (c.unread_count || 0), 0);
 
   return (
-    <div className="flex h-[calc(100vh-8rem)] gap-6 animate-fade-in" data-testid="chat-page">
-      <Card className="flex w-80 shrink-0 flex-col overflow-hidden border-[#E3E0D8] bg-white shadow-sm">
+    <div className="h-[calc(100vh-8rem)] flex gap-6 animate-fade-in" data-testid="chat-page">
+      <Card className="w-80 shrink-0 border-border bg-card flex flex-col">
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
-            <CardTitle className="font-['Sora'] text-lg text-[#18115E]">Messages</CardTitle>
+            <CardTitle className="text-lg">Messages</CardTitle>
             {totalUnread > 0 && (
               <Badge className="bg-primary text-primary-foreground">{totalUnread}</Badge>
             )}
@@ -91,10 +91,10 @@ export function ChatPage() {
                   key={conv.id}
                   onClick={() => loadMessages(conv.client_id)}
                   data-testid={`chat-conv-${conv.client_id}`}
-                  className={`flex w-full items-center gap-3 rounded-2xl p-3 text-left transition-colors ${
+                  className={`w-full flex items-center gap-3 p-3 rounded-lg transition-colors text-left ${
                     selectedConv?.id === conv.id
-                      ? "border border-primary/20 bg-primary/10"
-                      : "hover:bg-[#F8F7F4]"
+                      ? "bg-primary/10 border border-primary/20"
+                      : "hover:bg-muted/50"
                   }`}
                 >
                   <Avatar className="w-10 h-10 shrink-0">
@@ -104,7 +104,7 @@ export function ChatPage() {
                   </Avatar>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between">
-                      <p className="truncate text-sm font-semibold text-[#18115E]">{conv.client_name}</p>
+                      <p className="font-medium text-sm truncate">{conv.client_name}</p>
                       {conv.unread_count > 0 && (
                         <Badge variant="default" className="ml-2 h-5 w-5 p-0 flex items-center justify-center text-xs">
                           {conv.unread_count}
@@ -125,36 +125,36 @@ export function ChatPage() {
         </ScrollArea>
       </Card>
 
-      <Card className="flex flex-1 flex-col overflow-hidden border-[#E3E0D8] bg-white shadow-sm">
+      <Card className="flex-1 border-border bg-card flex flex-col">
         {selectedConv ? (
           <>
-            <div className="flex items-center gap-3 border-b border-[#E3E0D8] bg-[#F8F7F4] p-4">
+            <div className="p-4 border-b border-border/50 flex items-center gap-3">
               <Avatar className="w-10 h-10">
                 <AvatarFallback className="bg-primary/20 text-primary">
                   {selectedConv.client_name?.charAt(0)}
                 </AvatarFallback>
               </Avatar>
               <div>
-                <p className="font-['Sora'] font-semibold text-[#18115E]">{selectedConv.client_name}</p>
+                <p className="font-medium">{selectedConv.client_name}</p>
                 <p className="text-xs text-muted-foreground">Client</p>
               </div>
               <div className="ml-auto">
                 <Link to={`/clients/${selectedConv.client_id}`}>
-                  <Button variant="outline" size="sm" className="rounded-2xl bg-white">
+                  <Button variant="outline" size="sm">
                     <Eye className="w-4 h-4 mr-1" /> View Profile
                   </Button>
                 </Link>
               </div>
             </div>
 
-            <ScrollArea className="flex-1 bg-[#FBFAF7] p-4">
+            <ScrollArea className="flex-1 p-4">
               <div className="space-y-4">
                 {messages.map((msg) => (
                   <div key={msg.id} className={`flex ${msg.sender_type === "coach" ? "justify-end" : "justify-start"}`}>
                     <div className={`max-w-[70%] rounded-2xl px-4 py-2 ${
                       msg.sender_type === "coach"
                         ? "bg-primary text-primary-foreground rounded-br-md"
-                        : "bg-white rounded-bl-md border border-[#E3E0D8]"
+                        : "bg-muted rounded-bl-md"
                     }`}
                     >
                       <p className="text-sm">{msg.content}</p>
@@ -168,15 +168,15 @@ export function ChatPage() {
               </div>
             </ScrollArea>
 
-            <form onSubmit={sendMessage} className="flex gap-2 border-t border-[#E3E0D8] bg-white p-4">
+            <form onSubmit={sendMessage} className="p-4 border-t border-border/50 flex gap-2">
               <Input
                 value={newMessage}
                 onChange={(e) => setNewMessage(e.target.value)}
                 placeholder="Type a message..."
                 data-testid="chat-message-input"
-                className="flex-1 rounded-2xl border-[#E3E0D8] bg-white"
+                className="flex-1"
               />
-              <Button type="submit" data-testid="send-message-btn" disabled={sending || !newMessage.trim()} className="rounded-2xl bg-primary text-primary-foreground">
+              <Button type="submit" data-testid="send-message-btn" disabled={sending || !newMessage.trim()} className="bg-primary text-primary-foreground">
                 <Send className="w-4 h-4" />
               </Button>
             </form>

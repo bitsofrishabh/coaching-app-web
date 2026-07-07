@@ -1,39 +1,16 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
-import { Users, DollarSign, CalendarCheck, TrendingUp, TrendingDown, ChevronRight, Calendar, UserPlus } from "lucide-react";
+import { Users, DollarSign, CalendarCheck, ChevronRight, Calendar, UserPlus } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { StatCard } from "@/components/ui/stat-card";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { api } from "@/lib/api";
 import { LoadingScreen } from "@/components/app/LoadingScreen";
 import { ResponsiveContainer, AreaChart, Area, CartesianGrid, XAxis, YAxis, Tooltip } from "recharts";
-
-function StatCard({ title, value, change, icon: Icon, trend }) {
-  return (
-    <Card className="overflow-hidden border-[#E3E0D8] bg-white shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg">
-      <CardContent className="p-6">
-        <div className="flex items-start justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#8A7BC8]">{title}</p>
-            <p className="mt-2 font-['Sora'] text-3xl font-semibold text-[#18115E]">{value}</p>
-            {change !== undefined && (
-              <div className={`flex items-center gap-1 mt-2 text-sm ${trend === "up" ? "text-violet-500" : trend === "down" ? "text-red-500" : "text-muted-foreground"}`}>
-                {trend === "up" ? <TrendingUp className="w-4 h-4" /> : trend === "down" ? <TrendingDown className="w-4 h-4" /> : null}
-                <span>{change}</span>
-              </div>
-            )}
-          </div>
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#F7F4FF]">
-            <Icon className="w-6 h-6 text-primary" />
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
 
 function formatDisplayDate(value) {
   if (!value) return "—";
@@ -66,23 +43,23 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-8 animate-fade-in" data-testid="dashboard-page">
-      <div className="overflow-hidden rounded-[2rem] border border-[#E3E0D8] bg-white/90 p-5 shadow-sm">
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#8A7BC8]">Overview</p>
-        <h1 className="mt-1 font-['Sora'] text-3xl font-semibold text-[#18115E]">Dashboard</h1>
-        <p className="mt-2 text-[#5F6472]">Welcome back! Here's your practice overview.</p>
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Overview</p>
+        <h1 className="mt-1 text-3xl font-bold tracking-tight">Dashboard</h1>
+        <p className="mt-1 text-muted-foreground">Welcome back. Here's your practice overview.</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <StatCard title="Total Clients" value={stats?.total_clients || 0} change={`${stats?.active_clients || 0} active`} icon={Users} />
-        <StatCard title="Monthly Revenue" value={`₹${(stats?.monthly_revenue || 0).toLocaleString()}`} change="+12% from last month" trend="up" icon={DollarSign} />
-        <StatCard title="New Clients This Month" value={stats?.new_clients_this_month || 0} change={monthLabel} icon={UserPlus} />
-        <StatCard title="Pending Follow-ups" value={stats?.pending_follow_ups || 0} change="Scheduled and overdue" icon={CalendarCheck} />
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <StatCard label="Total Clients" value={stats?.total_clients || 0} sub={`${stats?.active_clients || 0} active`} icon={<Users className="h-[18px] w-[18px]" />} tone="primary" />
+        <StatCard label="Monthly Revenue" value={`₹${(stats?.monthly_revenue || 0).toLocaleString()}`} sub="+12% from last month" subTone="success" icon={<DollarSign className="h-[18px] w-[18px]" />} tone="success" />
+        <StatCard label="New Clients This Month" value={stats?.new_clients_this_month || 0} sub={monthLabel} icon={<UserPlus className="h-[18px] w-[18px]" />} tone="info" />
+        <StatCard label="Pending Follow-ups" value={stats?.pending_follow_ups || 0} sub="Scheduled and overdue" icon={<CalendarCheck className="h-[18px] w-[18px]" />} tone="warning" />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <Card className="lg:col-span-2 overflow-hidden border-[#E3E0D8] bg-white shadow-sm">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <Card className="shadow-sm lg:col-span-2">
           <CardHeader>
-            <CardTitle className="font-['Sora'] text-[#18115E]">Monthly Overview</CardTitle>
+            <CardTitle>Monthly Overview</CardTitle>
             <CardDescription>Day-wise new client enrollments in {monthLabel}</CardDescription>
           </CardHeader>
           <CardContent>
@@ -91,59 +68,58 @@ export function DashboardPage() {
                 <AreaChart data={chartData}>
                   <defs>
                     <linearGradient id="colorNewClients" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#84cc16" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#84cc16" stopOpacity={0} />
+                      <stop offset="5%" stopColor="#2E8156" stopOpacity={0.28} />
+                      <stop offset="95%" stopColor="#2E8156" stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid stroke="#27272a" strokeDasharray="3 3" />
-                  <XAxis dataKey="label" stroke="#a1a1aa" fontSize={12} interval={Math.max(0, Math.floor(chartData.length / 8))} />
-                  <YAxis stroke="#a1a1aa" fontSize={12} />
+                  <CartesianGrid stroke="#E7E7E1" strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="label" stroke="#A6A69C" fontSize={12} tickLine={false} axisLine={false} interval={Math.max(0, Math.floor(chartData.length / 8))} />
+                  <YAxis stroke="#A6A69C" fontSize={12} tickLine={false} axisLine={false} />
                   <Tooltip
                     formatter={(value) => [`${value} client${value === 1 ? "" : "s"}`, "New Clients"]}
                     labelFormatter={(label) => `${monthLabel} ${label}`}
                     contentStyle={{
-                      backgroundColor: "#09090b",
-                      borderColor: "#27272a",
-                      borderRadius: "8px",
-                      color: "#fafafa"
+                      backgroundColor: "#FFFFFF",
+                      borderColor: "#DEDED7",
+                      borderRadius: "10px",
+                      color: "#16201A",
+                      boxShadow: "0 8px 24px rgba(22,32,26,.10)"
                     }}
                   />
-                  <Area type="monotone" dataKey="new_clients" stroke="#84cc16" strokeWidth={2} fillOpacity={1} fill="url(#colorNewClients)" />
+                  <Area type="monotone" dataKey="new_clients" stroke="#1F6B45" strokeWidth={2} fillOpacity={1} fill="url(#colorNewClients)" />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="overflow-hidden border-[#E3E0D8] bg-white shadow-sm">
+        <Card className="shadow-sm">
           <CardHeader>
-            <CardTitle className="font-['Sora'] text-[#18115E]">New Clients in {monthLabel}</CardTitle>
+            <CardTitle>New Clients in {monthLabel}</CardTitle>
             <CardDescription>Clients enrolled during the current month</CardDescription>
           </CardHeader>
           <CardContent>
             <ScrollArea className="h-[300px]">
-              <div className="space-y-4">
+              <div className="space-y-2">
                 {recentActivity?.recent_clients?.length ? (
                   recentActivity.recent_clients.map((client) => (
-                    <div key={client.id} className="flex items-center gap-3 rounded-2xl border border-transparent p-3 transition-colors hover:border-[#E3E0D8] hover:bg-[#F8F7F4]">
-                      <Avatar className="w-10 h-10">
-                        <AvatarFallback className="bg-primary/20 text-primary text-sm font-semibold">
+                    <div key={client.id} className="flex items-center gap-3 rounded-lg p-3 transition-colors hover:bg-accent">
+                      <Avatar className="h-10 w-10">
+                        <AvatarFallback className="bg-accent text-sm font-semibold text-primary">
                           {client.name?.charAt(0)}
                         </AvatarFallback>
                       </Avatar>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">{client.name}</p>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">{client.name}</p>
                         <p className="text-xs text-muted-foreground">
                           Added {formatDisplayDate(client.created_at)}
                         </p>
                       </div>
-                      <Badge variant={client.status === "active" ? "default" : "secondary"} className="shrink-0">
-                        {client.status}
-                      </Badge>
+                      <StatusBadge status={client.status} className="shrink-0" />
                     </div>
                   ))
                 ) : (
-                  <p className="text-sm text-muted-foreground text-center py-8">No new clients added in {monthLabel} yet</p>
+                  <p className="py-8 text-center text-sm text-muted-foreground">No new clients added in {monthLabel} yet</p>
                 )}
               </div>
             </ScrollArea>
@@ -151,16 +127,16 @@ export function DashboardPage() {
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        <Card className="overflow-hidden border-[#E3E0D8] bg-white shadow-sm">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+        <Card className="shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between">
             <div>
-              <CardTitle className="font-['Sora'] text-[#18115E]">Upcoming Follow-ups</CardTitle>
+              <CardTitle>Upcoming Follow-ups</CardTitle>
               <CardDescription>Scheduled check-ins with your clients</CardDescription>
             </div>
             <Link to="/follow-ups">
-              <Button variant="ghost" size="sm" className="text-primary">
-                View All <ChevronRight className="w-4 h-4 ml-1" />
+              <Button variant="ghost" size="sm" className="text-primary hover:text-primary">
+                View all <ChevronRight className="ml-1 h-4 w-4" />
               </Button>
             </Link>
           </CardHeader>
@@ -168,53 +144,55 @@ export function DashboardPage() {
             {recentActivity?.upcoming_follow_ups?.length ? (
               <div className="space-y-3">
                 {recentActivity.upcoming_follow_ups.map((followUp) => (
-                  <div key={followUp.id} className="flex items-center gap-4 rounded-2xl border border-[#E3E0D8] p-3 transition-colors hover:border-primary/30">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/10">
-                      <Calendar className="w-5 h-5 text-primary" />
+                  <div key={followUp.id} className="flex items-center gap-4 rounded-lg border border-border p-3 transition-colors hover:border-primary/40 hover:bg-accent/50">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent">
+                      <Calendar className="h-5 w-5 text-primary" />
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{followUp.client_name}</p>
-                      <p className="text-xs text-muted-foreground capitalize">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">{followUp.client_name}</p>
+                      <p className="text-xs capitalize text-muted-foreground">
                         {followUp.type} • {formatDisplayDate(followUp.scheduled_date)}
                       </p>
                     </div>
-                    <Badge variant="outline">{followUp.status}</Badge>
+                    <StatusBadge status={followUp.status} className="shrink-0" />
                   </div>
                 ))}
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground text-center py-8">No upcoming follow-ups</p>
+              <p className="py-8 text-center text-sm text-muted-foreground">No upcoming follow-ups</p>
             )}
           </CardContent>
         </Card>
 
-        <Card className="overflow-hidden border-[#E3E0D8] bg-white shadow-sm">
+        <Card className="shadow-sm">
           <CardHeader>
-            <CardTitle className="font-['Sora'] text-[#18115E]">Diet Plans Expiring Soon</CardTitle>
+            <CardTitle>Diet Plans Expiring Soon</CardTitle>
             <CardDescription>Plans ending in the next 5 days</CardDescription>
           </CardHeader>
           <CardContent>
             {recentActivity?.expiring_diet_plans?.length ? (
               <div className="space-y-3">
                 {recentActivity.expiring_diet_plans.map((plan) => (
-                  <div key={plan.id} className="flex items-center gap-4 rounded-2xl border border-[#E3E0D8] p-3 transition-colors hover:border-primary/30">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-amber-500/10">
-                      <Calendar className="w-5 h-5 text-amber-500" />
+                  <div key={plan.id} className="flex items-center gap-4 rounded-lg border border-border p-3 transition-colors hover:border-warning/40 hover:bg-accent/50">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-warning-bg">
+                      <Calendar className="h-5 w-5 text-warning" />
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{plan.client_name}</p>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">{plan.client_name}</p>
                       <p className="text-xs text-muted-foreground">
                         Ends on {formatDisplayDate(plan.diet_end_date)}
                       </p>
                     </div>
-                    <Badge variant="outline" className="shrink-0">
-                      {plan.days_until_expiry === 0 ? "Today" : `${plan.days_until_expiry}d left`}
-                    </Badge>
+                    <StatusBadge
+                      tone={plan.days_until_expiry === 0 ? "danger" : "warning"}
+                      label={plan.days_until_expiry === 0 ? "Today" : `${plan.days_until_expiry}d left`}
+                      className="shrink-0"
+                    />
                   </div>
                 ))}
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground text-center py-8">No diet plans expiring in the next 5 days</p>
+              <p className="py-8 text-center text-sm text-muted-foreground">No diet plans expiring in the next 5 days</p>
             )}
           </CardContent>
         </Card>

@@ -1,34 +1,17 @@
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { toast } from "sonner";
-import { Plus, Search, Upload, Sparkles, ArrowDown, Loader2, Download } from "lucide-react";
+import { Plus, Search, Edit, Trash2, Upload, Sparkles, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Input } from "@/components/ui/input";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
-import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { ClientTrackerGrid } from "@/components/clients/ClientTrackerGrid";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { api } from "@/lib/api";
-import { hasAnyRole, useAuth } from "@/context/auth-context";
 
 const CLIENT_FORM_DEFAULTS = {
   name: "",
@@ -60,16 +43,10 @@ const CLIENT_FORM_DEFAULTS = {
   notes: "",
   recent_comment: "",
   last_follow_up_date: "",
-  upcoming_follow_up_date: "",
-  allergies: "",
-  avoid_foods: "",
-  preferred_foods: "",
-  disliked_foods: "",
-  medical_food_restrictions: ""
+  upcoming_follow_up_date: ""
 };
 
-const DIET_DURATION_OPTIONS = ["7 Days", "10 Days", "14 Days"];
-const PROGRAM_DURATION_OPTIONS = ["1 Month", "2 Months", "3 Months", "4 Months"];
+const DURATION_OPTIONS = ["2 Weeks", "4 Weeks", "6 Weeks", "8 Weeks", "12 Weeks", "16 Weeks"];
 const DIET_PREFERENCE_OPTIONS = ["Vegetarian", "Non Vegetarian", "Eggetarian", "Vegan", "Jain"];
 const CLIENT_SORT_OPTIONS = [
   { value: "client-asc", label: "Client (A-Z)" },
@@ -79,108 +56,33 @@ const CLIENT_SORT_OPTIONS = [
 ];
 
 const CLIENT_STATUS_OPTIONS = [
-  { value: "yet-to-start", label: "Yet To Start", tone: "gray" },
-  { value: "active", label: "In Progress", tone: "blue" },
-  { value: "on-hold", label: "Paused", tone: "amber" },
-  { value: "not-responding", label: "Not Responding", tone: "red" },
-  { value: "inactive", label: "Stopped", tone: "gray" },
-  { value: "completed", label: "Program Done", tone: "green" },
-  { value: "out-of-town", label: "Out of Town", tone: "violet" }
-];
-
-const CLIENT_AI_PRESET_PROMPTS = [
-  "Who lost 1 kg in last 10 days?",
-  "Whose diet expires in 3 days?",
-  "Whose program ends in 7 days?",
-  "Which clients need follow-up today?",
-  "Find allergy/diet risk clients"
-];
-
-const TRACKER_COLUMN_OPTIONS = [
-  { key: "diet_start_date", label: "Diet Start" },
-  { key: "diet_end_date", label: "Diet End" },
-  { key: "program_start_date", label: "Program Start" },
-  { key: "program_end_date", label: "Program End" },
-  { key: "last_follow_up_date", label: "Last Follow-up" },
-  { key: "upcoming_follow_up_date", label: "Upcoming Follow-up" }
-];
-
-const DEFAULT_HIDDEN_TRACKER_COLUMNS = new Set(["program_start_date", "program_end_date"]);
-const DEFAULT_VISIBLE_TRACKER_COLUMNS = TRACKER_COLUMN_OPTIONS
-  .filter((option) => !DEFAULT_HIDDEN_TRACKER_COLUMNS.has(option.key))
-  .map((option) => option.key);
-
-const CLIENT_EXPORT_COLUMNS = [
-  { header: "Name", value: (client) => client.name },
-  { header: "Status", value: (client) => getClientStatusMeta(normalizeClientStatus(client.status)).label },
-  { header: "Age", value: (client) => client.age },
-  { header: "Gender", value: (client) => client.gender },
-  { header: "Phone", value: (client) => client.phone },
-  { header: "Email", value: (client) => client.email },
-  { header: "Location", value: (client) => client.location },
-  { header: "Profession", value: (client) => client.profession },
-  { header: "Diet Preference", value: (client) => client.diet_preference },
-  { header: "Height Cm", value: (client) => client.height_cm },
-  { header: "Start Weight Kg", value: (client) => client.initial_weight_kg },
-  { header: "Current Weight Kg", value: (client) => client.current_weight_kg },
-  { header: "Goal Weight Kg", value: (client) => client.goal_weight_kg },
-  { header: "Recent Comment", value: (client) => client.recent_comment },
-  { header: "Diet Start", value: (client) => client.diet_start_date },
-  { header: "Diet End", value: (client) => client.diet_end_date },
-  { header: "Program Start", value: (client) => client.program_start_date },
-  { header: "Program End", value: (client) => client.program_end_date },
-  { header: "Last Follow-up", value: (client) => client.last_follow_up_date },
-  { header: "Upcoming Follow-up", value: (client) => client.upcoming_follow_up_date },
-  { header: "Primary Coach", value: (client) => client.primary_coach },
-  { header: "Allergies", value: (client) => formatListForForm(client.allergies) },
-  { header: "Avoid Foods", value: (client) => formatListForForm(client.avoid_foods) },
-  { header: "Preferred Foods", value: (client) => formatListForForm(client.preferred_foods) },
-  { header: "Disliked Foods", value: (client) => formatListForForm(client.disliked_foods) },
-  { header: "Medical Food Restrictions", value: (client) => formatListForForm(client.medical_food_restrictions) },
-  { header: "Health Issues", value: (client) => client.health_issues },
-  { header: "About Client", value: (client) => client.about_client },
-  { header: "Sleep Quality", value: (client) => client.sleep_quality },
-  { header: "Sleep Hours", value: (client) => client.sleep_hours },
-  { header: "Morning Freshness", value: (client) => client.morning_freshness },
-  { header: "Notes", value: (client) => client.notes },
-  { header: "Created At", value: (client) => client.created_at },
+  { value: "active", label: "Active" },
+  { value: "on-hold", label: "Paused" },
+  { value: "inactive", label: "Stopped" },
+  { value: "completed", label: "Program Done" },
+  { value: "out-of-town", label: "Out of Town" }
 ];
 
 const CLIENT_STATUS_META = {
-  "yet-to-start": {
-    label: "Yet To Start",
-    dotClassName: "bg-sky-500 shadow-[0_0_0_4px_rgba(14,165,233,0.16)]",
-    badgeClassName: "text-sky-600 dark:text-sky-300"
-  },
   active: {
-    label: "In Progress",
-    dotClassName: "bg-violet-500 shadow-[0_0_0_4px_rgba(139,92,246,0.16)]",
-    badgeClassName: "text-violet-600 dark:text-violet-300"
+    label: "Active",
+    dotClassName: "bg-success shadow-[0_0_0_4px_rgba(21,128,61,0.16)]"
   },
   "on-hold": {
     label: "Paused",
-    dotClassName: "bg-amber-400 shadow-[0_0_0_4px_rgba(251,191,36,0.16)]",
-    badgeClassName: "text-amber-600 dark:text-amber-300"
-  },
-  "not-responding": {
-    label: "Not Responding",
-    dotClassName: "bg-fuchsia-500 shadow-[0_0_0_4px_rgba(217,70,239,0.16)]",
-    badgeClassName: "text-fuchsia-600 dark:text-fuchsia-300"
+    dotClassName: "bg-warning shadow-[0_0_0_4px_rgba(180,83,9,0.16)]"
   },
   inactive: {
     label: "Stopped",
-    dotClassName: "bg-red-500 shadow-[0_0_0_4px_rgba(239,68,68,0.14)]",
-    badgeClassName: "text-red-600 dark:text-red-300"
+    dotClassName: "bg-danger shadow-[0_0_0_4px_rgba(185,28,28,0.14)]"
   },
   completed: {
     label: "Program Done",
-    dotClassName: "bg-violet-500 shadow-[0_0_0_4px_rgba(139,92,246,0.16)]",
-    badgeClassName: "text-sky-600 dark:text-sky-300"
+    dotClassName: "bg-primary shadow-[0_0_0_4px_rgba(31,107,69,0.16)]"
   },
   "out-of-town": {
     label: "Out of Town",
-    dotClassName: "bg-orange-500 shadow-[0_0_0_4px_rgba(249,115,22,0.16)]",
-    badgeClassName: "text-orange-600 dark:text-orange-300"
+    dotClassName: "bg-muted-foreground shadow-[0_0_0_4px_rgba(130,130,122,0.16)]"
   }
 };
 
@@ -188,18 +90,6 @@ const textOrNull = (value) => {
   const text = (value ?? "").toString().trim();
   return text || null;
 };
-
-const parseListField = (value) => {
-  if (Array.isArray(value)) {
-    return value.map((item) => String(item || "").trim()).filter(Boolean);
-  }
-  return String(value || "")
-    .split(/[,;\n|]+/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-};
-
-const formatListForForm = (value) => parseListField(value).join(", ");
 
 const parseNullableInt = (value) => {
   const parsed = parseInt((value ?? "").toString().trim(), 10);
@@ -218,97 +108,6 @@ const normalizeToIsoDate = (value) => {
   const parsed = new Date(raw);
   if (Number.isNaN(parsed.getTime())) return null;
   return parsed.toISOString().slice(0, 10);
-};
-
-const parseIsoDateToLocal = (value) => {
-  const raw = (value ?? "").toString().trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
-  const [year, month, day] = raw.split("-").map((part) => parseInt(part, 10));
-  if ([year, month, day].some((part) => Number.isNaN(part))) return null;
-  return new Date(year, month - 1, day);
-};
-
-const formatLocalDateToIso = (value) => {
-  if (!(value instanceof Date) || Number.isNaN(value.getTime())) return "";
-  const year = value.getFullYear();
-  const month = String(value.getMonth() + 1).padStart(2, "0");
-  const day = String(value.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-};
-
-const addDaysToIsoDate = (isoDate, daysToAdd) => {
-  const parsed = parseIsoDateToLocal(isoDate);
-  if (!parsed) return "";
-  const next = new Date(parsed);
-  next.setDate(next.getDate() + daysToAdd);
-  return formatLocalDateToIso(next);
-};
-
-const addMonthsToIsoDate = (isoDate, monthsToAdd) => {
-  const parsed = parseIsoDateToLocal(isoDate);
-  if (!parsed) return "";
-  const next = new Date(parsed);
-  next.setMonth(next.getMonth() + monthsToAdd);
-  next.setDate(next.getDate() - 1);
-  return formatLocalDateToIso(next);
-};
-
-const getDietDurationDays = (duration) => {
-  const normalized = String(duration || "").trim().toLowerCase();
-  if (normalized === "7 days") return 7;
-  if (normalized === "10 days") return 10;
-  if (normalized === "14 days") return 14;
-  return null;
-};
-
-const getProgramDurationMonths = (duration) => {
-  const normalized = String(duration || "").trim().toLowerCase();
-  if (normalized === "1 month") return 1;
-  if (normalized === "2 months") return 2;
-  if (normalized === "3 months") return 3;
-  if (normalized === "4 months") return 4;
-  return null;
-};
-
-const getDateUrgencyMeta = (value) => {
-  const targetDate = parseIsoDateToLocal(value);
-  if (!targetDate) {
-    return {
-      className: "",
-      title: ""
-    };
-  }
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  targetDate.setHours(0, 0, 0, 0);
-  const diffInDays = Math.round((targetDate.getTime() - today.getTime()) / 86400000);
-
-  if (diffInDays < 0) {
-    return {
-      className: "text-red-500",
-      title: `${Math.abs(diffInDays)} day${Math.abs(diffInDays) === 1 ? "" : "s"} overdue`
-    };
-  }
-
-  if (diffInDays >= 0 && diffInDays <= 2) {
-    return {
-      className: "text-red-500",
-      title: diffInDays === 0 ? "Due today" : `Due in ${diffInDays} day${diffInDays === 1 ? "" : "s"}`
-    };
-  }
-
-  if (diffInDays > 2) {
-    return {
-      className: "text-green-500",
-      title: `Due in ${diffInDays} day${diffInDays === 1 ? "" : "s"}`
-    };
-  }
-
-  return {
-    className: "",
-    title: ""
-  };
 };
 
 const parseHeightToCm = (value) => {
@@ -333,41 +132,6 @@ const parseHeightToCm = (value) => {
   return parseNullableFloat(raw);
 };
 
-const normalizeDietPreference = (value) => {
-  const raw = (value ?? "").toString().trim();
-  const normalized = raw.toLowerCase().replace(/[^a-z]/g, "");
-  if (!normalized) return "";
-  if (/nonveg|nonvegetarian|nveg/.test(normalized)) return "Non Vegetarian";
-  if (/eggetarian|eggeritarian|eggitarian/.test(normalized)) return "Eggetarian";
-  if (/vegan/.test(normalized)) return "Vegan";
-  if (/jain/.test(normalized)) return "Jain";
-  if (/veg|vegetarian|vegeterian/.test(normalized)) return "Vegetarian";
-  return raw;
-};
-
-const normalizeGender = (value) => {
-  const raw = (value ?? "").toString().trim();
-  const normalized = raw.toLowerCase().replace(/[^a-z]/g, "");
-  if (!normalized) return "";
-  if (["male", "man", "m", "boy"].includes(normalized)) return "male";
-  if (["female", "woman", "f", "girl"].includes(normalized)) return "female";
-  if (["other", "nonbinary", "nonbin", "nb"].includes(normalized)) return "other";
-  return "";
-};
-
-const inferGenderFromCsv = (row) => {
-  const directValue = readCsvValueByAliases(row, ["Gender", "Sex", "Client Gender"]);
-  const normalizedDirectValue = normalizeGender(directValue);
-  if (normalizedDirectValue) return normalizedDirectValue;
-
-  const monthlyCycle = readCsvValueByAliases(row, ["How are your monthly cycle?"]);
-  const menopause = readCsvValueByAliases(row, ["Are you nearing or in middle of Menopause stage?"]);
-  const cycleSymptoms = readCsvValueByAliases(row, ["During cycles, What do you experience?"]);
-  if (monthlyCycle || menopause || cycleSymptoms) return "female";
-
-  return "";
-};
-
 const buildClientPayload = (source) => ({
   name: (source.name || "").trim(),
   email: textOrNull(source.email),
@@ -375,8 +139,8 @@ const buildClientPayload = (source) => ({
   location: textOrNull(source.location),
   profession: textOrNull(source.profession),
   age: parseNullableInt(source.age),
-  gender: textOrNull(normalizeGender(source.gender) || source.gender),
-  diet_preference: textOrNull(normalizeDietPreference(source.diet_preference) || source.diet_preference),
+  gender: textOrNull(source.gender),
+  diet_preference: textOrNull(source.diet_preference),
   primary_coach: textOrNull(source.primary_coach),
   height_cm: parseNullableFloat(source.height_cm),
   initial_weight_kg: parseNullableFloat(source.initial_weight_kg),
@@ -396,11 +160,6 @@ const buildClientPayload = (source) => ({
   sleep_quality: textOrNull(source.sleep_quality),
   sleep_hours: textOrNull(source.sleep_hours),
   morning_freshness: textOrNull(source.morning_freshness),
-  allergies: parseListField(source.allergies),
-  avoid_foods: parseListField(source.avoid_foods),
-  preferred_foods: parseListField(source.preferred_foods),
-  disliked_foods: parseListField(source.disliked_foods),
-  medical_food_restrictions: parseListField(source.medical_food_restrictions),
   notes: textOrNull(source.notes)
 });
 
@@ -413,11 +172,6 @@ const clientPayloadToFormData = (source = {}) => ({
   current_weight_kg: source.current_weight_kg?.toString() || "",
   goal_weight_kg: source.goal_weight_kg?.toString() || "",
   pause_days: source.pause_days?.toString() || "",
-  allergies: formatListForForm(source.allergies),
-  avoid_foods: formatListForForm(source.avoid_foods),
-  preferred_foods: formatListForForm(source.preferred_foods),
-  disliked_foods: formatListForForm(source.disliked_foods),
-  medical_food_restrictions: formatListForForm(source.medical_food_restrictions),
 });
 
 const parseCsvRows = (csvText) => {
@@ -487,8 +241,8 @@ const readCsvValue = (row, header) => {
 const pickDietFromCsv = (row) => {
   const keys = Object.keys(row).filter((key) => key === "Are you?" || key.startsWith("Are you?__") || normalizeHeaderKey(key) === "dietpreference");
   const values = keys.map((key) => row[key]).filter(Boolean);
-  const matchedValue = values.find((item) => normalizeDietPreference(item));
-  return normalizeDietPreference(matchedValue || values[0] || "");
+  const vegValue = values.find((item) => /veg|vegetarian|jain|vegan|egg/i.test(item));
+  return vegValue || values[0] || "";
 };
 
 const mapCsvRowToClientPayload = (row) => {
@@ -520,7 +274,7 @@ const mapCsvRowToClientPayload = (row) => {
     location: readCsvValueByAliases(row, ["Location", "City", "Address"]),
     profession: readCsvValueByAliases(row, ["Profession", "Occupation"]),
     age: readCsvValueByAliases(row, ["Age"]),
-    gender: inferGenderFromCsv(row),
+    gender: readCsvValueByAliases(row, ["Gender", "Sex"]),
     email: readCsvValueByAliases(row, ["Email", "Email Address"]),
     height_cm: parseHeightToCm(readCsvValueByAliases(row, ["Height", "Height (cm)", "Height Cm"])),
     initial_weight_kg: readCsvValueByAliases(row, ["Start Weight", "Initial Weight", "Weight"]),
@@ -530,11 +284,6 @@ const mapCsvRowToClientPayload = (row) => {
     health_issues: healthConcern,
     diet_preference: pickDietFromCsv(row),
     primary_coach: readCsvValueByAliases(row, ["Primary Coach", "Coach", "Task Owner"]),
-    allergies: readCsvValueByAliases(row, ["Allergies", "Allergy", "Food Allergies", "Allergic Foods", "Any food allergy?"]),
-    avoid_foods: readCsvValueByAliases(row, ["Avoid Foods", "Foods To Avoid", "Food To Avoid", "Avoid Food", "Restricted Foods"]),
-    preferred_foods: readCsvValueByAliases(row, ["Preferred Foods", "Food Preferences", "Favourite Foods", "Favorite Foods", "Likes"]),
-    disliked_foods: readCsvValueByAliases(row, ["Disliked Foods", "Foods Disliked", "Dislikes"]),
-    medical_food_restrictions: readCsvValueByAliases(row, ["Medical Food Restrictions", "Food Restrictions", "Medical Restrictions", "Foods Not Allowed"]),
     status: mapNotionStatus(readCsvValueByAliases(row, ["Status"])),
     diet_start_date: readCsvValueByAliases(row, ["Diet Start", "Diet Start Date"]),
     diet_end_date: readCsvValueByAliases(row, ["Diet Expire", "Diet End", "Diet End Date"]),
@@ -578,70 +327,16 @@ const readCsvValueByAliases = (row, aliases) => {
 };
 
 const mapNotionStatus = (value) => {
-  const raw = (value || "").toLowerCase().trim();
-  const normalized = raw.replace(/[^a-z0-9]/g, "");
-  if (/(yettostart|notstarted|upcoming)/.test(normalized)) return "yet-to-start";
-  if (/(outoftown|travel|travelling|traveling|vacation)/.test(normalized)) return "out-of-town";
-  if (/(programdone|done|complete|completed|closed)/.test(normalized)) return "completed";
-  if (/(notresponding|noresponse|unresponsive|unreachable)/.test(normalized)) return "not-responding";
-  if (/(onhold|hold|paused|pause)/.test(normalized)) return "on-hold";
-  if (/(inactive|drop|dropped|lost|stopped|stop)/.test(normalized)) return "inactive";
-  if (/(active|ongoing|running|inprogress)/.test(normalized)) return "active";
+  const raw = (value || "").toLowerCase();
+  if (/(outoftown|out of town|travel|travelling|traveling|vacation)/.test(raw)) return "out-of-town";
+  if (/(programdone|done|complete|completed|closed)/.test(raw)) return "completed";
+  if (/(onhold|hold|paused|pause)/.test(raw)) return "on-hold";
+  if (/(inactive|drop|dropped|lost)/.test(raw)) return "inactive";
+  if (/(active|ongoing|running|inprogress)/.test(raw)) return "active";
   return "active";
 };
 
-const normalizeClientStatus = (value) => mapNotionStatus(value || "active");
 const getClientStatusMeta = (status) => CLIENT_STATUS_META[status] || CLIENT_STATUS_META.active;
-const formatDisplayDate = (value) => {
-  if (!value) return "—";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
-  return parsed.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-};
-
-const formatWeight = (value) => {
-  if (value === null || value === undefined || value === "") return "—";
-  const numeric = Number(value);
-  if (Number.isNaN(numeric)) return `${value}`;
-  return `${numeric.toFixed(1)} kg`;
-};
-
-const normalizeDuplicateText = (value) => String(value || "").trim().toLowerCase().replace(/\s+/g, " ");
-const normalizeDuplicatePhone = (value) => {
-  const digits = String(value || "").replace(/\D/g, "");
-  if (digits.length > 10 && digits.startsWith("91")) return digits.slice(-10);
-  return digits;
-};
-
-const findExistingClientForImport = (clients, importedClient) => {
-  const importedEmail = normalizeDuplicateText(importedClient.email);
-  const importedPhone = normalizeDuplicatePhone(importedClient.phone);
-  const importedName = normalizeDuplicateText(importedClient.name);
-
-  return clients.find((client) => {
-    const clientEmail = normalizeDuplicateText(client.email);
-    const clientPhone = normalizeDuplicatePhone(client.phone);
-    const clientName = normalizeDuplicateText(client.name);
-
-    if (importedEmail && clientEmail && importedEmail === clientEmail) return true;
-    if (importedPhone && importedPhone.length >= 8 && clientPhone && importedPhone === clientPhone) return true;
-    return importedName && clientName && importedName === clientName;
-  });
-};
-
-const mergeImportedClientPayload = (existingClient, importedClient) => {
-  const merged = { ...existingClient };
-  Object.entries(importedClient || {}).forEach(([key, value]) => {
-    if (value !== null && value !== undefined && value !== "") {
-      merged[key] = value;
-    }
-  });
-  return merged;
-};
 
 const getSortState = (sortValue) => {
   if ((sortValue || "").endsWith("-asc")) {
@@ -670,294 +365,12 @@ const compareNullableValues = (leftValue, rightValue, direction, type = "text") 
   return direction === "asc" ? result : -result;
 };
 
-const getDaysUntilIsoDate = (value) => {
-  const targetDate = parseIsoDateToLocal(value);
-  if (!targetDate) return null;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  targetDate.setHours(0, 0, 0, 0);
-  return Math.round((targetDate.getTime() - today.getTime()) / 86400000);
-};
-
-const escapeCsvCell = (value) => {
-  if (value === null || value === undefined) return "";
-  const text = String(value);
-  if (/[",\n\r]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
-  return text;
-};
-
-const buildClientsExportCsv = (clients) => {
-  const headerRow = CLIENT_EXPORT_COLUMNS.map((column) => escapeCsvCell(column.header)).join(",");
-  const dataRows = clients.map((client) =>
-    CLIENT_EXPORT_COLUMNS.map((column) => escapeCsvCell(column.value(client) ?? "")).join(",")
-  );
-  return [headerRow, ...dataRows].join("\n");
-};
-
-const ClientAiResult = ({ analysis }) => {
-  if (!analysis) {
-    return (
-      <div className="rounded-xl border border-dashed border-border/70 p-8 text-center text-sm text-muted-foreground">
-        Ask a question to get exact client lists, expiry reports, weight-change reports, or food/allergy matches.
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-5">
-      <div className="rounded-xl border border-primary/15 bg-primary/5 p-4">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="font-semibold text-foreground">Answer</h3>
-          <span className="text-xs text-muted-foreground">
-            {String(analysis.intent || "query").replace(/_/g, " ")}
-          </span>
-        </div>
-        <p className="mt-2 text-sm leading-6 text-muted-foreground">{analysis.answer_text}</p>
-      </div>
-
-      {(analysis.result_blocks || []).map((block, blockIndex) => (
-        <div key={`${block.title}-${blockIndex}`} className="rounded-xl border border-border/60 p-4">
-          <h3 className="font-semibold text-foreground">{block.title}</h3>
-          {block.type === "table" ? (
-            <div className="mt-3 overflow-x-auto rounded-lg border border-border/50">
-              <table className="w-full min-w-[520px] text-sm">
-                <thead className="bg-muted/40">
-                  <tr>
-                    {(block.columns || []).map((column) => (
-                      <th key={column} className="px-3 py-2 text-left font-medium text-muted-foreground">{column}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {(block.rows || []).length ? (
-                    block.rows.map((row, rowIndex) => (
-                      <tr key={rowIndex} className="border-t border-border/40">
-                        {(row || []).map((cell, cellIndex) => (
-                          <td key={cellIndex} className="px-3 py-2 text-foreground">{cell ?? "—"}</td>
-                        ))}
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td className="px-3 py-4 text-center text-muted-foreground" colSpan={(block.columns || []).length || 1}>
-                        No matching clients found.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="mt-3 space-y-2">
-              {(block.items || []).length ? block.items.map((item, index) => (
-                <div key={index} className="rounded-lg border border-border/50 bg-background p-3 text-sm">
-                  {Object.entries(item).map(([key, value]) => (
-                    <div key={key} className="flex gap-2">
-                      <span className="font-medium capitalize">{key.replace(/_/g, " ")}:</span>
-                      <span className="text-muted-foreground">{String(value ?? "—")}</span>
-                    </div>
-                  ))}
-                </div>
-              )) : <p className="text-sm text-muted-foreground">No items returned.</p>}
-            </div>
-          )}
-        </div>
-      ))}
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <div className="rounded-xl border border-border/60 p-4">
-          <h3 className="font-semibold text-foreground">Recommended Actions</h3>
-          <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
-            {(analysis.recommended_actions || []).length
-              ? analysis.recommended_actions.map((item, index) => <li key={index}>• {item}</li>)
-              : <li>—</li>}
-          </ul>
-        </div>
-        <div className="rounded-xl border border-border/60 p-4">
-          <h3 className="font-semibold text-foreground">Follow-up Questions</h3>
-          <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
-            {(analysis.follow_up_questions || []).length
-              ? analysis.follow_up_questions.map((item, index) => <li key={index}>• {item}</li>)
-              : <li>—</li>}
-          </ul>
-        </div>
-      </div>
-
-      {(analysis.confidence_notes || []).length ? (
-        <div className="rounded-xl border border-amber-200/70 bg-amber-50/60 p-4 text-sm text-amber-900">
-          <h3 className="font-semibold">Confidence Notes</h3>
-          <ul className="mt-2 space-y-1">
-            {analysis.confidence_notes.map((item, index) => <li key={index}>• {item}</li>)}
-          </ul>
-        </div>
-      ) : null}
-    </div>
-  );
-};
-
-const ClientAiBusinessDialog = memo(function ClientAiBusinessDialog({
-  open,
-  onOpenChange,
-  clientsCount,
-  statusFilters,
-  search,
-}) {
-  const [prompt, setPrompt] = useState("Which clients need attention this week and what should our team do first?");
-  const [analysis, setAnalysis] = useState(null);
-  const [history, setHistory] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [historyLoading, setHistoryLoading] = useState(false);
-
-  useEffect(() => {
-    if (!open) return;
-
-    const fetchHistory = async () => {
-      setHistoryLoading(true);
-      try {
-        const response = await api.get("/clients/ai/query-history", { params: { limit: 20 } });
-        setHistory(response.data || []);
-      } catch (err) {
-        toast.error(err.response?.data?.detail || "Failed to load AI history");
-      } finally {
-        setHistoryLoading(false);
-      }
-    };
-
-    void fetchHistory();
-  }, [open]);
-
-  const runAnalysis = async () => {
-    const cleanPrompt = prompt.trim();
-    if (!cleanPrompt) {
-      toast.error("Please type a question first");
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const response = await api.post("/clients/ai/query", {
-        prompt: cleanPrompt,
-        status_filters: statusFilters,
-        search,
-        limit: 200,
-      });
-      const nextAnalysis = response.data;
-      const nextHistoryItem = {
-        ...nextAnalysis,
-        prompt: cleanPrompt,
-        filters: { status_filters: statusFilters, search, limit: 200 },
-        created_at: new Date().toISOString(),
-      };
-      setAnalysis(nextAnalysis);
-      setHistory((prev) => [nextHistoryItem, ...prev.filter((item) => item.query_id !== nextAnalysis.query_id)].slice(0, 20));
-      toast.success("Client AI query generated");
-    } catch (err) {
-      toast.error(err.response?.data?.detail || "Failed to query clients with AI");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const selectHistoryItem = (item) => {
-    setPrompt(item.prompt || "");
-    setAnalysis(item);
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-6xl max-h-[92vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 font-['Sora'] text-2xl text-[#18115E]">
-            <Sparkles className="h-5 w-5 text-primary" />
-            AI Business Partner
-          </DialogTitle>
-          <DialogDescription>
-            Ask read-only questions across your visible client data, routines, diet/report signals, meal uploads, and follow-up context.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
-          <div className="space-y-5">
-            <div className="rounded-xl border border-border/60 bg-muted/20 p-4">
-              <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
-                <div className="space-y-2">
-                  <Label>Business question</Label>
-                  <div className="flex flex-wrap gap-2">
-                    {CLIENT_AI_PRESET_PROMPTS.map((presetPrompt) => (
-                      <Button
-                        key={presetPrompt}
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="rounded-full"
-                        onClick={() => setPrompt(presetPrompt)}
-                      >
-                        {presetPrompt}
-                      </Button>
-                    ))}
-                  </div>
-                  <Textarea
-                    value={prompt}
-                    onChange={(event) => setPrompt(event.target.value)}
-                    placeholder="Ask something like: Who lost 1 kg in last 10 days?"
-                    className="min-h-24"
-                  />
-                </div>
-                <Button onClick={runAnalysis} disabled={loading || !clientsCount} className="h-11 bg-primary text-primary-foreground">
-                  {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
-                  Analyze
-                </Button>
-              </div>
-              <p className="mt-3 text-xs text-muted-foreground">
-                Uses current filters: {statusFilters.length ? statusFilters.map((status) => getClientStatusMeta(status).label).join(", ") : "All statuses"}
-                {search ? ` · Search: "${search}"` : ""}. AI is advisory and does not update client records.
-              </p>
-            </div>
-
-            <ClientAiResult analysis={analysis} />
-          </div>
-
-          <aside className="rounded-xl border border-border/60 bg-background p-4">
-            <div className="flex items-center justify-between gap-3">
-              <h3 className="font-semibold text-foreground">Saved History</h3>
-              {historyLoading ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : null}
-            </div>
-            <div className="mt-3 max-h-[68vh] space-y-2 overflow-y-auto pr-1">
-              {history.length ? history.map((item) => (
-                <button
-                  key={item.query_id}
-                  type="button"
-                  onClick={() => selectHistoryItem(item)}
-                  className="w-full rounded-xl border border-border/60 bg-muted/20 p-3 text-left transition hover:border-primary/40 hover:bg-primary/5"
-                >
-                  <div className="line-clamp-2 text-sm font-medium text-foreground">{item.prompt || "Saved AI query"}</div>
-                  <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-                    <span>{String(item.intent || "query").replace(/_/g, " ")}</span>
-                    <span>•</span>
-                    <span>{formatDisplayDate(item.created_at)}</span>
-                  </div>
-                  <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">{item.answer_text}</p>
-                </button>
-              )) : (
-                <div className="rounded-xl border border-dashed border-border/60 p-5 text-center text-sm text-muted-foreground">
-                  No saved AI searches yet.
-                </div>
-              )}
-            </div>
-          </aside>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-});
-
 export function ClientsPage() {
-  const { user } = useAuth();
   const [clients, setClients] = useState([]);
+  const [weightSummaries, setWeightSummaries] = useState({});
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [clientListTab, setClientListTab] = useState("active");
-  const [visibleTrackerColumns, setVisibleTrackerColumns] = useState(DEFAULT_VISIBLE_TRACKER_COLUMNS);
+  const [clientScope, setClientScope] = useState("active");
   const [sortBy, setSortBy] = useState("client-asc");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingClient, setEditingClient] = useState(null);
@@ -965,16 +378,16 @@ export function ClientsPage() {
   const [formData, setFormData] = useState(CLIENT_FORM_DEFAULTS);
   const [rowDrafts, setRowDrafts] = useState({});
   const [editingCommentClientId, setEditingCommentClientId] = useState(null);
-  const [deleteTarget, setDeleteTarget] = useState(null);
-  const [clientAiDialogOpen, setClientAiDialogOpen] = useState(false);
   const csvInputRef = useRef(null);
-  const csvImportModeRef = useRef("bulk");
   const commentInputRefs = useRef({});
 
   const fetchClients = async () => {
     setLoading(true);
     try {
-      const clientRes = await api.get("/clients", { params: { limit: 5000 } });
+      const [clientRes, weightSummaryRes] = await Promise.all([
+        api.get("/clients"),
+        api.get("/clients/weight-summaries", { params: { entries: 10 } }),
+      ]);
       setClients(clientRes.data);
       const drafts = {};
       clientRes.data.forEach((client) => {
@@ -982,13 +395,12 @@ export function ClientsPage() {
           recent_comment: "",
           diet_start_date: client.diet_start_date || "",
           diet_end_date: client.diet_end_date || "",
-          program_start_date: client.program_start_date || "",
-          program_end_date: client.program_end_date || "",
           last_follow_up_date: client.last_follow_up_date || "",
           upcoming_follow_up_date: client.upcoming_follow_up_date || ""
         };
       });
       setRowDrafts(drafts);
+      setWeightSummaries(Object.fromEntries((weightSummaryRes.data || []).map((summary) => [summary.client_id, summary])));
     } catch (err) {
       toast.error("Failed to load clients");
     } finally {
@@ -1006,66 +418,7 @@ export function ClientsPage() {
     if (input) input.focus();
   }, [editingCommentClientId]);
 
-  const syncClientIntoState = useCallback((savedClient) => {
-    setClients((prev) => {
-      const existingIndex = prev.findIndex((client) => client.id === savedClient.id);
-      if (existingIndex === -1) {
-        return [savedClient, ...prev];
-      }
-      return prev.map((client) => (client.id === savedClient.id ? savedClient : client));
-    });
-    setRowDrafts((prev) => ({
-      ...prev,
-      [savedClient.id]: {
-        recent_comment: prev[savedClient.id]?.recent_comment ?? "",
-        diet_start_date: savedClient.diet_start_date || "",
-        diet_end_date: savedClient.diet_end_date || "",
-        program_start_date: savedClient.program_start_date || "",
-        program_end_date: savedClient.program_end_date || "",
-        last_follow_up_date: savedClient.last_follow_up_date || "",
-        upcoming_follow_up_date: savedClient.upcoming_follow_up_date || "",
-      },
-    }));
-  }, []);
-
-  const removeClientFromState = useCallback((clientId) => {
-    setClients((prev) => prev.filter((client) => client.id !== clientId));
-    setRowDrafts((prev) => {
-      const next = { ...prev };
-      delete next[clientId];
-      return next;
-    });
-    setEditingCommentClientId((prev) => (prev === clientId ? null : prev));
-  }, []);
-
   const resetForm = () => setFormData(CLIENT_FORM_DEFAULTS);
-
-  const updateDietSchedule = (changes) => {
-    setFormData((prev) => {
-      const next = { ...prev, ...changes };
-      const durationDays = getDietDurationDays(next.diet_duration);
-      if (next.diet_start_date && durationDays) {
-        next.diet_end_date = addDaysToIsoDate(next.diet_start_date, durationDays - 1);
-      }
-      return next;
-    });
-  };
-
-  const updateProgramSchedule = (changes) => {
-    setFormData((prev) => {
-      const next = { ...prev, ...changes };
-      const durationMonths = getProgramDurationMonths(next.program_duration);
-      const pauseDays = parseInt(String(next.pause_days || "").trim(), 10);
-      if (next.program_start_date && durationMonths) {
-        let computedEndDate = addMonthsToIsoDate(next.program_start_date, durationMonths);
-        if (computedEndDate && Number.isFinite(pauseDays) && pauseDays > 0) {
-          computedEndDate = addDaysToIsoDate(computedEndDate, pauseDays);
-        }
-        next.program_end_date = computedEndDate;
-      }
-      return next;
-    });
-  };
 
   const openCreateDialog = () => {
     resetForm();
@@ -1088,34 +441,29 @@ export function ClientsPage() {
         return;
       }
 
-      const response = editingClient
-        ? await api.put(`/clients/${editingClient.id}`, payload)
-        : await api.post("/clients", payload);
-      const savedClient = response.data;
-
       if (editingClient) {
+        await api.put(`/clients/${editingClient.id}`, payload);
         toast.success("Client updated successfully");
       } else {
+        await api.post("/clients", payload);
         toast.success("Client added successfully");
       }
-
-      syncClientIntoState(savedClient);
 
       setDialogOpen(false);
       setEditingClient(null);
       resetForm();
+      fetchClients();
     } catch (err) {
       toast.error(err.response?.data?.detail || "Failed to save client");
     }
   };
 
-  const confirmDelete = async () => {
-    if (!deleteTarget) return;
+  const handleDelete = async (id) => {
+    if (!window.confirm("Are you sure you want to delete this client?")) return;
     try {
-      await api.delete(`/clients/${deleteTarget.id}`);
-      removeClientFromState(deleteTarget.id);
-      setDeleteTarget(null);
+      await api.delete(`/clients/${id}`);
       toast.success("Client deleted");
+      fetchClients();
     } catch (err) {
       toast.error("Failed to delete client");
     }
@@ -1131,131 +479,40 @@ export function ClientsPage() {
     }
   };
 
-  const handleInlineDateChange = async (clientId, field, value) => {
-    setRowDrafts((prev) => ({ ...prev, [clientId]: { ...prev[clientId], [field]: value } }));
-    await saveInlineField(clientId, field, value);
-  };
-
-  const handleClientStatusMove = async (client, nextStatus) => {
-    const previousStatus = client.status || "active";
-    if (previousStatus === nextStatus) return;
-    setClients((prev) => prev.map((item) => (item.id === client.id ? { ...item, status: nextStatus } : item)));
-    try {
-      await api.put(`/clients/${client.id}`, { status: nextStatus });
-      toast.success(`${client.name} moved to ${getClientStatusMeta(nextStatus).label}`);
-    } catch (err) {
-      setClients((prev) => prev.map((item) => (item.id === client.id ? { ...item, status: previousStatus } : item)));
-      toast.error("Failed to update client status");
-    }
-  };
-
-  const triggerCsvPicker = (mode = "bulk") => {
+  const triggerCsvPicker = () => {
     if (csvImporting) return;
-    csvImportModeRef.current = mode;
     csvInputRef.current?.click();
   };
 
   const handleCsvUpload = async (event) => {
-    const files = Array.from(event.target.files || []);
-    const importMode = csvImportModeRef.current || "bulk";
-    csvImportModeRef.current = "bulk";
+    const file = event.target.files?.[0];
     event.target.value = "";
-    if (!files.length) return;
+    if (!file) return;
 
     setCsvImporting(true);
     try {
-      const parsedPayloads = [];
-      for (const file of files) {
-        const text = await file.text();
-        const rows = parseCsvRows(text);
-        rows.forEach((row) => {
-          const payload = mapCsvRowToClientPayload(row);
-          if (payload.name) parsedPayloads.push(payload);
-        });
-      }
-
-      if (!parsedPayloads.length) {
-        toast.error("No valid client rows found in selected CSV file(s)");
+      const text = await file.text();
+      const rows = parseCsvRows(text);
+      if (!rows.length) {
+        toast.error("CSV looks empty");
         return;
       }
 
-      if (importMode === "prefill") {
-        const payload = parsedPayloads[0];
-        const existingClient = findExistingClientForImport(clients, payload);
-        if (existingClient) {
-          setEditingClient(existingClient);
-          setFormData(clientPayloadToFormData(mergeImportedClientPayload(existingClient, payload)));
-          setDialogOpen(true);
-          toast.info(`${existingClient.name} already exists. Imported data opened in edit mode for review.`);
-          return;
-        }
-
-        setEditingClient(null);
-        setFormData(clientPayloadToFormData(payload));
-        setDialogOpen(true);
-        toast.success(parsedPayloads.length > 1 ? "First client row imported into the form" : "Client profile imported into the form");
+      const payload = rows.map(mapCsvRowToClientPayload).find((item) => item.name);
+      if (!payload) {
+        toast.error("No valid client row found in CSV");
         return;
       }
 
-      const importScope = [...clients];
-      let createdCount = 0;
-      let skippedDuplicateCount = 0;
-      let failedCount = 0;
-
-      for (const payload of parsedPayloads) {
-        const existingClient = findExistingClientForImport(importScope, payload);
-        if (existingClient) {
-          skippedDuplicateCount += 1;
-          continue;
-        }
-
-        importScope.push(payload);
-        try {
-          const response = await api.post("/clients", payload);
-          syncClientIntoState(response.data);
-          createdCount += 1;
-        } catch (_error) {
-          failedCount += 1;
-        }
-      }
-
-      if (createdCount > 0) {
-        toast.success(`Imported ${createdCount} client${createdCount === 1 ? "" : "s"}${skippedDuplicateCount ? `, skipped ${skippedDuplicateCount} duplicate${skippedDuplicateCount === 1 ? "" : "s"}` : ""}`);
-      } else if (skippedDuplicateCount > 0 && failedCount === 0) {
-        toast.info(`No new clients imported. ${skippedDuplicateCount} duplicate${skippedDuplicateCount === 1 ? "" : "s"} skipped.`);
-      }
-
-      if (failedCount > 0) {
-        toast.error(`${failedCount} client${failedCount === 1 ? "" : "s"} failed to import`);
-      }
-
-      if (createdCount > 0) {
-        await fetchClients();
-      }
+      setEditingClient(null);
+      setFormData(clientPayloadToFormData(payload));
+      setDialogOpen(true);
+      toast.success(rows.length > 1 ? "First client row imported into the form" : "Client profile imported into the form");
     } catch (err) {
       toast.error("Failed to parse CSV");
     } finally {
       setCsvImporting(false);
     }
-  };
-
-  const exportClientsCsv = () => {
-    if (!clients.length) {
-      toast.error("No clients available to export");
-      return;
-    }
-
-    const csv = buildClientsExportCsv(clients);
-    const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `clients-export-${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
-    toast.success(`Exported ${clients.length} clients`);
   };
 
   const submitInlineComment = async (clientId) => {
@@ -1304,53 +561,45 @@ export function ClientsPage() {
     setEditingCommentClientId((prev) => (prev === clientId ? null : prev));
   };
 
+  const activeCount = clients.filter((client) => client.status === "active" || client.status === "out-of-town").length;
   const totalCount = clients.length;
-  const activeClientCount = clients.filter((client) => normalizeClientStatus(client.status) === "active").length;
-  const dietExpiringUrgentCount = clients.filter((client) => {
-    const daysLeft = getDaysUntilIsoDate(client.diet_end_date);
-    return daysLeft !== null && daysLeft >= 0 && daysLeft <= 1;
-  }).length;
-  const dietExpiringWeekCount = clients.filter((client) => {
-    const daysLeft = getDaysUntilIsoDate(client.diet_end_date);
-    return daysLeft !== null && daysLeft >= 2 && daysLeft <= 7;
-  }).length;
-  const activeListCount = clients.filter((client) => normalizeClientStatus(client.status) !== "completed").length;
   const activeSort = getSortState(sortBy);
-  const canDeleteClient = hasAnyRole(user, ["super_admin", "admin"]);
-  const visibleAiStatusFilters = clientListTab === "active"
-    ? CLIENT_STATUS_OPTIONS.filter((option) => option.value !== "completed").map((option) => option.value)
-    : [];
 
-  const toggleTrackerColumn = (columnKey, checked) => {
-    setVisibleTrackerColumns((current) => {
-      if (checked) {
-        return current.includes(columnKey) ? current : [...current, columnKey];
+  const toggleColumnSort = (columnKey) => {
+    setSortBy((currentValue) => {
+      const currentSort = getSortState(currentValue);
+      if (currentSort.key === columnKey) {
+        return `${columnKey}-${currentSort.direction === "asc" ? "desc" : "asc"}`;
       }
-      if (current.length === 1 && current.includes(columnKey)) {
-        return current;
-      }
-      return current.filter((value) => value !== columnKey);
+      return `${columnKey}-asc`;
     });
+  };
+
+  const getColumnSortIcon = (columnKey) => {
+    if (activeSort.key !== columnKey) {
+      return <ArrowUpDown className="h-4 w-4 text-muted-foreground/70" />;
+    }
+    return activeSort.direction === "asc"
+      ? <ArrowUp className="h-4 w-4 text-primary" />
+      : <ArrowDown className="h-4 w-4 text-primary" />;
   };
 
   const visibleClients = clients
     .filter((client) => {
-      const normalizedStatus = normalizeClientStatus(client.status);
-      if (clientListTab === "active" && normalizedStatus === "completed") return false;
+      if (clientScope === "active" && client.status !== "active" && client.status !== "out-of-town") return false;
       if (!search.trim()) return true;
       const q = search.toLowerCase();
       return [client.name, client.email, client.phone].some((field) => (field || "").toLowerCase().includes(q));
     })
     .sort((a, b) => {
+      const weightDeltaA = weightSummaries[a.id]?.delta_kg;
+      const weightDeltaB = weightSummaries[b.id]?.delta_kg;
+
       switch (activeSort.key) {
         case "client":
           return compareNullableValues(a.name, b.name, activeSort.direction);
-        case "status":
-          return compareNullableValues(
-            getClientStatusMeta(a.status).label,
-            getClientStatusMeta(b.status).label,
-            activeSort.direction
-          );
+        case "weight-diff":
+          return compareNullableValues(weightDeltaA, weightDeltaB, activeSort.direction, "number");
         case "recent-comment":
           return compareNullableValues(a.recent_comment, b.recent_comment, activeSort.direction);
         case "diet-start":
@@ -1367,103 +616,66 @@ export function ClientsPage() {
           return compareNullableValues(a.name, b.name, "asc");
       }
     });
-  const gridRows = visibleClients.map((client) => ({
-    ...client,
-    status: normalizeClientStatus(client.status),
-  }));
 
   return (
-    <div className="space-y-5 animate-fade-in" data-testid="clients-page">
+    <div className="space-y-6 animate-fade-in" data-testid="clients-page">
       <input
         ref={csvInputRef}
         type="file"
         accept=".csv,text/csv"
-        multiple
         className="hidden"
         onChange={handleCsvUpload}
       />
 
-      <div className="rounded-xl border border-border bg-card px-4 py-4 shadow-[0_1px_0_rgba(15,23,42,0.02)] md:px-5">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+      <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
         <div>
-          <h1 className="font-['Sora'] text-2xl font-semibold text-[#18115E] md:text-3xl dark:text-violet-100">Client Tracker</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {activeClientCount} active clients ·{" "}
-            <span className={dietExpiringUrgentCount ? "font-medium text-red-600" : "text-muted-foreground"}>
-              {dietExpiringUrgentCount} diets expiring today/tomorrow
-            </span>
-            {" "}·{" "}
-            <span className={dietExpiringWeekCount ? "font-medium text-amber-600" : "text-muted-foreground"}>
-              {dietExpiringWeekCount} expiring this week
-            </span>
-          </p>
+          <h1 className="text-3xl font-bold tracking-tight">Client Tracker</h1>
+          <p className="text-muted-foreground mt-1">Stay on top of every client touchpoint and upcoming follow-up.</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" onClick={() => triggerCsvPicker("bulk")} disabled={csvImporting} className="h-10 rounded-lg bg-card">
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={triggerCsvPicker} disabled={csvImporting}>
             <Upload className="w-4 h-4 mr-2" />
             {csvImporting ? "Importing CSV..." : "Import Client CSV"}
           </Button>
-          <Button variant="outline" onClick={exportClientsCsv} disabled={!clients.length} className="h-10 rounded-lg bg-card">
-            <Download className="w-4 h-4 mr-2" />
-            Export
-          </Button>
-          <Button onClick={openCreateDialog} data-testid="add-client-btn" className="h-10 rounded-lg bg-primary text-primary-foreground">
+          <Button onClick={openCreateDialog} data-testid="add-client-btn" className="bg-primary text-primary-foreground">
             <Plus className="w-4 h-4 mr-2" /> Add Client
           </Button>
-          <Button variant="outline" className="h-10 rounded-lg bg-card" onClick={() => setClientAiDialogOpen(true)}>
+          <Button variant="outline">
             <Sparkles className="w-4 h-4 mr-2" /> Ask AI
           </Button>
         </div>
       </div>
-      </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <Button
-          type="button"
-          variant={clientListTab === "active" ? "secondary" : "outline"}
-          className="h-10 rounded-full px-4"
-          onClick={() => setClientListTab("active")}
-        >
-          Active Clients ({activeListCount})
-        </Button>
-        <Button
-          type="button"
-          variant={clientListTab === "all" ? "secondary" : "outline"}
-          className="h-10 rounded-full px-4"
-          onClick={() => setClientListTab("all")}
-        >
-          All Clients ({totalCount})
-        </Button>
-      </div>
+      <div className="flex flex-col xl:flex-row gap-3">
+        <div className="flex rounded-xl border border-border/50 bg-muted/20 p-1">
+          <button
+            type="button"
+            onClick={() => setClientScope("active")}
+            className={`px-4 py-2 rounded-lg text-sm transition-colors ${clientScope === "active" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground"}`}
+          >
+            Active Clients ({activeCount})
+          </button>
+          <button
+            type="button"
+            onClick={() => setClientScope("all")}
+            className={`px-4 py-2 rounded-lg text-sm transition-colors ${clientScope === "all" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground"}`}
+          >
+            All Clients ({totalCount})
+          </button>
+        </div>
 
-      <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
-        <div className="flex items-center gap-2">
-          <span className="h-2.5 w-2.5 rounded-sm bg-red-500" />
-          <span>Expiring today/tomorrow</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="h-2.5 w-2.5 rounded-sm bg-amber-500" />
-          <span>Expiring this week</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="h-2.5 w-2.5 rounded-sm bg-green-500" />
-          <span>Active & healthy</span>
-        </div>
-      </div>
-
-      <div className="flex flex-col gap-3 xl:flex-row">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
             placeholder="Search clients"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="h-10 rounded-lg bg-card pl-10"
+            className="pl-10 h-11"
           />
         </div>
 
         <Select value={sortBy} onValueChange={setSortBy}>
-          <SelectTrigger className="h-10 w-full rounded-lg bg-card xl:w-60">
+          <SelectTrigger className="w-full xl:w-60 h-11">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -1474,55 +686,235 @@ export function ClientsPage() {
             ))}
           </SelectContent>
         </Select>
-
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" className="h-10 w-full justify-between rounded-lg bg-card xl:w-60">
-              <span className="truncate">Columns</span>
-              <ArrowDown className="h-4 w-4 text-muted-foreground" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-64">
-            <DropdownMenuLabel>Show table columns</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            {TRACKER_COLUMN_OPTIONS.map((option) => (
-              <DropdownMenuCheckboxItem
-                key={option.key}
-                checked={visibleTrackerColumns.includes(option.key)}
-                onCheckedChange={(checked) => toggleTrackerColumn(option.key, checked === true)}
-              >
-                {option.label}
-              </DropdownMenuCheckboxItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
       </div>
 
-      <ClientTrackerGrid
-        rowData={gridRows}
-        loading={loading}
-        rowDrafts={rowDrafts}
-        visibleColumns={visibleTrackerColumns}
-        statusOptions={CLIENT_STATUS_OPTIONS}
-        editingCommentClientId={editingCommentClientId}
-        commentInputRefs={commentInputRefs}
-        canDeleteClient={canDeleteClient}
-        getClientStatusMeta={getClientStatusMeta}
-        getDateUrgencyMeta={getDateUrgencyMeta}
-        onStartInlineCommentEdit={startInlineCommentEdit}
-        onCancelInlineCommentEdit={cancelInlineCommentEdit}
-        onCommentDraftChange={(clientId, value) => setRowDrafts((prev) => ({ ...prev, [clientId]: { ...prev[clientId], recent_comment: value } }))}
-        onSubmitInlineComment={submitInlineComment}
-        onInlineDateChange={handleInlineDateChange}
-        onStatusChange={handleClientStatusMove}
-        onEditClient={openEditDialog}
-        onDeleteClient={setDeleteTarget}
-      />
+      <TooltipProvider delayDuration={120}>
+        <Card className="overflow-hidden shadow-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[1160px] table-fixed">
+              <thead>
+                <tr className="border-b border-border/50 bg-muted/20">
+                  <th className="table-dense w-[220px] text-center">
+                    <button type="button" className="mx-auto inline-flex items-center justify-center gap-2 font-semibold" onClick={() => toggleColumnSort("client")}>
+                      <span>Client</span>
+                      {getColumnSortIcon("client")}
+                    </button>
+                  </th>
+                  <th className="table-dense w-[160px] text-center">
+                    <button type="button" className="mx-auto inline-flex items-center justify-center gap-2 font-semibold" onClick={() => toggleColumnSort("weight-diff")}>
+                      <span>10-Day Diff</span>
+                      {getColumnSortIcon("weight-diff")}
+                    </button>
+                  </th>
+                  <th className="table-dense w-[260px] text-center">
+                    <button type="button" className="mx-auto inline-flex items-center justify-center gap-2 font-semibold" onClick={() => toggleColumnSort("recent-comment")}>
+                      <span>Recent Comment</span>
+                      {getColumnSortIcon("recent-comment")}
+                    </button>
+                  </th>
+                  <th className="table-dense w-[180px] text-center">
+                    <button type="button" className="mx-auto inline-flex items-center justify-center gap-2 font-semibold" onClick={() => toggleColumnSort("diet-start")}>
+                      <span>Diet Start</span>
+                      {getColumnSortIcon("diet-start")}
+                    </button>
+                  </th>
+                  <th className="table-dense w-[180px] text-center">
+                    <button type="button" className="mx-auto inline-flex items-center justify-center gap-2 font-semibold" onClick={() => toggleColumnSort("diet-expire")}>
+                      <span>Diet Expire</span>
+                      {getColumnSortIcon("diet-expire")}
+                    </button>
+                  </th>
+                  <th className="table-dense w-[180px] text-center">
+                    <button type="button" className="mx-auto inline-flex items-center justify-center gap-2 font-semibold" onClick={() => toggleColumnSort("last-follow-up")}>
+                      <span>Last Follow-up</span>
+                      {getColumnSortIcon("last-follow-up")}
+                    </button>
+                  </th>
+                  <th className="table-dense w-[210px] text-center">
+                    <button type="button" className="mx-auto inline-flex items-center justify-center gap-2 font-semibold" onClick={() => toggleColumnSort("upcoming-follow-up")}>
+                      <span>Upcoming Follow-up</span>
+                      {getColumnSortIcon("upcoming-follow-up")}
+                    </button>
+                  </th>
+                  <th className="table-dense w-[140px] text-center">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr>
+                    <td colSpan={8} className="text-center py-14 text-muted-foreground">Loading clients...</td>
+                  </tr>
+                ) : visibleClients.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="text-center py-14 text-muted-foreground">No clients found for this filter.</td>
+                  </tr>
+                ) : (
+                  visibleClients.map((client) => {
+                    const draft = rowDrafts[client.id] || {};
+                    const statusMeta = getClientStatusMeta(client.status);
+                    const weightSummary = weightSummaries[client.id];
+                    const weightDelta = weightSummary?.delta_kg;
+                    const hasWeightTrend = typeof weightDelta === "number";
+                    const formattedWeightDelta = hasWeightTrend
+                      ? `${weightDelta > 0 ? "+" : ""}${weightDelta.toFixed(1)} kg`
+                      : "—";
+                    return (
+                      <tr key={client.id} className="table-dense align-top" data-testid={`client-row-${client.id}`}>
+                        <td>
+                          <div className="flex items-center gap-2">
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type="button"
+                                  className={`h-3.5 w-3.5 rounded-full transition-transform hover:scale-110 ${statusMeta.dotClassName}`}
+                                  aria-label={statusMeta.label}
+                                />
+                              </TooltipTrigger>
+                              <TooltipContent>{statusMeta.label}</TooltipContent>
+                            </Tooltip>
+                            <Link to={`/clients/${client.id}`} className="font-semibold text-primary hover:underline">
+                              {client.name}
+                            </Link>
+                          </div>
+                        </td>
+                        <td>
+                          {weightSummary?.entries?.length ? (
+                            <HoverCard openDelay={120} closeDelay={100}>
+                              <HoverCardTrigger asChild>
+                                <button
+                                  type="button"
+                                  className={`text-sm font-semibold ${
+                                    weightDelta < 0 ? "text-success" : weightDelta > 0 ? "text-danger" : "text-muted-foreground"
+                                  }`}
+                                >
+                                  {formattedWeightDelta}
+                                </button>
+                              </HoverCardTrigger>
+                              <HoverCardContent align="start" className="w-72">
+                                <div className="space-y-3">
+                                  <div>
+                                    <p className="text-sm font-semibold">Last 10 Weight Logs</p>
+                                    <p className="text-xs text-muted-foreground">Newest entry shown first.</p>
+                                  </div>
+                                  <div className="rounded-lg border border-border/50 overflow-hidden">
+                                    <table className="w-full text-sm">
+                                      <thead className="bg-muted/40">
+                                        <tr>
+                                          <th className="px-3 py-2 text-left font-medium">Date</th>
+                                          <th className="px-3 py-2 text-right font-medium">Weight</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {weightSummary.entries.map((entry) => (
+                                          <tr key={`${client.id}-${entry.recorded_date}`} className="border-t border-border">
+                                            <td className="px-3 py-2">{entry.recorded_date}</td>
+                                            <td className="px-3 py-2 text-right">{entry.weight_kg} kg</td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                </div>
+                              </HoverCardContent>
+                            </HoverCard>
+                          ) : (
+                            <span className="text-sm text-muted-foreground">—</span>
+                          )}
+                        </td>
+                        <td>
+                          {editingCommentClientId === client.id ? (
+                            <Input
+                              ref={(node) => {
+                                if (node) {
+                                  commentInputRefs.current[client.id] = node;
+                                } else {
+                                  delete commentInputRefs.current[client.id];
+                                }
+                              }}
+                              value={draft.recent_comment ?? ""}
+                              onChange={(e) => setRowDrafts((prev) => ({ ...prev, [client.id]: { ...prev[client.id], recent_comment: e.target.value } }))}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  submitInlineComment(client.id);
+                                }
+                                if (e.key === "Escape") {
+                                  e.preventDefault();
+                                  cancelInlineCommentEdit(client.id);
+                                }
+                              }}
+                              onBlur={() => cancelInlineCommentEdit(client.id)}
+                              placeholder="Add comment and press Enter"
+                            />
+                          ) : (
+                            <button
+                              type="button"
+                              onDoubleClick={() => startInlineCommentEdit(client.id)}
+                              className="flex h-10 w-full items-center rounded-md border border-input bg-background px-3 text-left text-sm transition-colors hover:border-primary/40"
+                              title={client.recent_comment || "Double-click to add comment"}
+                            >
+                              <span className={`truncate ${client.recent_comment ? "text-foreground" : "text-muted-foreground"}`}>
+                                {client.recent_comment || "Double-click to add comment"}
+                              </span>
+                            </button>
+                          )}
+                        </td>
+                        <td>
+                          <Input
+                            type="date"
+                            value={draft.diet_start_date ?? ""}
+                            onChange={(e) => setRowDrafts((prev) => ({ ...prev, [client.id]: { ...prev[client.id], diet_start_date: e.target.value } }))}
+                            onBlur={(e) => saveInlineField(client.id, "diet_start_date", e.target.value)}
+                          />
+                        </td>
+                        <td>
+                          <Input
+                            type="date"
+                            value={draft.diet_end_date ?? ""}
+                            onChange={(e) => setRowDrafts((prev) => ({ ...prev, [client.id]: { ...prev[client.id], diet_end_date: e.target.value } }))}
+                            onBlur={(e) => saveInlineField(client.id, "diet_end_date", e.target.value)}
+                          />
+                        </td>
+                        <td>
+                          <Input
+                            type="date"
+                            value={draft.last_follow_up_date ?? ""}
+                            onChange={(e) => setRowDrafts((prev) => ({ ...prev, [client.id]: { ...prev[client.id], last_follow_up_date: e.target.value } }))}
+                            onBlur={(e) => saveInlineField(client.id, "last_follow_up_date", e.target.value)}
+                          />
+                        </td>
+                        <td>
+                          <Input
+                            type="date"
+                            value={draft.upcoming_follow_up_date ?? ""}
+                            onChange={(e) => setRowDrafts((prev) => ({ ...prev, [client.id]: { ...prev[client.id], upcoming_follow_up_date: e.target.value } }))}
+                            onBlur={(e) => saveInlineField(client.id, "upcoming_follow_up_date", e.target.value)}
+                          />
+                        </td>
+                        <td>
+                          <div className="flex items-center gap-1">
+                            <Button variant="ghost" size="icon" onClick={() => openEditDialog(client)}>
+                              <Edit className="w-4 h-4" />
+                            </Button>
+                            <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" onClick={() => handleDelete(client.id)}>
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      </TooltipProvider>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-6xl max-h-[92vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="text-3xl font-['Manrope']">{editingClient ? "Edit Client" : "Add New Client"}</DialogTitle>
+            <DialogTitle className="text-2xl font-bold tracking-tight">{editingClient ? "Edit Client" : "Add New Client"}</DialogTitle>
             <DialogDescription>
               {editingClient ? "Update detailed client profile information" : "Add manually or import from CSV sample"}
             </DialogDescription>
@@ -1533,7 +925,7 @@ export function ClientsPage() {
               <div className="space-y-3">
                 <Label>Import from CSV</Label>
                 <div className="flex flex-wrap gap-2">
-                  <Button type="button" variant="outline" onClick={() => triggerCsvPicker("prefill")} disabled={csvImporting}>
+                  <Button type="button" variant="outline" onClick={triggerCsvPicker} disabled={csvImporting}>
                     <Upload className="w-4 h-4 mr-2" />
                     {csvImporting ? "Importing..." : "Upload Client Profile CSV"}
                   </Button>
@@ -1608,72 +1000,49 @@ export function ClientsPage() {
               <Input value={formData.health_issues} onChange={(e) => setFormData({ ...formData, health_issues: e.target.value })} placeholder="Enter health issues (comma separated)" />
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Allergies</Label>
-                <Input value={formData.allergies} onChange={(e) => setFormData({ ...formData, allergies: e.target.value })} placeholder="Peanuts, milk, gluten" />
-              </div>
-              <div className="space-y-2">
-                <Label>Avoid Foods</Label>
-                <Input value={formData.avoid_foods} onChange={(e) => setFormData({ ...formData, avoid_foods: e.target.value })} placeholder="Sugar, fried foods" />
-              </div>
-              <div className="space-y-2">
-                <Label>Preferred Foods</Label>
-                <Input value={formData.preferred_foods} onChange={(e) => setFormData({ ...formData, preferred_foods: e.target.value })} placeholder="Paneer, sprouts, dal" />
-              </div>
-              <div className="space-y-2">
-                <Label>Disliked Foods</Label>
-                <Input value={formData.disliked_foods} onChange={(e) => setFormData({ ...formData, disliked_foods: e.target.value })} placeholder="Oats, lauki" />
-              </div>
-              <div className="space-y-2 md:col-span-2">
-                <Label>Medical Food Restrictions</Label>
-                <Input value={formData.medical_food_restrictions} onChange={(e) => setFormData({ ...formData, medical_food_restrictions: e.target.value })} placeholder="High sodium foods, lactose, soy" />
-              </div>
-            </div>
-
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="space-y-2">
                 <Label>Diet Start Date</Label>
-                <DatePickerInput value={formData.diet_start_date} onChange={(value) => updateDietSchedule({ diet_start_date: value })} />
+                <Input type="date" value={formData.diet_start_date} onChange={(e) => setFormData({ ...formData, diet_start_date: e.target.value })} />
               </div>
               <div className="space-y-2">
                 <Label>Diet Duration</Label>
-                <Select value={formData.diet_duration || "none"} onValueChange={(value) => updateDietSchedule({ diet_duration: value === "none" ? "" : value })}>
+                <Select value={formData.diet_duration || "none"} onValueChange={(value) => setFormData({ ...formData, diet_duration: value === "none" ? "" : value })}>
                   <SelectTrigger><SelectValue placeholder="Select duration" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">Not specified</SelectItem>
-                    {DIET_DURATION_OPTIONS.map((option) => <SelectItem key={option} value={option}>{option}</SelectItem>)}
+                    {DURATION_OPTIONS.map((option) => <SelectItem key={option} value={option}>{option}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-2">
                 <Label>Diet End Date</Label>
-                <DatePickerInput value={formData.diet_end_date} onChange={(value) => setFormData({ ...formData, diet_end_date: value })} />
+                <Input type="date" value={formData.diet_end_date} onChange={(e) => setFormData({ ...formData, diet_end_date: e.target.value })} />
               </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="space-y-2">
                 <Label>Program Start Date</Label>
-                <DatePickerInput value={formData.program_start_date} onChange={(value) => updateProgramSchedule({ program_start_date: value })} />
+                <Input type="date" value={formData.program_start_date} onChange={(e) => setFormData({ ...formData, program_start_date: e.target.value })} />
               </div>
               <div className="space-y-2">
                 <Label>Program Duration</Label>
-                <Select value={formData.program_duration || "none"} onValueChange={(value) => updateProgramSchedule({ program_duration: value === "none" ? "" : value })}>
+                <Select value={formData.program_duration || "none"} onValueChange={(value) => setFormData({ ...formData, program_duration: value === "none" ? "" : value })}>
                   <SelectTrigger><SelectValue placeholder="Select duration" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">Not specified</SelectItem>
-                    {PROGRAM_DURATION_OPTIONS.map((option) => <SelectItem key={option} value={option}>{option}</SelectItem>)}
+                    {DURATION_OPTIONS.map((option) => <SelectItem key={option} value={option}>{option}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-2">
                 <Label>Pause Days</Label>
-                <Input type="number" value={formData.pause_days} onChange={(e) => updateProgramSchedule({ pause_days: e.target.value })} placeholder="0" />
+                <Input type="number" value={formData.pause_days} onChange={(e) => setFormData({ ...formData, pause_days: e.target.value })} placeholder="0" />
               </div>
               <div className="space-y-2">
                 <Label>Program End Date</Label>
-                <DatePickerInput value={formData.program_end_date} onChange={(value) => setFormData({ ...formData, program_end_date: value })} />
+                <Input type="date" value={formData.program_end_date} onChange={(e) => setFormData({ ...formData, program_end_date: e.target.value })} />
               </div>
             </div>
 
@@ -1735,40 +1104,6 @@ export function ClientsPage() {
           </form>
         </DialogContent>
       </Dialog>
-
-      <ClientAiBusinessDialog
-        open={clientAiDialogOpen}
-        onOpenChange={setClientAiDialogOpen}
-        clientsCount={clients.length}
-        statusFilters={visibleAiStatusFilters}
-        search={search}
-      />
-
-      <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete client?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {deleteTarget
-                ? `This will permanently remove ${deleteTarget.name} from the tracker, along with related follow-ups and comments.`
-                : "This action cannot be undone."}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={(event) => {
-                event.preventDefault();
-                void confirmDelete();
-              }}
-            >
-              Delete Client
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
     </div>
   );
 }
