@@ -4,6 +4,7 @@ import { Plus, TrendingUp, TrendingDown, BarChart3, DollarSign, Upload } from "l
 import { ResponsiveContainer, AreaChart, Area, CartesianGrid, XAxis, YAxis, Tooltip, BarChart, Bar } from "recharts";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { DatePickerInput } from "@/components/ui/date-picker-input";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
@@ -43,6 +44,8 @@ const formatDisplayDate = (value) => {
 };
 
 const getMonthKey = (value) => String(value || "").slice(0, 7);
+const getCurrentMonthKey = () => getMonthKey(getTodayIso());
+const normalizeClientStatus = (value) => String(value || "active").toLowerCase().trim();
 
 const formatMonthLabel = (monthKey) => {
   if (!monthKey || !/^\d{4}-\d{2}$/.test(monthKey)) return "Unknown Month";
@@ -54,9 +57,9 @@ const formatMonthLabel = (monthKey) => {
 const buildMonthOptions = (transactions) => {
   const keys = Array.from(
     new Set(
-      transactions
+      [getCurrentMonthKey(), ...transactions
         .map((transaction) => getMonthKey(transaction.transaction_date))
-        .filter(Boolean)
+        .filter(Boolean)]
     )
   ).sort((a, b) => b.localeCompare(a));
 
@@ -128,19 +131,19 @@ const getDailyMonthChartData = (transactions, monthKey) => {
 };
 
 function FinanceStatCard({ title, value, hint, icon: Icon, tone = "default" }) {
-  const iconTone = tone === "positive" ? "text-success bg-success-bg" : tone === "negative" ? "text-danger bg-danger-bg" : "text-primary bg-accent";
-  const valueTone = tone === "positive" ? "text-success" : tone === "negative" ? "text-danger" : "";
+  const iconTone = tone === "positive" ? "text-violet-500 bg-violet-500/10" : tone === "negative" ? "text-red-500 bg-red-500/10" : "text-primary bg-primary/10";
+  const valueTone = tone === "positive" ? "text-violet-500" : tone === "negative" ? "text-red-500" : "";
 
   return (
-    <Card className="border-border bg-card shadow-sm">
+    <Card className="border-[#E3E0D8] bg-white shadow-sm">
       <CardContent className="p-6">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm font-medium text-muted-foreground">{title}</p>
-            <p className={`text-3xl font-bold mt-2 ${valueTone}`}>{value}</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#8A7BC8]">{title}</p>
+            <p className={`mt-2 font-['Sora'] text-3xl font-semibold ${valueTone || "text-[#18115E]"}`}>{value}</p>
             {hint ? <p className="text-xs text-muted-foreground mt-2">{hint}</p> : null}
           </div>
-          <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${iconTone}`}>
+          <div className={`flex h-12 w-12 items-center justify-center rounded-2xl ${iconTone}`}>
             <Icon className="w-6 h-6" />
           </div>
         </div>
@@ -158,13 +161,14 @@ export function FinancePage() {
   const [selectedMonth, setSelectedMonth] = useState("");
   const [formData, setFormData] = useState(INITIAL_FORM_DATA);
   const csvInputRef = useRef(null);
+  const currentMonthKey = getCurrentMonthKey();
 
   const loadFinanceData = async () => {
     setLoading(true);
     try {
       const [transactionsRes, clientsRes] = await Promise.all([
         api.get("/transactions", { params: { limit: 2000 } }),
-        api.get("/clients")
+        api.get("/clients", { params: { limit: 5000 } })
       ]);
       setTransactions(transactionsRes.data || []);
       setClients(clientsRes.data || []);
@@ -183,22 +187,26 @@ export function FinancePage() {
     () => Object.fromEntries(clients.map((client) => [client.id, client])),
     [clients]
   );
+  const linkableClients = useMemo(
+    () => clients.filter((client) => ["active", "on-hold"].includes(normalizeClientStatus(client.status))),
+    [clients]
+  );
 
   const monthOptions = useMemo(() => buildMonthOptions(transactions), [transactions]);
 
   useEffect(() => {
-    if (!monthOptions.length) {
-      if (!selectedMonth) setSelectedMonth("all");
+    if (!selectedMonth) {
+      setSelectedMonth(currentMonthKey);
       return;
     }
-    if (!selectedMonth || (selectedMonth !== "all" && !monthOptions.some((option) => option.value === selectedMonth))) {
-      setSelectedMonth(monthOptions[0].value);
+    if (selectedMonth !== "all" && !monthOptions.some((option) => option.value === selectedMonth)) {
+      setSelectedMonth(currentMonthKey);
     }
-  }, [monthOptions, selectedMonth]);
+  }, [monthOptions, selectedMonth, currentMonthKey]);
 
   const activeMonthKey = selectedMonth && selectedMonth !== "all"
     ? selectedMonth
-    : (monthOptions[0]?.value || getMonthKey(getTodayIso()));
+    : (monthOptions[0]?.value || currentMonthKey);
 
   const filteredTransactions = useMemo(() => {
     const list = [...transactions].sort((a, b) => String(b.transaction_date || "").localeCompare(String(a.transaction_date || "")));
@@ -320,7 +328,7 @@ export function FinancePage() {
   if (loading) return <LoadingScreen />;
 
   return (
-    <div className="space-y-6 animate-fade-in" data-testid="finance-page">
+    <div className="space-y-7 animate-fade-in" data-testid="finance-page">
       <input
         ref={csvInputRef}
         type="file"
@@ -330,31 +338,32 @@ export function FinancePage() {
         onChange={handleCsvUpload}
       />
 
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col justify-between gap-4 rounded-[2rem] border border-[#E3E0D8] bg-white/90 p-5 shadow-sm sm:flex-row sm:items-center">
         <div>
-          <h1 className="text-3xl font-bold">Finance</h1>
-          <p className="text-muted-foreground mt-1">Track month-wise collections, import payment CSVs, and record new client enrollments.</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#8A7BC8]">Business</p>
+          <h1 className="mt-1 font-['Sora'] text-3xl font-semibold text-[#18115E]">Finance</h1>
+          <p className="mt-2 text-[#5F6472]">Track month-wise collections, import payment CSVs, and record new client enrollments.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" onClick={triggerCsvPicker} disabled={csvImporting}>
+          <Button variant="outline" className="rounded-2xl bg-white" onClick={triggerCsvPicker} disabled={csvImporting}>
             <Upload className="w-4 h-4 mr-2" />
             {csvImporting ? "Importing CSV..." : "Import CSV"}
           </Button>
           <Button
             data-testid="add-transaction-btn"
             onClick={openCreateDialog}
-            className="bg-primary text-primary-foreground hover:bg-primary/90"
+            className="rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-violet-500/20 hover:bg-primary/90"
           >
             <Plus className="w-4 h-4 mr-2" /> Add Transaction
           </Button>
         </div>
       </div>
 
-      <div className="flex flex-col lg:flex-row gap-3">
+      <div className="flex flex-col gap-3 rounded-[2rem] border border-[#E3E0D8] bg-white p-4 shadow-sm lg:flex-row">
         <div className="w-full lg:w-72">
           <Label className="mb-2 block">Month Filter</Label>
           <Select value={selectedMonth || "all"} onValueChange={setSelectedMonth}>
-            <SelectTrigger>
+            <SelectTrigger className="rounded-2xl border-[#E3E0D8] bg-white">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -398,9 +407,9 @@ export function FinancePage() {
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        <Card className="border-border bg-card">
+        <Card className="overflow-hidden border-[#E3E0D8] bg-white shadow-sm">
           <CardHeader>
-            <CardTitle className="text-lg font-bold tracking-tight">Last 6 Months Progress</CardTitle>
+            <CardTitle className="font-['Sora'] text-[#18115E]">Last 6 Months Progress</CardTitle>
             <CardDescription>Monthly collection trend based on imported and manually added transactions.</CardDescription>
           </CardHeader>
           <CardContent>
@@ -409,50 +418,50 @@ export function FinancePage() {
                 <AreaChart data={sixMonthChartData}>
                   <defs>
                     <linearGradient id="financeMonthlyIncome" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#1F6B45" stopOpacity={0.28} />
-                      <stop offset="95%" stopColor="#1F6B45" stopOpacity={0} />
+                      <stop offset="5%" stopColor="#16a34a" stopOpacity={0.28} />
+                      <stop offset="95%" stopColor="#16a34a" stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid stroke="#E7E7E1" strokeDasharray="3 3" />
-                  <XAxis dataKey="label" stroke="#A6A69C" fontSize={12} />
-                  <YAxis stroke="#A6A69C" fontSize={12} tickFormatter={(value) => `₹${Number(value).toLocaleString("en-IN")}`} />
+                  <CartesianGrid stroke="#27272a" strokeDasharray="3 3" />
+                  <XAxis dataKey="label" stroke="#a1a1aa" fontSize={12} />
+                  <YAxis stroke="#a1a1aa" fontSize={12} tickFormatter={(value) => `₹${Number(value).toLocaleString("en-IN")}`} />
                   <Tooltip
                     formatter={(value, name) => [formatCurrency(value), name === "income" ? "Income" : "Net"]}
                     contentStyle={{
-                      backgroundColor: "#FFFFFF",
-                      borderColor: "#E7E7E1",
+                      backgroundColor: "#09090b",
+                      borderColor: "#27272a",
                       borderRadius: "8px",
-                      color: "#16201A"
+                      color: "#fafafa"
                     }}
                   />
-                  <Area type="monotone" dataKey="income" stroke="#1F6B45" strokeWidth={2} fillOpacity={1} fill="url(#financeMonthlyIncome)" />
-                  <Area type="monotone" dataKey="net" stroke="#AECB54" strokeWidth={2} fillOpacity={0} />
+                  <Area type="monotone" dataKey="income" stroke="#16a34a" strokeWidth={2} fillOpacity={1} fill="url(#financeMonthlyIncome)" />
+                  <Area type="monotone" dataKey="net" stroke="#84cc16" strokeWidth={2} fillOpacity={0} />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="border-border bg-card">
+        <Card className="overflow-hidden border-[#E3E0D8] bg-white shadow-sm">
           <CardHeader>
-            <CardTitle className="text-lg font-bold tracking-tight">{formatMonthLabel(activeMonthKey)} Daily Progress</CardTitle>
+            <CardTitle className="font-['Sora'] text-[#18115E]">{formatMonthLabel(activeMonthKey)} Daily Progress</CardTitle>
             <CardDescription>Day-wise collections for the selected month.</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="h-[300px]">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={dailyChartData}>
-                  <CartesianGrid stroke="#E7E7E1" strokeDasharray="3 3" />
-                  <XAxis dataKey="label" stroke="#A6A69C" fontSize={11} interval={Math.max(0, Math.floor(dailyChartData.length / 10))} />
-                  <YAxis stroke="#A6A69C" fontSize={12} tickFormatter={(value) => `₹${Number(value).toLocaleString("en-IN")}`} />
+                  <CartesianGrid stroke="#27272a" strokeDasharray="3 3" />
+                  <XAxis dataKey="label" stroke="#a1a1aa" fontSize={11} interval={Math.max(0, Math.floor(dailyChartData.length / 10))} />
+                  <YAxis stroke="#a1a1aa" fontSize={12} tickFormatter={(value) => `₹${Number(value).toLocaleString("en-IN")}`} />
                   <Tooltip
                     formatter={(value, name) => [formatCurrency(value), name === "income" ? "Income" : "Net"]}
                     labelFormatter={(label) => `${formatMonthLabel(activeMonthKey)} ${label}`}
                     contentStyle={{
-                      backgroundColor: "#FFFFFF",
-                      borderColor: "#E7E7E1",
+                      backgroundColor: "#09090b",
+                      borderColor: "#27272a",
                       borderRadius: "8px",
-                      color: "#16201A"
+                      color: "#fafafa"
                     }}
                   />
                   <Bar dataKey="income" fill="#2563eb" radius={[4, 4, 0, 0]} />
@@ -463,9 +472,9 @@ export function FinancePage() {
         </Card>
       </div>
 
-      <Card className="border-border bg-card">
+      <Card className="overflow-hidden border-[#E3E0D8] bg-white shadow-sm">
         <CardHeader>
-          <CardTitle className="text-lg font-bold tracking-tight">
+          <CardTitle className="font-['Sora'] text-[#18115E]">
             {selectedMonth === "all" ? "All Transactions" : `${formatMonthLabel(activeMonthKey)} Transactions`}
           </CardTitle>
           <CardDescription>
@@ -481,7 +490,7 @@ export function FinancePage() {
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[1200px] text-sm">
-                <thead className="bg-muted/20 border-b border-border/50">
+                <thead className="border-b border-[#E3E0D8] bg-[#F8F7F4]">
                   <tr>
                     <th className="px-4 py-3 text-left font-semibold">Date</th>
                     <th className="px-4 py-3 text-left font-semibold">Client</th>
@@ -494,7 +503,7 @@ export function FinancePage() {
                 </thead>
                 <tbody>
                   {filteredTransactions.map((transaction) => (
-                    <tr key={transaction.id} className="border-b border-border align-top hover:bg-accent/50 transition-colors" data-testid={`transaction-${transaction.id}`}>
+                    <tr key={transaction.id} className="border-b border-border/40 align-top hover:bg-muted/10 transition-colors" data-testid={`transaction-${transaction.id}`}>
                       <td className="px-4 py-3 whitespace-nowrap">{formatDisplayDate(transaction.transaction_date)}</td>
                       <td className="px-4 py-3">
                         <div className="space-y-1">
@@ -504,7 +513,7 @@ export function FinancePage() {
                           ) : null}
                         </div>
                       </td>
-                      <td className={`px-4 py-3 whitespace-nowrap font-semibold ${transaction.type === "income" ? "text-success" : "text-danger"}`}>
+                      <td className={`px-4 py-3 whitespace-nowrap font-semibold ${transaction.type === "income" ? "text-violet-500" : "text-red-500"}`}>
                         {transaction.type === "income" ? "+" : "-"}{formatCurrency(transaction.amount)}
                       </td>
                       <td className="px-4 py-3 text-muted-foreground">{transaction.program_duration || "—"}</td>
@@ -529,12 +538,14 @@ export function FinancePage() {
           if (!open) resetForm();
         }}
       >
-        <DialogContent className="max-w-3xl">
+        <DialogContent className="max-w-3xl overflow-hidden border-0 bg-[#F5F4F0] p-0 shadow-2xl">
+          <div className="border-b border-[#E3E0D8] bg-white/90 px-6 py-5">
           <DialogHeader>
-            <DialogTitle className="text-lg font-bold tracking-tight">Add Transaction</DialogTitle>
+            <DialogTitle className="font-['Sora'] text-2xl text-[#18115E]">Add Transaction</DialogTitle>
             <DialogDescription>Record a client enrollment payment or any other finance entry.</DialogDescription>
           </DialogHeader>
-          <form onSubmit={handleSubmit} className="space-y-4">
+          </div>
+          <form onSubmit={handleSubmit} className="space-y-4 px-6 py-5">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Type *</Label>
@@ -584,12 +595,12 @@ export function FinancePage() {
               </div>
               <div className="space-y-2">
                 <Label>Date *</Label>
-                <Input
-                  type="date"
+                <DatePickerInput
                   data-testid="transaction-date-input"
                   value={formData.transaction_date}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, transaction_date: e.target.value }))}
-                  required
+                  onChange={(value) => setFormData((prev) => ({ ...prev, transaction_date: value }))}
+                  placeholder="Select transaction date"
+                  clearable={false}
                 />
               </div>
             </div>
@@ -613,7 +624,7 @@ export function FinancePage() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value={UNLINKED_CLIENT_VALUE}>No linked client</SelectItem>
-                        {clients.map((client) => (
+                        {linkableClients.map((client) => (
                           <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>
                         ))}
                       </SelectContent>
@@ -691,9 +702,9 @@ export function FinancePage() {
               />
             </div>
 
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
-              <Button type="submit" data-testid="save-transaction-btn" className="bg-primary text-primary-foreground">
+            <DialogFooter className="border-t border-[#E3E0D8] pt-4">
+              <Button type="button" variant="outline" className="rounded-2xl bg-white" onClick={() => setDialogOpen(false)}>Cancel</Button>
+              <Button type="submit" data-testid="save-transaction-btn" className="rounded-2xl bg-primary text-primary-foreground">
                 Add Transaction
               </Button>
             </DialogFooter>
