@@ -25,9 +25,17 @@ yarn start
 ```env
 MONGO_URL=...
 DB_NAME=...
-JWT_SECRET=change-me
+JWT_SECRET=replace-with-a-long-random-secret
 CORS_ORIGINS=http://localhost:3000
 ```
+
+`JWT_SECRET` must be a unique, non-placeholder value. You can generate one locally with:
+
+```bash
+openssl rand -hex 32
+```
+
+`CORS_ORIGINS` accepts a comma-separated list of explicit frontend origins. Wildcard origins are intentionally rejected because this API uses credentialed requests.
 
 ### One-time prerequisite for Atlas on macOS
 

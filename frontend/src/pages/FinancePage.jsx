@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Plus, TrendingUp, TrendingDown, BarChart3, DollarSign, Upload } from "lucide-react";
+import { Download, Plus, TrendingUp, TrendingDown, BarChart3, DollarSign, Upload } from "lucide-react";
 import { ResponsiveContainer, AreaChart, Area, CartesianGrid, XAxis, YAxis, Tooltip, BarChart, Bar } from "recharts";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -158,6 +158,7 @@ export function FinancePage() {
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [csvImporting, setCsvImporting] = useState(false);
+  const [csvExporting, setCsvExporting] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState("");
   const [formData, setFormData] = useState(INITIAL_FORM_DATA);
   const csvInputRef = useRef(null);
@@ -325,6 +326,28 @@ export function FinancePage() {
     }
   };
 
+  const handleCsvExport = async () => {
+    if (csvExporting) return;
+
+    setCsvExporting(true);
+    try {
+      const response = await api.get("/transactions/export-csv", { responseType: "blob" });
+      const url = URL.createObjectURL(new Blob([response.data], { type: "text/csv;charset=utf-8" }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "all_transactions.csv";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      toast.success("All transactions exported to CSV");
+    } catch (_err) {
+      toast.error("Failed to export transactions");
+    } finally {
+      setCsvExporting(false);
+    }
+  };
+
   if (loading) return <LoadingScreen />;
 
   return (
@@ -345,6 +368,10 @@ export function FinancePage() {
           <p className="mt-2 text-[#5F6472]">Track month-wise collections, import payment CSVs, and record new client enrollments.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" className="rounded-2xl bg-white" onClick={handleCsvExport} disabled={csvExporting}>
+            <Download className="w-4 h-4 mr-2" />
+            {csvExporting ? "Exporting CSV..." : "Export All CSV"}
+          </Button>
           <Button variant="outline" className="rounded-2xl bg-white" onClick={triggerCsvPicker} disabled={csvImporting}>
             <Upload className="w-4 h-4 mr-2" />
             {csvImporting ? "Importing CSV..." : "Import CSV"}

@@ -20,6 +20,7 @@ import requests
 from app.core.config import (
     ADMIN_ROLES,
     APP_NAME,
+    CORS_ORIGINS,
     JWT_ALGORITHM,
     JWT_EXPIRATION_HOURS,
     JWT_SECRET,
@@ -4029,6 +4030,16 @@ def _parse_transaction_import_rows(csv_text: str, filename: str, client_lookup: 
     return parsed_docs
 
 
+def _csv_safe_cell(value: Any) -> Any:
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        return value
+    if value[:1] in {"=", "+", "-", "@"}:
+        return f"'{value}"
+    return value
+
+
 @api_router.get("/transactions", response_model=List[TransactionResponse])
 async def get_transactions(
     type: Optional[str] = None,
@@ -4054,6 +4065,54 @@ async def get_transactions(
     
     transactions = await db.transactions.find(query, {"_id": 0}).sort("transaction_date", -1).skip(skip).limit(limit).to_list(limit)
     return [TransactionResponse(**t) for t in transactions]
+
+
+@api_router.get("/transactions/export-csv")
+async def export_all_transactions_csv(user: dict = Depends(get_current_user)):
+    ensure_admin_user(user)
+    transactions = await db.transactions.find(
+        _visible_shared_owner_query(user),
+        {"_id": 0},
+    ).sort("transaction_date", -1).to_list(None)
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "Date",
+        "Type",
+        "Category",
+        "Amount",
+        "Client",
+        "Client ID",
+        "Program Duration",
+        "Source",
+        "Payment Method",
+        "Comment",
+        "Imported From",
+        "Created At",
+    ])
+    for transaction in transactions:
+        writer.writerow([
+            transaction.get("transaction_date") or "",
+            transaction.get("type") or "",
+            _csv_safe_cell(transaction.get("category")),
+            transaction.get("amount") or 0,
+            _csv_safe_cell(transaction.get("client_name")),
+            _csv_safe_cell(transaction.get("client_id")),
+            _csv_safe_cell(transaction.get("program_duration")),
+            _csv_safe_cell(transaction.get("source")),
+            _csv_safe_cell(transaction.get("payment_method")),
+            _csv_safe_cell(transaction.get("description")),
+            _csv_safe_cell(transaction.get("imported_from")),
+            transaction.get("created_at") or "",
+        ])
+
+    return Response(
+        content="\ufeff" + output.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="all_transactions.csv"'},
+    )
+
 
 @api_router.get("/transactions/summary")
 async def get_transaction_summary(
@@ -5393,7 +5452,7 @@ app.include_router(api_router)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_origins=CORS_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
